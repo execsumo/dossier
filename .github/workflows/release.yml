@@ -88,7 +88,7 @@ jobs:
           TAG: ${{ needs.build.outputs.version }}
         run: |
           VERSION="${TAG#v}"
-          CHECKSUMS_URL="https://github.com/execsumo/dossiers/releases/download/${TAG}/checksums.txt"
+          CHECKSUMS_URL="https://github.com/execsumo/dossier/releases/download/${TAG}/checksums.txt"
           CHECKSUMS="$(curl -sL "$CHECKSUMS_URL")"
           sha() { echo "$CHECKSUMS" | grep " dossier-$1\$" | cut -d' ' -f1; }
 
@@ -97,26 +97,26 @@ jobs:
           cat > tap/Formula/dossier.rb <<EOF
           class Dossier < Formula
             desc "Local durable memory layer for agent-driven work in Claude Code"
-            homepage "https://github.com/execsumo/dossiers"
+            homepage "https://github.com/execsumo/dossier"
             version "${VERSION}"
             license "MIT"
 
             on_macos do
               if Hardware::CPU.arm?
-                url "https://github.com/execsumo/dossiers/releases/download/${TAG}/dossier-darwin-arm64"
+                url "https://github.com/execsumo/dossier/releases/download/${TAG}/dossier-darwin-arm64"
                 sha256 "$(sha darwin-arm64)"
               else
-                url "https://github.com/execsumo/dossiers/releases/download/${TAG}/dossier-darwin-amd64"
+                url "https://github.com/execsumo/dossier/releases/download/${TAG}/dossier-darwin-amd64"
                 sha256 "$(sha darwin-amd64)"
               end
             end
 
             on_linux do
               if Hardware::CPU.arm?
-                url "https://github.com/execsumo/dossiers/releases/download/${TAG}/dossier-linux-arm64"
+                url "https://github.com/execsumo/dossier/releases/download/${TAG}/dossier-linux-arm64"
                 sha256 "$(sha linux-arm64)"
               else
-                url "https://github.com/execsumo/dossiers/releases/download/${TAG}/dossier-linux-amd64"
+                url "https://github.com/execsumo/dossier/releases/download/${TAG}/dossier-linux-amd64"
                 sha256 "$(sha linux-amd64)"
               end
             end

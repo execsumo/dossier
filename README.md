@@ -22,11 +22,11 @@ To update later, on any device: `brew upgrade dossier` (or just `brew upgrade`).
 
 **Option B — prebuilt binary**
 
-Download the latest release for your platform from the [Releases page](https://github.com/execsumo/dossiers/releases), make it executable, and run `init`:
+Download the latest release for your platform from the [Releases page](https://github.com/execsumo/dossier/releases), make it executable, and run `init`:
 
 ```bash
 # example for macOS Apple Silicon
-curl -L https://github.com/execsumo/dossiers/releases/latest/download/dossier-darwin-arm64 -o dossier
+curl -L https://github.com/execsumo/dossier/releases/latest/download/dossier-darwin-arm64 -o dossier
 chmod +x dossier
 ./dossier init        # installs to a stable PATH, then wires up Claude Code
 ```
@@ -36,8 +36,8 @@ To update later, repeat the download step, then re-run `./dossier install && ./d
 **Option C — build from source** (requires Go 1.26+)
 
 ```bash
-git clone https://github.com/execsumo/dossiers.git
-cd dossiers
+git clone https://github.com/execsumo/dossier.git
+cd dossier
 go build ./cmd/dossier
 ./dossier init
 ```

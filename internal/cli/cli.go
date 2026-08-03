@@ -933,7 +933,7 @@ func NewRootCmd() *cobra.Command {
 
 			updateURL := os.Getenv("DOSSIER_UPDATE_URL")
 			if updateURL == "" {
-				updateURL = fmt.Sprintf("https://github.com/execsumo/dossiers/releases/latest/download/dossier-%s-%s", runtime.GOOS, runtime.GOARCH)
+				updateURL = fmt.Sprintf("https://github.com/execsumo/dossier/releases/latest/download/dossier-%s-%s", runtime.GOOS, runtime.GOARCH)
 			}
 
 			fmt.Printf("Downloading latest release from %s...\n", updateURL)
