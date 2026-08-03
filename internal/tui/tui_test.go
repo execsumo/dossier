@@ -637,6 +637,23 @@ func TestHeaderHasNoSession(t *testing.T) {
 	}
 }
 
+func TestLeadAutocomplete(t *testing.T) {
+	items := []core.ListItem{
+		{ID: "1", Lead: "Ryan"},
+		{ID: "2", Lead: "Riley"},
+		{ID: "3", Lead: "Ryan"},
+		{ID: "4", Lead: "Alice"},
+	}
+	got := leadAutocomplete(items, "r")
+	want := []string{"Riley", "Ryan"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("leadAutocomplete = %v, want %v", got, want)
+	}
+	if got := leadAutocomplete(items, "Ryan"); fmt.Sprint(got) != "[Ryan]" {
+		t.Fatalf("exact lead autocomplete = %v, want [Ryan]", got)
+	}
+}
+
 func TestDeriveLeadOptions(t *testing.T) {
 	items := []core.ListItem{
 		{ID: "1", Name: "Alpha", Lead: "Bob"},

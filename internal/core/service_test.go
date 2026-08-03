@@ -7,6 +7,23 @@ import (
 	"time"
 )
 
+func TestNewDossierDefaultsToHighImportance(t *testing.T) {
+	store := newLocalFakeStore()
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()}, Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100})
+
+	_, err := svc.Save(context.Background(), SaveReq{FrontmatterUpdates: map[string]any{"name": "Default priority"}})
+	if err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	d, _, err := store.Read("dos_fake_id")
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if d.Frontmatter.Importance != ImportanceHigh {
+		t.Fatalf("new dossier importance = %q, want %q", d.Frontmatter.Importance, ImportanceHigh)
+	}
+}
+
 type mockTokenizer struct{}
 
 func (m *mockTokenizer) Estimate(text string) int {

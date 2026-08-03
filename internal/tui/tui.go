@@ -131,6 +131,7 @@ var (
 			Bold(true)
 
 	metaValueStyle = lipgloss.NewStyle() // Inherit terminal's default text foreground color
+	mutedStyle     = lipgloss.NewStyle().Foreground(darkGray)
 
 	statusActiveStyle   = lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true)
 	statusWaitingStyle  = lipgloss.NewStyle().Foreground(warningGold)
@@ -257,7 +258,9 @@ type Model struct {
 	nextActionInput textinput.Model
 
 	// Lead Editor view state
-	leadInput textinput.Model
+	leadInput          textinput.Model
+	leadSuggestions    []string
+	leadSuggestionText string
 
 	// Priority Editor view state
 	priorityFocus  int // 0 = Importance, 1 = Urgency, 2 = Due Date
@@ -745,6 +748,31 @@ func (m *Model) startEditNextAction(t targetDossier) {
 	m.nextActionInput.Width = 60
 }
 
+// leadAutocomplete returns unique previously used lead names that begin with query,
+// sorted case-insensitively. It is intentionally prefix-only: Tab/Enter can accept
+// the first suggestion without surprising the user with fuzzy replacements.
+func leadAutocomplete(items []core.ListItem, query string) []string {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil
+	}
+	lowerQuery := strings.ToLower(query)
+	seen := make(map[string]bool)
+	var names []string
+	for _, item := range items {
+		name := strings.TrimSpace(item.Lead)
+		if name == "" || seen[name] || !strings.HasPrefix(strings.ToLower(name), lowerQuery) {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	sort.SliceStable(names, func(i, j int) bool {
+		return strings.ToLower(names[i]) < strings.ToLower(names[j])
+	})
+	return names
+}
+
 func (m *Model) startEditLead(t targetDossier) {
 	m.previousView = m.currentView
 	m.currentView = ViewLeadEditor
@@ -757,6 +785,25 @@ func (m *Model) startEditLead(t targetDossier) {
 	m.leadInput.SetValue(t.lead)
 	m.leadInput.Focus()
 	m.leadInput.Width = 40
+	m.leadSuggestions = nil
+	m.leadSuggestionText = ""
+}
+
+func (m *Model) updateLeadSuggestions() {
+	m.leadSuggestions = leadAutocomplete(m.items, m.leadInput.Value())
+	m.leadSuggestionText = ""
+	if len(m.leadSuggestions) > 0 && !strings.EqualFold(m.leadSuggestions[0], m.leadInput.Value()) {
+		m.leadSuggestionText = m.leadSuggestions[0]
+	}
+}
+
+func (m *Model) acceptLeadSuggestion() bool {
+	if m.leadSuggestionText == "" {
+		return false
+	}
+	m.leadInput.SetValue(m.leadSuggestionText)
+	m.updateLeadSuggestions()
+	return true
 }
 
 func (m *Model) startEditPriority(t targetDossier) {
@@ -1050,12 +1097,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc":
 				m.currentView = m.previousView
 				return m, nil
+			case "tab":
+				if m.acceptLeadSuggestion() {
+					return m, nil
+				}
 			case "enter":
+				if m.acceptLeadSuggestion() {
+					return m, nil
+				}
 				m.loading = true
 				m.err = nil
 				return m, m.saveLeadCmd(m.targetID, m.targetBaseRevision, m.leadInput.Value())
 			}
 			m.leadInput, cmd = m.leadInput.Update(msg)
+			m.updateLeadSuggestions()
 			return m, cmd
 
 		case ViewStatusPicker:
@@ -1670,6 +1725,9 @@ func (m Model) renderLeadEditor() string {
 	sb.WriteString(fmt.Sprintf("Assigning %s\n\n", lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true).Render(m.targetName)))
 	sb.WriteString("Lead (full name):\n")
 	sb.WriteString(m.leadInput.View())
+	if m.leadSuggestionText != "" {
+		sb.WriteString(fmt.Sprintf("  suggestion: %s (tab/enter)", mutedStyle.Render(m.leadSuggestionText)))
+	}
 	sb.WriteString("\n\n")
 	sb.WriteString("press enter to save • esc to cancel")
 	return editorBoxStyle.Render(sb.String())

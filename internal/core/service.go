@@ -670,7 +670,7 @@ func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 		d = &Dossier{
 			Frontmatter: Frontmatter{
 				Status:     StatusActive,
-				Importance: ImportanceLow,
+				Importance: ImportanceHigh,
 				Urgency:    UrgencyLow,
 			},
 		}
