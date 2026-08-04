@@ -39,6 +39,7 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 > - **SessionStart slimmed to a one-line nudge (2026-07-15):** Dogfooding found the unbound-session branch of `Service.SessionStart` — a full open-dossier bulletlist (name/status/slug/priority per line) plus a 3-step "check before creating" instruction block — was steering the agent toward thinking about Dossier on every single session, including ones with nothing to do with it, since the hook fires unconditionally on session start. Replaced it with a single-line nudge (`N open dossier(s): <names>. Use dossier_list ... dossier_session ... dossier_promote ...`). This isn't a capability loss: `dossier_promote` already runs its own similarity check server-side and returns `next_actions` guiding the agent through ambiguous matches (see `Service.Promote`), so the old instructional prose was purely redundant with behavior the tool already has. The **bound**-session branch (active dossier's full Distilled State + Distillation Guide inlined) is unchanged — a session with an explicit binding has earned the heavier payload. This is the same "active interception, zero-tax" principle documented under **Programmatic Context Injection** above, now applied to the hook's default-empty path too.
 
 > - **Pi harness support (2026-08-03):** Added a Dossier-side `PiHarness`. It detects the user's existing Pi Claude-like hooks extension through `PI_SESSION_ID`/`PI_SESSION_FILE`, resolves `PI_SESSION_ID` for MCP and hooks, reads `PI_SESSION_FILE` as the transcript fallback when hook stdin does not include one, and records Pi-specific transcript provenance. Dossier does not install or modify Pi hooks; the existing extension owns lifecycle invocation.
+> - **`dossier-delegate` skill bundled (2026-08-04):** The skill is now embedded (`assets/dossier-delegate-skill.md`) and installed by `dossier init`/`ClaudeCodeHarness.Install` into `~/.claude/skills/dossier-delegate/SKILL.md`, following the same idempotent/backed-up/single-confirmation contract as the rest of `Install`. It remains explicit-invocation-only and is never wired into `customInstructions`/session-start auto-injection.
 
 All features (CLI, MCP, and Rich TUI) are fully operational, tested, and integrated.
 
@@ -64,13 +65,14 @@ The extension may pass JSON on stdin with `session_id`, `transcript`, and `disti
 
 
 
-## Planned: `dossier-delegate` skill (design captured 2026-06-30 — NOT wired up)
+## `dossier-delegate` skill (design captured 2026-06-30; bundled into `dossier init` 2026-08-04)
 
-**Not part of the shipped product yet.** A real, working `SKILL.md` exists at
-`~/.claude/skills/dossier-delegate/SKILL.md` (global, personal, testable via
-`/dossier-delegate` today) but is deliberately **not** bundled into
-`assets/`, `dossier init`'s embed, or the harness install path — that
-integration is an explicit follow-up, not assumed.
+**Part of the shipped install path as of 2026-08-04.** The `SKILL.md` content
+is embedded (`assets/dossier-delegate-skill.md`) and `ClaudeCodeHarness.Install`
+writes it to `~/.claude/skills/dossier-delegate/SKILL.md` (testable via
+`/dossier-delegate`) as part of `dossier init`'s Claude Code integration step,
+following the same idempotent/non-clobbering/single-confirmation contract
+(B7/B8) as the rest of `Install`. The design below is otherwise unchanged.
 
 **Problem:** the user delegates work captured in Dossiers to an overseas team
 on an ~8-hour offset. An undefined success criterion or escalation path
@@ -117,7 +119,6 @@ today.
   core/SPEC schema change for v1.
 
 **Explicitly deferred (named, not forgotten):**
-- Bundling into `dossier init`'s installed asset set.
 - A new `delegation_note` artifact type — the existing SPEC §4.3 artifact
   taxonomy (transcript/source_snapshot/file_snapshot/link/query/
   decision_evidence) is entirely about *captured* source material, not

@@ -1,6 +1,8 @@
 package harness
 
 import (
+	"bytes"
+	"dossier/assets"
 	"dossier/internal/core"
 	"encoding/json"
 	"fmt"
@@ -213,7 +215,23 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 		}
 	}
 
-	if hooksOk && mcpOk && !staleMCPInHooks && hasSkill {
+	// Check whether the dossier-delegate Claude Code Skill is already installed
+	// with byte-identical content to the embedded asset. This is unrelated to
+	// hasSkill above (that's the customInstructions trigger string) — the
+	// dossier-delegate skill is explicit-invocation-only and must never be
+	// wired into customInstructions/session-start auto-injection.
+	delegateSkillContent, err := assets.FS.ReadFile("dossier-delegate-skill.md")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded dossier-delegate skill asset: %w", err)
+	}
+	delegateSkillPath := filepath.Join(home, ".claude", "skills", "dossier-delegate", "SKILL.md")
+	delegateSkillOk := false
+	existingDelegateSkill, delegateSkillErr := os.ReadFile(delegateSkillPath)
+	if delegateSkillErr == nil && bytes.Equal(existingDelegateSkill, delegateSkillContent) {
+		delegateSkillOk = true
+	}
+
+	if hooksOk && mcpOk && !staleMCPInHooks && hasSkill && delegateSkillOk {
 		return nil
 	}
 
@@ -317,6 +335,24 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 		}
 		if err := os.WriteFile(claudeJSONPath, newMcpData, 0644); err != nil {
 			return fmt.Errorf("failed to write MCP config: %w", err)
+		}
+	}
+
+	// Install (or update) the dossier-delegate Claude Code Skill. This is a
+	// standalone file write, independent of the hooks/MCP state above.
+	if !delegateSkillOk {
+		delegateSkillDir := filepath.Dir(delegateSkillPath)
+		if err := os.MkdirAll(delegateSkillDir, 0755); err != nil {
+			return fmt.Errorf("failed to create dossier-delegate skill directory: %w", err)
+		}
+		if delegateSkillErr == nil && len(existingDelegateSkill) > 0 {
+			backupPath := fmt.Sprintf("%s.%d.bak", delegateSkillPath, timestamp)
+			if err := os.WriteFile(backupPath, existingDelegateSkill, 0644); err != nil {
+				return fmt.Errorf("failed to create dossier-delegate skill backup: %w", err)
+			}
+		}
+		if err := os.WriteFile(delegateSkillPath, delegateSkillContent, 0644); err != nil {
+			return fmt.Errorf("failed to write dossier-delegate skill: %w", err)
 		}
 	}
 
