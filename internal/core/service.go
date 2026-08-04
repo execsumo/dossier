@@ -98,34 +98,53 @@ func (s *Service) Init(ctx context.Context, req InitReq) (Result, error) {
 		stablePath = "dossier"
 	}
 
-	// Detect Claude Code and report its capabilities.
-	harnessCaps := make(map[string]bool)
+	// Detect every supported harness, install into the ones present on this
+	// device, and report each one separately — a single merged capability map
+	// would let the last harness scanned speak for all of them.
+	var reports []HarnessReport
 	harnessDetected := false
 	for _, h := range s.hreg.All() {
 		caps, err := h.Detect()
-		if err == nil && (caps.MCP || caps.SessionStartHook || caps.SessionEndHook || caps.PreCompactionHook || caps.TranscriptCapture) {
-			harnessDetected = true
+		if err != nil {
+			warnings = append(warnings, Warning(fmt.Sprintf("Failed to detect %s: %v", h.Name(), err)))
+			continue
 		}
-		harnessCaps["MCP"] = caps.MCP
-		harnessCaps["SessionStartHook"] = caps.SessionStartHook
-		harnessCaps["SessionEndHook"] = caps.SessionEndHook
-		harnessCaps["PreCompactionHook"] = caps.PreCompactionHook
-		harnessCaps["TranscriptCapture"] = caps.TranscriptCapture
+		if !caps.Present() {
+			reports = append(reports, newHarnessReport(h.Name(), caps))
+			continue
+		}
+		harnessDetected = true
 
-		// Install the hooks and MCP server if supported.
-		if err == nil && (caps.SessionStartHook || caps.SessionEndHook || caps.MCP) {
-			installErr := h.Install(InstallOpts{
-				Interactive:      !req.YesToAll,
-				YesToAll:         req.YesToAll,
-				StableBinaryPath: stablePath,
-			})
-			if installErr != nil {
-				warnings = append(warnings, Warning(fmt.Sprintf("Failed to install for %s: %v", h.Name(), installErr)))
-			}
+		installErr := h.Install(InstallOpts{
+			Interactive:      !req.YesToAll,
+			YesToAll:         req.YesToAll,
+			StableBinaryPath: stablePath,
+		})
+		if installErr != nil {
+			warnings = append(warnings, Warning(fmt.Sprintf("Failed to install for %s: %v", h.Name(), installErr)))
+		}
+
+		// Re-detect: installing an integration is what turns a capability on
+		// (the Pi extension supplies session identity), so the pre-install
+		// snapshot would understate what the user now has.
+		if postCaps, err := h.Detect(); err == nil {
+			caps = postCaps
+		}
+		report := newHarnessReport(h.Name(), caps)
+		report.Notes = append(report.Notes, harnessAdvisories(h.Name(), caps)...)
+		reports = append(reports, report)
+	}
+
+	data["harness_detected"] = harnessDetected
+	data["harnesses"] = reports
+	// Retained for callers that only ever asked about the primary harness.
+	data["harness_capabilities"] = primaryHarnessCapabilities(reports)
+
+	for _, r := range reports {
+		for _, note := range r.Notes {
+			warnings = append(warnings, Warning(note))
 		}
 	}
-	data["harness_detected"] = harnessDetected
-	data["harness_capabilities"] = harnessCaps
 
 	return Result{
 		OK:       true,
@@ -134,14 +153,166 @@ func (s *Service) Init(ctx context.Context, req InitReq) (Result, error) {
 	}, nil
 }
 
+// HarnessReport is the per-harness detection result surfaced by init, doctor and
+// `dossier harness`.
+type HarnessReport struct {
+	Name         string          `json:"name"`
+	DisplayName  string          `json:"display_name"`
+	Detected     bool            `json:"detected"`
+	Capabilities map[string]bool `json:"capabilities"`
+	Notes        []string        `json:"notes,omitempty"`
+}
+
+func newHarnessReport(name string, caps Capabilities) HarnessReport {
+	return HarnessReport{
+		Name:         name,
+		DisplayName:  displayHarnessName(name),
+		Detected:     caps.Present(),
+		Capabilities: capabilityMap(caps),
+	}
+}
+
+func capabilityMap(caps Capabilities) map[string]bool {
+	return map[string]bool{
+		"MCP":               caps.MCP,
+		"SessionStartHook":  caps.SessionStartHook,
+		"SessionEndHook":    caps.SessionEndHook,
+		"PreCompactionHook": caps.PreCompactionHook,
+		"TranscriptCapture": caps.TranscriptCapture,
+		"Installed":         caps.Installed,
+		"SessionIdentity":   caps.SessionIdentity,
+	}
+}
+
+// primaryHarnessCapabilities picks the capability map that best answers "what
+// does this machine have": the first live session, else the first detected
+// harness, else an all-false map.
+func primaryHarnessCapabilities(reports []HarnessReport) map[string]bool {
+	for _, r := range reports {
+		if r.Capabilities["MCP"] || r.Capabilities["SessionStartHook"] || r.Capabilities["SessionEndHook"] ||
+			r.Capabilities["PreCompactionHook"] || r.Capabilities["TranscriptCapture"] {
+			return r.Capabilities
+		}
+	}
+	for _, r := range reports {
+		if r.Detected {
+			return r.Capabilities
+		}
+	}
+	return capabilityMap(Capabilities{})
+}
+
+// harnessAdvisories names what a detected harness is still missing, so a partial
+// integration degrades visibly instead of looking like Dossier losing state.
+func harnessAdvisories(name string, caps Capabilities) []string {
+	var notes []string
+	if caps.Installed && !caps.SessionIdentity {
+		notes = append(notes, fmt.Sprintf(
+			"%s is installed but cannot give Dossier a session id yet; run `dossier harness install %s` (and restart %s) to install the session bridge.",
+			displayHarnessName(name), name, displayHarnessName(name)))
+	}
+	return notes
+}
+
 // displayHarnessName maps a harness identifier to its human-readable label.
 func displayHarnessName(name string) string {
 	switch name {
 	case "claude-code":
 		return "Claude Code"
+	case "pi":
+		return "Pi"
 	default:
 		return name
 	}
+}
+
+// sessionHarness resolves the harness a session belongs to: the one the adapter
+// named, when it is present on this device, else the first harness offering a
+// live session surface.
+func (s *Service) sessionHarness(name string) (Harness, Capabilities) {
+	if name != "" {
+		if h, err := s.hreg.Get(name); err == nil && h != nil {
+			if caps, err := h.Detect(); err == nil && caps.Present() {
+				return h, caps
+			}
+		}
+	}
+	for _, h := range s.hreg.All() {
+		if caps, err := h.Detect(); err == nil && caps.LiveSession() {
+			return h, caps
+		}
+	}
+	return nil, Capabilities{}
+}
+
+// HarnessStatus reports detection for every supported harness without changing
+// anything on disk.
+func (s *Service) HarnessStatus(ctx context.Context) (Result, error) {
+	var reports []HarnessReport
+	var warnings []Warning
+	for _, h := range s.hreg.All() {
+		caps, err := h.Detect()
+		if err != nil {
+			warnings = append(warnings, Warning(fmt.Sprintf("Failed to detect %s: %v", h.Name(), err)))
+			continue
+		}
+		report := newHarnessReport(h.Name(), caps)
+		if caps.Present() {
+			report.Notes = append(report.Notes, harnessAdvisories(h.Name(), caps)...)
+		}
+		reports = append(reports, report)
+	}
+	return Result{OK: true, Data: reports, Warnings: warnings}, nil
+}
+
+// InstallHarnessReq installs one harness integration by name — the path for a
+// user who adds a harness (typically Pi) after running init.
+type InstallHarnessReq struct {
+	Name             string
+	YesToAll         bool
+	StableBinaryPath string
+}
+
+// InstallHarness installs the integration for a single harness.
+func (s *Service) InstallHarness(ctx context.Context, req InstallHarnessReq) (Result, error) {
+	h, err := s.hreg.Get(req.Name)
+	if err != nil || h == nil {
+		return Result{OK: false}, NewError(ErrNotFound, fmt.Sprintf("unknown harness %q", req.Name))
+	}
+
+	caps, err := h.Detect()
+	if err != nil {
+		return Result{OK: false}, WrapError(ErrInternal, fmt.Sprintf("failed to detect %s", req.Name), err)
+	}
+	if !caps.Present() {
+		return Result{OK: false}, NewError(ErrHarnessCapabilityUnavailable,
+			fmt.Sprintf("%s was not found on this device; install it first, then re-run this command", displayHarnessName(req.Name)))
+	}
+
+	stablePath := req.StableBinaryPath
+	if stablePath == "" {
+		stablePath = "dossier"
+	}
+	if err := h.Install(InstallOpts{
+		Interactive:      !req.YesToAll,
+		YesToAll:         req.YesToAll,
+		StableBinaryPath: stablePath,
+	}); err != nil {
+		return Result{OK: false}, WrapError(ErrInternal, fmt.Sprintf("failed to install %s integration", req.Name), err)
+	}
+
+	if postCaps, err := h.Detect(); err == nil {
+		caps = postCaps
+	}
+	report := newHarnessReport(h.Name(), caps)
+	report.Notes = append(report.Notes, harnessAdvisories(h.Name(), caps)...)
+
+	var warnings []Warning
+	for _, note := range report.Notes {
+		warnings = append(warnings, Warning(note))
+	}
+
+	return Result{OK: true, Data: report, Warnings: warnings}, nil
 }
 
 // Doctor validates store integrity and configuration correctness.
@@ -152,6 +323,11 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 
 	report := DoctorReport{}
 	var warnings []Warning
+	// Advisories are surfaced but do not fail the check: an integration the user
+	// has not installed yet is worth saying out loud, and is not store damage.
+	addAdvisory := func(msg string) {
+		warnings = append(warnings, Warning(msg))
+	}
 	addIssue := func(format string, args ...any) {
 		msg := fmt.Sprintf(format, args...)
 		report.Issues = append(report.Issues, msg)
@@ -226,8 +402,21 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 		}
 	}
 
+	if s.hreg != nil {
+		for _, h := range s.hreg.All() {
+			caps, err := h.Detect()
+			if err != nil {
+				addIssue("Harness %s could not be detected: %v", h.Name(), err)
+				continue
+			}
+			for _, note := range harnessAdvisories(h.Name(), caps) {
+				addAdvisory(note)
+			}
+		}
+	}
+
 	return Result{
-		OK:       len(warnings) == 0,
+		OK:       len(report.Issues) == 0,
 		Data:     report,
 		Warnings: warnings,
 	}, nil
@@ -1333,6 +1522,10 @@ func (s *Service) ContextRefresh(ctx context.Context) (Result, error) {
 type SwitchReq struct {
 	ID        string
 	SessionID string
+	// HarnessName is the harness the adapter resolved this session id from
+	// ("claude-code", "pi"). Empty means unknown (explicit override, manual CLI),
+	// in which case the binding falls back to whichever harness is detected.
+	HarnessName string
 }
 
 func (s *Service) Switch(ctx context.Context, req SwitchReq) (Result, error) {
@@ -1355,17 +1548,10 @@ func (s *Service) Switch(ctx context.Context, req SwitchReq) (Result, error) {
 		return Result{}, err
 	}
 
-	harnesses := s.hreg.All()
-	var activeHarness Harness
-	var activeCaps Capabilities
-	for _, h := range harnesses {
-		caps, err := h.Detect()
-		if err == nil && (caps.MCP || caps.SessionStartHook || caps.SessionEndHook || caps.PreCompactionHook || caps.TranscriptCapture) {
-			activeHarness = h
-			activeCaps = caps
-			break
-		}
-	}
+	// Record the harness this session actually ran under. Detection order alone
+	// would credit the first configured harness on the machine, so a Pi session
+	// would be filed as Claude Code — along with Claude Code's capabilities.
+	activeHarness, activeCaps := s.sessionHarness(req.HarnessName)
 
 	harnessName := "CLI"
 	if activeHarness != nil {

@@ -12,7 +12,7 @@ const DefaultSessionID = "sess_default"
 // ErrNoSessionID is returned when no session id can be resolved from a caller
 // override or the environment. Adapters that must not silently share a binding
 // (the MCP server) surface this rather than falling back to DefaultSessionID.
-var ErrNoSessionID = errors.New("no session id available: harness did not provide a session ID and no session override was provided")
+var ErrNoSessionID = errors.New("no session id available: the harness did not provide one and no session override was given. In Pi, install the session bridge with `dossier harness install pi` and restart Pi; otherwise pass an explicit session id or set DOSSIER_SESSION")
 
 // ResolveSessionID determines the per-session binding key for an adapter call,
 // keeping internal/core pure (core always takes an explicit SessionID).
@@ -22,29 +22,49 @@ var ErrNoSessionID = errors.New("no session id available: harness did not provid
 //  2. CLAUDE_CODE_SESSION_ID — set by Claude Code in each session's process env;
 //     verified identical to the transcript UUID and the hook stdin session_id, so a
 //     binding written here lines up with what the session-start/end hooks read.
-//  3. PI_SESSION_ID — set by Pi for commands/extensions in the active session.
-//  4. DOSSIER_SESSION — manual / power-user override.
-//  5. DefaultSessionID — only when allowDefault is true (CLI manual use).
+//  3. PI_SESSION_ID — set by Pi, but only in the bash tool's spawn environment,
+//     so it is present for `dossier ...` run by the agent and absent everywhere
+//     else (see 4).
+//  4. Pi session pointer — the file the bundled Dossier Pi extension publishes
+//     for the owning Pi process, found by walking this process's ancestry. This
+//     is the path an MCP server (or any process Pi did not spawn through the
+//     bash tool) resolves by, and it stays correct across /new, /resume and
+//     /fork, which a spawn-time environment snapshot cannot.
+//  5. DOSSIER_SESSION — manual / power-user override.
+//  6. DefaultSessionID — only when allowDefault is true (CLI manual use).
 //
-// When allowDefault is false (the MCP path) and none of 1-4 resolve, it returns
+// When allowDefault is false (the MCP path) and none of 1-5 resolve, it returns
 // ErrNoSessionID so the adapter can degrade visibly instead of silently binding the
 // shared bucket and cross-contaminating concurrent sessions. This preserves the
 // "no global active Dossier — binding is per session" invariant.
 func ResolveSessionID(explicit string, allowDefault bool) (string, error) {
+	id, _, err := ResolveSession(explicit, allowDefault)
+	return id, err
+}
+
+// ResolveSession resolves the session id and names the harness it came from
+// ("claude-code", "pi", or "" when the id came from an explicit override or the
+// default bucket). The source lets a binding record which harness a session
+// actually ran under, instead of whichever harness happens to be configured on
+// the machine.
+func ResolveSession(explicit string, allowDefault bool) (id string, harnessName string, err error) {
 	if explicit != "" {
-		return explicit, nil
+		return explicit, "", nil
 	}
 	if v := os.Getenv("CLAUDE_CODE_SESSION_ID"); v != "" {
-		return v, nil
+		return v, "claude-code", nil
 	}
 	if v := os.Getenv("PI_SESSION_ID"); v != "" {
-		return v, nil
+		return v, "pi", nil
+	}
+	if p, ok := LookupPiSessionPointer(); ok {
+		return p.SessionID, "pi", nil
 	}
 	if v := os.Getenv("DOSSIER_SESSION"); v != "" {
-		return v, nil
+		return v, "", nil
 	}
 	if allowDefault {
-		return DefaultSessionID, nil
+		return DefaultSessionID, "", nil
 	}
-	return "", ErrNoSessionID
+	return "", "", ErrNoSessionID
 }

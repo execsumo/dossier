@@ -8,7 +8,7 @@ No database, no cloud, no account. Your data is plain Markdown under `~/.dossier
 
 ## Quickstart
 
-Requires **Claude Code or Pi** on macOS or Linux. Pi requires a hooks extension that meets the contract in `HANDOFF.md`.
+Requires **Claude Code or Pi** on macOS or Linux. Claude Code is fully integrated; Pi support currently covers session identity (see [Using it with Pi](#using-it-with-pi)).
 
 **Option A — Homebrew (recommended)**
 
@@ -45,10 +45,11 @@ go build ./cmd/dossier
 That single `init` does everything:
 
 - copies the binary to a stable location on your `PATH` (`~/.local/bin/dossier`) so its path never changes,
-- creates your workspace at `~/.dossier`, and
-- registers Dossier's **MCP server** and **session hooks** in Claude Code (after a confirmation prompt — pass `-y` to skip it).
+- creates your workspace at `~/.dossier`,
+- registers Dossier's **MCP server** and **session hooks** in Claude Code (after a confirmation prompt — pass `-y` to skip it), and
+- installs the **Dossier Pi extension** if Pi is on the machine.
 
-It's idempotent and non-clobbering: your existing MCP servers and hooks are preserved, and every config file is backed up before editing. Re-run it anytime, and check things with `dossier doctor`.
+It's idempotent and non-clobbering: your existing MCP servers, hooks, and extensions are preserved, and every file is backed up before editing. Re-run it anytime, and check things with `dossier doctor` or `dossier harness list`.
 
 ## Using it
 
@@ -61,6 +62,31 @@ Once `init` has run, Dossier works on its own:
 - **At session end and before compaction**, hooks save the active Dossier so context isn't lost.
 
 A shipped **Distillation Guide** tells the agent *what* to keep; the hooks decide *when* to save. To save tokens on your generic coding tasks, the guide isn't injected globally. Instead, Dossier uses **programmatic context injection**: the moment the agent binds a dossier via the MCP server, the server dynamically wraps its response payload with the full guide. A **Resumption Protocol Skill** injected into Claude Code ensures the agent polls **Active Monitors** (live external links like Slack threads) upon resuming a session. There's no confirmation gate — trust comes from the fact that nothing is ever deleted (superseded content moves to the Archive and audit log) and every claim carries a source link.
+
+### Using it with Pi
+
+Install Pi after running `init`? Wire it up with one command:
+
+```bash
+dossier harness install pi     # installs the Dossier Pi extension
+dossier harness list           # what each harness gives Dossier
+```
+
+This writes `~/.pi/agent/extensions/dossier/index.ts` (backing up anything it
+replaces, and asking first unless you pass `-y`). Restart Pi to load it.
+
+The extension exists because Pi hands `PI_SESSION_ID` only to processes its bash
+tool spawns — so without it, Dossier running any other way under Pi cannot tell
+which session it belongs to, and refuses to bind a Dossier rather than risk two
+sessions sharing one binding. The extension publishes the live session id for
+every Dossier process the Pi session owns; `/dossier-session` inside Pi shows
+what Dossier will resolve.
+
+**What Pi does not have yet:** lifecycle bridging. Pi sessions get no
+session-start surfacing, no end-of-session save, and no pre-compaction save —
+`dossier harness list` reports those as unavailable rather than pretending. Pi
+also has no built-in MCP client; if you run an MCP adapter extension, register
+`dossier mcp serve` with it yourself. Use the CLI in the meantime.
 
 ### From the command line
 
@@ -116,7 +142,7 @@ One Go binary serves the CLI, the MCP-over-stdio server, and the session hooks. 
 
 ## Good to know
 
-- **Claude Code and Pi.** Claude Code is fully integrated. Pi is supported when a hooks extension provides `PI_SESSION_ID`, `PI_SESSION_FILE`, and the lifecycle calls described in `HANDOFF.md`. Other harnesses remain out of scope. If a capability is missing in a given session, Dossier says so at install and at session start rather than failing silently.
+- **Claude Code and Pi.** Claude Code is fully integrated. Pi has session identity via the bundled extension; its lifecycle hooks and MCP are not wired yet. Other harnesses remain out of scope. If a capability is missing, Dossier says so — at install, in `dossier harness list`, and in `dossier doctor` — rather than failing silently.
 - **Config lives in two files.** Hooks go in `~/.claude/settings.json`; the MCP server goes in `~/.claude.json` (the only place Claude Code reads user-scope MCP servers). Both store the absolute path of the stable binary — if you rebuild, rename, or move it, re-run `dossier install` then `dossier init` to re-bind, idempotently.
 - **Token counts are estimates.** Dossier uses a BPE tokenizer benchmarked against Opus 4.8; it won't match every model exactly. The 100k-token figure is a configurable warning threshold, not a hard cap — Dossier warns, it never silently truncates.
 - **Wiring it up by hand.** If you'd rather not let `init` edit your config: register the MCP server with `claude mcp add dossier -- dossier mcp serve`, and run `dossier hook session-start` to see what the start hook emits.

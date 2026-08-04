@@ -305,13 +305,23 @@ Switching active Dossier must:
 
 ## 6. Harness Capabilities
 
-v1 supports **Claude Code and Pi.** Claude Code provides the full capability set Dossier relies on. Pi provides the same contract through a compatible hooks extension:
+v1 supports **Claude Code and Pi.** Claude Code provides the full capability set Dossier relies on:
 
 - Session-start surfacing is deterministic.
 - Session-end save is deterministic.
 - Pre-compaction save is deterministic.
 - MCP tools work.
 - Raw transcript capture works.
+
+**Pi does not provide that set** (verified against Pi 0.83.0; ADR 0005). Pi has no
+built-in MCP client, and its `PI_SESSION_ID`/`PI_SESSION_FILE` reach bash-tool
+children only. Dossier therefore installs its own Pi extension
+(`assets/pi-extension.ts` → `<pi agent dir>/extensions/dossier/index.ts`) which
+supplies **session identity** — a per-Pi-pid session pointer plus environment
+mirroring — and nothing else yet. For Pi, session-start surfacing, session-end
+save, pre-compaction save, and MCP are **unavailable** and must be reported as
+such (§6.1); raw transcript capture is available as a file path only, through
+the pointer's `session_file`.
 
 Other harnesses (e.g. Codex, Antigravity) remain out of scope for v1.
 
