@@ -1610,8 +1610,8 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 		art := Artifact{
 			DossierID:     binding.DossierID,
 			Type:          ArtifactTypeTranscript,
-			Title:         "Session End Transcript",
-			Provenance:    Provenance{Origin: "session-end hook transcript", Harness: binding.Harness},
+			Title:         binding.Harness + " Session Transcript",
+			Provenance:    Provenance{Origin: binding.Harness + " session transcript", Harness: binding.Harness},
 			ContentFormat: ContentFormatText,
 			Content:       transcript,
 			CapturedAt:    now,

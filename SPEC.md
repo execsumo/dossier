@@ -305,7 +305,7 @@ Switching active Dossier must:
 
 ## 6. Harness Capabilities
 
-v1 supports **Claude Code only.** Claude Code provides the full capability set Dossier relies on:
+v1 supports **Claude Code and Pi.** Claude Code provides the full capability set Dossier relies on. Pi provides the same contract through a compatible hooks extension:
 
 - Session-start surfacing is deterministic.
 - Session-end save is deterministic.
@@ -313,7 +313,7 @@ v1 supports **Claude Code only.** Claude Code provides the full capability set D
 - MCP tools work.
 - Raw transcript capture works.
 
-Other harnesses (e.g. Codex, Antigravity) reach only degraded capability levels — missing transcript capture and/or deterministic session-start/session-end hooks — which are insufficient for Dossier's guarantees, so they are out of scope for v1.
+Other harnesses (e.g. Codex, Antigravity) remain out of scope for v1.
 
 ### 6.1 Visible Degradation
 

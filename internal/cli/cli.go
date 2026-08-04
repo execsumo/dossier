@@ -1039,6 +1039,13 @@ func NewRootCmd() *cobra.Command {
 			if sessID == "" {
 				sessID, _ = resolveSessionID()
 			}
+			if payload.Transcript == "" {
+				if transcriptPath := os.Getenv("PI_SESSION_FILE"); transcriptPath != "" {
+					if transcriptBytes, readErr := os.ReadFile(transcriptPath); readErr == nil {
+						payload.Transcript = string(transcriptBytes)
+					}
+				}
+			}
 
 			switch args[0] {
 			case "session-start":

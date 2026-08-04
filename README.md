@@ -8,7 +8,7 @@ No database, no cloud, no account. Your data is plain Markdown under `~/.dossier
 
 ## Quickstart
 
-Requires **Claude Code** on macOS or Linux.
+Requires **Claude Code or Pi** on macOS or Linux. Pi requires a hooks extension that meets the contract in `HANDOFF.md`.
 
 **Option A — Homebrew (recommended)**
 
@@ -116,7 +116,7 @@ One Go binary serves the CLI, the MCP-over-stdio server, and the session hooks. 
 
 ## Good to know
 
-- **Claude Code only.** Claude Code exposes the full set of hooks, MCP, and transcript capture Dossier relies on. Other harnesses (Codex, Antigravity) are out of scope. If a capability is missing in a given session, Dossier says so at install and at session start rather than failing silently.
+- **Claude Code and Pi.** Claude Code is fully integrated. Pi is supported when a hooks extension provides `PI_SESSION_ID`, `PI_SESSION_FILE`, and the lifecycle calls described in `HANDOFF.md`. Other harnesses remain out of scope. If a capability is missing in a given session, Dossier says so at install and at session start rather than failing silently.
 - **Config lives in two files.** Hooks go in `~/.claude/settings.json`; the MCP server goes in `~/.claude.json` (the only place Claude Code reads user-scope MCP servers). Both store the absolute path of the stable binary — if you rebuild, rename, or move it, re-run `dossier install` then `dossier init` to re-bind, idempotently.
 - **Token counts are estimates.** Dossier uses a BPE tokenizer benchmarked against Opus 4.8; it won't match every model exactly. The 100k-token figure is a configurable warning threshold, not a hard cap — Dossier warns, it never silently truncates.
 - **Wiring it up by hand.** If you'd rather not let `init` edit your config: register the MCP server with `claude mcp add dossier -- dossier mcp serve`, and run `dossier hook session-start` to see what the start hook emits.

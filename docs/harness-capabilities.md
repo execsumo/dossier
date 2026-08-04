@@ -1,8 +1,8 @@
 # Harness Capabilities
 
-Dossier v1 supports **Claude Code only**. This document records Claude Code's integration capabilities, verified through analysis of its local configuration files and command-line interface.
+Dossier v1 supports **Claude Code and Pi**. This document records Claude Code's integration capabilities and the Pi contract provided by a compatible hooks extension.
 
-Other harnesses (Codex, Antigravity) were evaluated but reach only degraded capability levels — missing transcript capture and/or deterministic session-start/session-end hooks — that are insufficient for Dossier's guarantees. They are out of scope for v1. The `Harness` interface and registry remain so a future version could add them.
+Other harnesses (Codex, Antigravity) remain out of scope for v1. The `Harness` interface and registry remain extensible.
 
 ## 1. Capability Matrix (Claude Code)
 
@@ -22,6 +22,21 @@ Other harnesses (Codex, Antigravity) were evaluated but reach only degraded capa
 | **Install/Notice Surfacing** | Yes (During init & session start) |
 
 All capabilities are available, so Claude Code supports Dossier's full deterministic happy path. Even so, if a capability is missing in a given session (e.g. transcript access), Dossier must degrade visibly — warn rather than silently skip.
+
+## 2. Capability Contract (Pi)
+
+Pi support is provided by the user's existing Claude-like hooks extension. Dossier detects the contract from the process environment; it does not install Pi hooks.
+
+| Feature | Pi requirement |
+|:---|:---|
+| Session identity | `PI_SESSION_ID` |
+| Transcript path | `PI_SESSION_FILE` |
+| Session-start hook | Extension invokes `dossier hook session-start` |
+| Session-end hook | Extension invokes `dossier hook session-end` |
+| Pre-compaction hook | Extension invokes `dossier hook pre-compaction` |
+| Transcript fallback | Dossier reads `PI_SESSION_FILE` when stdin has no `transcript` |
+
+Pi's JSONL file is archived as provided. Dossier does not mutate or reinterpret the source transcript.
 
 ---
 

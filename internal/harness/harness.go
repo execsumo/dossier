@@ -16,6 +16,7 @@ func NewRegistry(dossierHome string) *Registry {
 	return &Registry{
 		harnesses: []core.Harness{
 			NewClaudeCodeHarness(dossierHome),
+			NewPiHarness(dossierHome),
 		},
 	}
 }
