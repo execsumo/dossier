@@ -332,12 +332,12 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			SessionID string `json:"session_id"`
 		}
 		_ = json.Unmarshal(args, &params)
-		sid, serr := harness.ResolveSessionID(params.SessionID, false)
+		sid, sourceHarness, serr := harness.ResolveSession(params.SessionID, false)
 		if serr != nil {
 			err = core.NewError(core.ErrHarnessCapabilityUnavailable, serr.Error())
 		} else {
 			if params.ID != "" {
-				res, err = s.svc.Switch(ctx, core.SwitchReq{ID: params.ID, SessionID: sid})
+				res, err = s.svc.Switch(ctx, core.SwitchReq{ID: params.ID, SessionID: sid, HarnessName: sourceHarness})
 			} else {
 				res, err = s.svc.Active(ctx, core.ActiveReq{SessionID: sid})
 			}

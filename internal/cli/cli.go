@@ -106,30 +106,13 @@ func NewRootCmd() *cobra.Command {
 
 			fmt.Printf("Dossier initialized at %s\n\n", homeDir)
 
-			dataMap, ok := res.Data.(map[string]any)
-			if ok {
-				detected, _ := dataMap["harness_detected"].(bool)
-				caps, _ := dataMap["harness_capabilities"].(map[string]bool)
-				fmt.Println("Claude Code integration:")
-				if detected {
-					fmt.Println("- detected")
-				} else {
-					fmt.Println("- not detected — run from within Claude Code for full integration")
+			if dataMap, ok := res.Data.(map[string]any); ok {
+				reports, _ := dataMap["harnesses"].([]core.HarnessReport)
+				printHarnessReports(reports)
+				if detected, _ := dataMap["harness_detected"].(bool); !detected {
+					fmt.Println("No harness detected — run from within Claude Code or Pi for full integration.")
+					fmt.Println()
 				}
-				if caps != nil {
-					avail := func(b bool) string {
-						if b {
-							return "available"
-						}
-						return "unavailable"
-					}
-					fmt.Printf("- MCP: %s\n", avail(caps["MCP"]))
-					fmt.Printf("- Session-start hook: %s\n", avail(caps["SessionStartHook"]))
-					fmt.Printf("- Session-end hook: %s\n", avail(caps["SessionEndHook"]))
-					fmt.Printf("- Pre-compaction hook: %s\n", avail(caps["PreCompactionHook"]))
-					fmt.Printf("- Transcript capture: %s\n", avail(caps["TranscriptCapture"]))
-				}
-				fmt.Println()
 			}
 
 			for _, warning := range res.Warnings {
@@ -152,6 +135,78 @@ func NewRootCmd() *cobra.Command {
 	}
 	installCmd.Flags().StringVar(&installDirFlag, "dir", "~/.local/bin", "Directory to install the binary to")
 	installCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Skip confirmation prompts")
+
+	harnessCmd := &cobra.Command{
+		Use:   "harness",
+		Short: "Inspect and install client harness integrations",
+	}
+
+	harnessListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "Show which harnesses are detected and what they give Dossier",
+		Run: func(cmd *cobra.Command, args []string) {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			res, err := svc.HarnessStatus(context.Background())
+			if err != nil {
+				fmt.Printf("Harness detection failed: %v\n", err)
+				os.Exit(1)
+			}
+
+			if jsonFlag {
+				printJSON(res.Data)
+				return
+			}
+
+			reports, _ := res.Data.([]core.HarnessReport)
+			printHarnessReports(reports)
+			for _, warning := range res.Warnings {
+				fmt.Printf("Warning: %s\n", warning)
+			}
+		},
+	}
+	harnessListCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output as JSON")
+
+	harnessInstallCmd := &cobra.Command{
+		Use:   "install <claude-code|pi>",
+		Short: "Install the Dossier integration for a harness added after init",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			res, err := svc.InstallHarness(context.Background(), core.InstallHarnessReq{
+				Name:             args[0],
+				YesToAll:         yesFlag,
+				StableBinaryPath: getStableBinaryPath(),
+			})
+			if err != nil {
+				fmt.Printf("Harness install failed: %v\n", err)
+				os.Exit(1)
+			}
+
+			if jsonFlag {
+				printJSON(res.Data)
+			} else if report, ok := res.Data.(core.HarnessReport); ok {
+				printHarnessReports([]core.HarnessReport{report})
+			}
+			for _, warning := range res.Warnings {
+				fmt.Printf("Warning: %s\n", warning)
+			}
+		},
+	}
+	harnessInstallCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Skip confirmation prompts")
+	harnessInstallCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output as JSON")
+
+	harnessCmd.AddCommand(harnessListCmd)
+	harnessCmd.AddCommand(harnessInstallCmd)
 
 	doctorCmd := &cobra.Command{
 		Use:   "doctor",
@@ -661,7 +716,11 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			sessID, _ := resolveSessionID()
-			res, err := svc.Switch(context.Background(), core.SwitchReq{ID: args[0], SessionID: sessID})
+			res, err := svc.Switch(context.Background(), core.SwitchReq{
+				ID:          args[0],
+				SessionID:   sessID,
+				HarnessName: resolveSessionHarness(),
+			})
 			if err != nil {
 				fmt.Printf("Switch failed: %v\n", err)
 				os.Exit(1)
@@ -1040,7 +1099,7 @@ func NewRootCmd() *cobra.Command {
 				sessID, _ = resolveSessionID()
 			}
 			if payload.Transcript == "" {
-				if transcriptPath := os.Getenv("PI_SESSION_FILE"); transcriptPath != "" {
+				if transcriptPath := piTranscriptPath(); transcriptPath != "" {
 					if transcriptBytes, readErr := os.ReadFile(transcriptPath); readErr == nil {
 						payload.Transcript = string(transcriptBytes)
 					}
@@ -1096,6 +1155,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(installCmd)
+	rootCmd.AddCommand(harnessCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(lsCmd)
 	rootCmd.AddCommand(showCmd)
@@ -1149,13 +1209,69 @@ func resolveHomeDir() string {
 // The interactive local TUI is allowed to fall back to a local default bucket for convenience.
 func resolveSessionID() (string, bool) {
 	// Attempt to resolve a session ID without allowing the default fallback.
-	sid, err := harness.ResolveSessionID(sessionFlag, false)
+	sid, _, err := harness.ResolveSession(sessionFlag, false)
 	if err == nil {
 		return sid, true
 	}
 	// Fall back to the default fallback bucket.
 	defaultSid, _ := harness.ResolveSessionID(sessionFlag, true)
 	return defaultSid, false
+}
+
+// resolveSessionHarness names the harness the session id came from, so a binding
+// records the harness the session actually ran under. Empty when the id was
+// supplied explicitly or fell back to the shared bucket.
+func resolveSessionHarness() string {
+	_, harnessName, err := harness.ResolveSession(sessionFlag, false)
+	if err != nil {
+		return ""
+	}
+	return harnessName
+}
+
+// piTranscriptPath resolves Pi's session JSONL for a hook invocation: the
+// bash-tool environment first, then the pointer the Dossier Pi extension
+// publishes (the only source when Pi did not spawn this process via bash).
+func piTranscriptPath() string {
+	if path := os.Getenv("PI_SESSION_FILE"); path != "" {
+		return path
+	}
+	if pointer, ok := harness.LookupPiSessionPointer(); ok {
+		return pointer.SessionFile
+	}
+	return ""
+}
+
+// printHarnessReports renders per-harness detection for `init` and
+// `harness list`. Capabilities a harness does not provide are printed, not
+// omitted: a missing integration has to be visible to be fixable.
+func printHarnessReports(reports []core.HarnessReport) {
+	avail := func(b bool) string {
+		if b {
+			return "available"
+		}
+		return "unavailable"
+	}
+
+	for _, r := range reports {
+		fmt.Printf("%s integration:\n", r.DisplayName)
+		if !r.Detected {
+			fmt.Println("- not detected on this device")
+			fmt.Println()
+			continue
+		}
+		fmt.Println("- detected")
+		fmt.Printf("- Session identity: %s\n", avail(r.Capabilities["SessionIdentity"]))
+		fmt.Printf("- MCP: %s\n", avail(r.Capabilities["MCP"]))
+		fmt.Printf("- Session-start hook: %s\n", avail(r.Capabilities["SessionStartHook"]))
+		fmt.Printf("- Session-end hook: %s\n", avail(r.Capabilities["SessionEndHook"]))
+		fmt.Printf("- Pre-compaction hook: %s\n", avail(r.Capabilities["PreCompactionHook"]))
+		fmt.Printf("- Transcript capture: %s\n", avail(r.Capabilities["TranscriptCapture"]))
+		for _, note := range r.Notes {
+			fmt.Printf("- %s\n", note)
+		}
+		fmt.Println()
+	}
 }
 
 func printJSON(data any) {
