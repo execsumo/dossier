@@ -1792,12 +1792,6 @@ func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, e
 			sb.WriteString(recData.DistilledState)
 			sb.WriteString("\n")
 		}
-	} else {
-		sb.WriteString("No active Dossier is bound to this session.\n\n")
-		sb.WriteString("When the user names a topic to work on, check the Open Dossiers list above before creating anything:\n")
-		sb.WriteString("1. If a close match exists, surface it: \"I see [Name] ([status], last touched N days ago) — is that the one to continue, or is this a new thread?\"\n")
-		sb.WriteString("2. If the user confirms an existing one, call dossier_session with its slug.\n")
-		sb.WriteString("3. If none match or the user says it's new, call dossier_promote — it will run a similarity check and flag any missed candidates before creating.\n")
 	}
 
 	return sb.String(), nil

@@ -662,7 +662,6 @@ func TestHeaderHasNoSession(t *testing.T) {
 		}
 	}
 }
-
 func TestLeadAutocomplete(t *testing.T) {
 	items := []core.ListItem{
 		{ID: "1", Lead: "Ryan"},
