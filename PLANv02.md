@@ -222,19 +222,41 @@ and does not enable.
 
 ### 2.2 The new ordering
 
+**Importance is the primary key; time pressure orders within it.** The one
+exception is blocking someone else, which gets a tier of its own above
+everything.
+
 ```
-1. Overdue                    (own, then escalated — §6)
-2. Requirement past needed_by (someone owes you and it is late)
-3. Due within the horizon     (default 3 days)
-4. importance: high
-5. importance: medium
-6. importance: low
-   tiebreak within each: due-date proximity, then staleness
+0. BLOCKING SOMEONE ELSE — anything overdue that another person is waiting on
+   (a requirement where from == me, past needed_by; a delegated item whose
+    lateness stalls its owner)
+
+then, by importance:
+1. high     → overdue · due within horizon · rest
+2. medium   → overdue · due within horizon · rest
+3. low      → overdue · due within horizon · rest
+
+tiebreak within each cell: due-date proximity, then staleness
 ```
 
+**Why tier 0 exists and nothing else does.** An earlier draft of this plan put
+*everything* overdue on top, which ranks a trivial late item above a critical one
+due tomorrow — not how anyone triages, and a fast way to teach yourself to
+ignore the top of the list. Importance-first fixes that. But being late to
+yourself and blocking a colleague are categorically different, and on an offset
+team the second costs someone a full working day. That difference earns a tier;
+nothing else does.
+
+This also means the **downward escalation** in §6 falls out of the sort itself
+rather than being bolted on beside it — "what I owe my team" *is* tier 0.
+
 Every row carries **why it ranks where it does** — `overdue 3d`,
-`due tomorrow`, `Alex owes: contacts (5d)`. A rank the user cannot explain is a
-rank the user stops trusting.
+`due tomorrow`, `Alex is waiting (5d)`. A rank the user cannot explain is a rank
+the user stops trusting. Per §0.1, these read as reasons, not alarms.
+
+**Confirm against a real list in Phase 1.** The shape above is a considered
+guess, not a validated one; sort your actual dossiers both ways before the
+ordering is fixed in code.
 
 ### 2.3 Two consequences to accept knowingly
 
@@ -369,26 +391,50 @@ This is the strongest idea in your list and it deserves precision. Your Alex
 example encodes the actual insight: the useful content is not *who Alex is*, it
 is **the delta between what this task assumes and what Alex already has.**
 
-Structure it around that delta:
+Structure it around that delta — **in both directions**, because a profile is
+read by whoever is briefing whom:
 
 ```markdown
+# Working with <name>
+
+## → Delegating to them
 ## Already has          — do NOT re-explain (saves your time)
 ## Typically lacks      — MUST be supplied (saves their day)
 ## Access & contacts    — systems/people they don't have yet
 ## Standing decision rights — what they decide without asking, by default
-## Working style        — format preferences, how they signal blocked
 ## Escalation default   — what they do when stuck and you're asleep
+
+## ← Reporting to them
+## Questions they always ask   — answer these before they are asked
+## What a good update looks like — format, cadence, level of detail
+## What "done" means to them   — their bar, stated plainly
+
+## Working style        — applies both ways
 ```
 
-Alex's note then reads: *Already has: cash-flow discounting, DCF modelling.
-Typically lacks: vendor contacts outside Finance — supply them explicitly.*
+Alex's note reads: *Already has: cash-flow discounting, DCF modelling. Typically
+lacks: vendor contacts outside Finance — supply them explicitly.*
 
-**Why this is the magic multiplier:** those six sections map almost 1:1 onto the
-seven blocks the `dossier-delegate` skill already gap-checks
+**The upward half is not filler, and for your own profile it is the whole
+point.** You are in the roster (§13.5). Nobody delegates to you — but five
+people report to you, and every one of them is guessing at the same three things:
+what you will ask, what shape of update you want, and when you will consider it
+finished. Writing that down once means they answer your standing questions
+*before* you ask them, which on an eight-hour offset saves an entire round-trip
+per update. The same round-trip the downward half saves in the other direction.
+
+Framed generally: a profile is not "how to manage this person." It is **how to
+exchange work with this person without a wasted round-trip** — and round-trips
+are expensive in both directions.
+
+**Why this is the magic multiplier:** the downward sections map almost 1:1 onto
+the seven blocks the `dossier-delegate` skill already gap-checks
 (`assets/dossier-delegate-skill.md:65-99`). Today that skill re-asks you the
 same questions for every delegation. With a profile loaded, it asks only what is
 **new for this person on this topic** — a two-question gap-check instead of a
-five-question one, every time.
+five-question one, every time. The upward sections do the same job for
+`dossier prep` (§7.2): preparing an update *to* someone is the same problem
+viewed from the other end.
 
 **And it should learn.** After a delegation closes, the skill proposes a profile
 update: *"Alex now has the Website Builder contacts — move to 'Already has'?"*
@@ -626,7 +672,7 @@ not exist.
 | **0b** | `Roster` port + people/interfaces files · schema/migration scaffolding · `me` identity outside the store | Everything downstream depends on the roster |
 | **1** | Importance 3-way · delete `urgency` · computed rank + reason strings | Small, self-contained, unblocks every view |
 | **2** | Requirements model · routing state · derived `waiting` · CLI/MCP/TUI surfaces | Biggest single win; independent of notes |
-| **3** | Identity-first views · escalation up and down · `--lead`/`--scope` | Needs 0–2 in place |
+| **3** | Identity-first views · escalation up and down · `--lead`/`--scope` | Needs 0–2 in place. **Gated on §13.1 sign-off (ADR 0011).** |
 | **4** | People/interface notes · settings view · `dossier prep` · delegate-skill integration | Where the compounding value lands |
 | **5** | Guide + instructions rewrite · dogfood drills · metrics | Quality comes from the guide, per v1's own lesson |
 | **6** | Shared store over git — merge driver · item-wise requirement merge · section-wise body merge · non-dev conflict resolution · `dossier sync` (§10) | Distribution on top of a validated model, not instead of one |
@@ -889,6 +935,10 @@ needs a short ADR in `docs/adr/` recording what changed and why:
    synced folders, the merge-driver contract (§10.3), and the three constraints
    adopted in earlier phases to make it cheap. Written *now*, while the reasoning
    is fresh — this decision shapes three earlier ones.
+6. **0011 — Private vs. shared topics.** Written to close the §13.1 gate. Records
+   the option chosen, the four sign-off items, and the rejection of a
+   `visibility:` field inside the shared store. **Phase 3 does not start until
+   this ADR is merged.**
 
 `CurrentSchemaVersion` bumps once for the whole v02 frontmatter change
 (importance enum, urgency ignored, requirements array). Reuse the existing
@@ -941,12 +991,26 @@ Before Phase 6 specifically:
 
 ---
 
-## 13. Open questions — decide before the phase that depends on them
+## 13. Open questions and their status
 
-These are genuinely unresolved. Each is cheap to decide now and expensive to
-discover late.
+Each was cheap to decide now and expensive to discover late. Three are resolved
+below; one is deferred to Phase 2 by decision; one is a **hard gate**.
 
-### 13.1 Private topics in a shared store — **blocks Phase 6, decide by Phase 3**
+| # | Question | Status |
+|---|---|---|
+| 13.1 | Private topics in a shared store | **GATE — sign-off required before Phase 3 dev starts** |
+| 13.2 | Sort ordering | Resolved — §2.2 rewritten |
+| 13.3 | Delegations vs. requirements | Resolved — a delegation creates a requirement |
+| 13.4 | Where requirements live | Open by decision — settle in Phase 2 |
+| 13.5 | Leader in their own roster | Resolved — yes, and the profile is bidirectional |
+
+### 13.1 Private topics in a shared store — **GATE: sign-off required before Phase 3 development begins**
+
+> **This is a blocking gate, not a note.** No Phase 3 code is written until an
+> option below is chosen and recorded in ADR 0011. Phase 3 introduces `me`,
+> scoped views, and escalation — all of which acquire a second meaning under a
+> two-store model, and all of which are painful to re-cut afterwards. Phases 0–2
+> may proceed in parallel; they do not depend on the answer.
 
 **The gap:** there is no privacy model anywhere in this plan. In single-user
 mode that is correct. The moment the store is shared (§10), *everything* in it
@@ -971,10 +1035,20 @@ Three options:
 
 **Lean: (b).** It is more work than it looks — `me`, roster, prep, and
 escalation all have to span two stores coherently, and "which store am I writing
-to?" becomes a question every write path must answer unambiguously. That cost is
-why this needs deciding by Phase 3, not discovered in Phase 6.
+to?" becomes a question every write path must answer unambiguously, including
+for the agent over MCP. That cost is exactly why it is a gate.
 
-### 13.2 The §2.2 sort order is probably wrong — **blocks Phase 1**
+**What sign-off requires** (all four, recorded in ADR 0011):
+
+1. The option chosen, with its rejected alternatives and why.
+2. If (b): where the roster lives when there are two stores — shared, duplicated,
+   or personal-overrides-team — and what `prep`/escalation do across the boundary.
+3. The default target for a new dossier, and how a write states its target
+   unambiguously on CLI, MCP, and TUI. A wrong default here is a disclosure bug.
+4. How a topic moves between stores after the fact, since the first draft of a
+   sensitive topic is often written before anyone realises it is sensitive.
+
+### 13.2 Sort ordering — **RESOLVED, folded into §2.2**
 
 As written, §2.2 puts *everything* overdue in tier 1. That means a trivial
 overdue item outranks a critical one due tomorrow, which is not how anyone
@@ -991,11 +1065,13 @@ exception that earns its own tier:
 
 That reconciles both instincts: importance orders *your* work, and blocking
 *someone else* is its own class. It also makes the downward escalation in §6 fall
-out of the sort rather than being bolted on beside it. I am fairly confident in
-this shape but not certain it survives contact with a real list — worth building
-behind a quick A/B against your actual dossiers in Phase 1.
+out of the sort rather than being bolted on beside it.
 
-### 13.3 Delegations and requirements overlap — **design in Phase 2, resolve in Phase 4**
+**Accepted.** §2.2 now specifies this ordering. Still worth a quick A/B against
+a real dossier list in Phase 1 before it is fixed in code — the shape is a
+considered judgement, not a measured one.
+
+### 13.3 Delegations and requirements overlap — **RESOLVED**
 
 Two structures will exist for "Alex owes me something":
 
@@ -1009,7 +1085,7 @@ success criteria. In practice nobody will sort them that way reliably, and if
 they diverge, "what does Alex owe me?" returns half the truth — which is exactly
 the question the whole plan exists to answer.
 
-**Proposed resolution: a delegation *creates* a requirement.** Delegating work
+**Accepted resolution: a delegation *creates* a requirement.** Delegating work
 opens a requirement (`from: alex`, `need: "<the objective, one line>"`,
 `via`, `needed_by`) whose detail field points at the persisted contract. One
 list, two levels of zoom: the requirement is the tracking unit, the contract is
@@ -1017,7 +1093,11 @@ what you open when you need the specifics. Requirements stay the single answer
 to "who owes what," and the contract stays the single answer to "what exactly
 did we agree."
 
-### 13.4 Where requirements live — **decide in Phase 2, matters in Phase 6**
+Build order: `requirements[]` must carry a pointer to the contract from Phase 2
+(one optional field), so Phase 4's delegate-skill integration is a wiring job
+rather than a schema change.
+
+### 13.4 Where requirements live — **OPEN by decision; settle in Phase 2**
 
 Specced as an array in dossier frontmatter. The alternative is
 `requirements/<id>.md`, one file per requirement, the same argument that made
@@ -1039,12 +1119,21 @@ rather than a new mechanism.
 edits a day across multiple people — one-file-per-item wins on merge behavior
 alone. Drill 11 should capture enough signal to tell.
 
-### 13.5 Is the leader in their own roster? — minor, Phase 0b
+### 13.5 Is the leader in their own roster? — **RESOLVED: yes, and it made the profile bidirectional**
 
-Probably yes: escalation needs a `reports_to` for you too (who do *you* escalate
-to?), `prep` benefits from knowing your own working hours, and under Phase 6 a
-profile for you is arguably the most useful one in the store — your team needs
-your escalation defaults and standing decision rights more than you need theirs.
-The only awkwardness is writing a delegation profile about yourself in Phase 4,
-before anyone else can read it. Cheap either way; just decide it once rather
-than half-implementing it.
+Yes. Escalation needs a `reports_to` for you, `prep` needs your working hours,
+and under Phase 6 your profile is arguably the most useful one in the store.
+
+The resolution also surfaced something the original design had backwards. A
+profile is not only read by the person delegating *down* — it is read by five
+people reporting *up*, and what they need from it is different: what you will
+ask, what shape of update you want, what you consider finished. Answering those
+once means they arrive in the update instead of costing a round-trip after it.
+
+So the person note gained an upward half (§4.2), and the underlying frame got
+more accurate: a profile is **how to exchange work with this person without a
+wasted round-trip**, in whichever direction the work is moving.
+
+The residual awkwardness — writing a profile about yourself in Phase 4, before
+anyone else can read it — resolves itself: the upward half is the part your team
+will read first in Phase 6, so it is worth writing before they can.
