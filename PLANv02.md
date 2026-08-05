@@ -662,6 +662,23 @@ it matter ships.** The Phase 4 reader gets a rule they can follow. The Phase 6
 reader learns why they are glad they did. Neither reads about software that does
 not exist.
 
+#### The profile is bidirectional (§4.2, §13.5) — another README-worthy sentence
+
+Once Phase 4 ships, the README should carry this alongside the co-authoring
+rule, because it reframes what a person note *is* rather than adding a feature:
+
+> A profile isn't "how to manage this person" — it's **how to exchange work
+> with them without a wasted round-trip**, in whichever direction the work is
+> moving. Delegating to Alex, it says what he already knows and what to hand
+> him explicitly. Reporting to Ryan, it says what he'll ask before he asks it,
+> what a good update looks like, and what "done" means to him — so his standing
+> questions get answered before he raises them, not after.
+
+It belongs next to the self-improving-loop sentence from §0.1 of this section:
+both are single sentences that make the product legible to someone who has not
+read this plan, and both describe the same underlying idea — the tool exists to
+remove wasted round-trips between people — from two different angles.
+
 ---
 
 ## 8. Sequencing
