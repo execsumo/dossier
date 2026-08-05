@@ -34,6 +34,32 @@ Three structural moves carry most of the value:
 
 Everything else in this plan is downstream of those three.
 
+### 0.1 A standing constraint: informational, never anxious
+
+A tool for someone running a team across timezones can very easily become a
+machine for generating low-grade dread. Every deadline, every aging counter,
+every escalation is an opportunity to nag. If it nags, it gets abandoned — and
+an abandoned memory layer is worse than none.
+
+So this is a hard design constraint on every surface v02 adds, not a styling
+preference:
+
+- **A boundary, not a countdown.** "Send by 16:40 for Alex to have a full day"
+  is a helpful transition marker. "⚠ 3h20m REMAINING" is a stress generator
+  describing the identical fact.
+- **No alarm palette.** Overdue is rendered as information — a neutral marker
+  and a plain reason string — not red, not bold, not iconographic urgency.
+- **Descriptive language, never imperative or evaluative.** "Not yet raised,"
+  not "You haven't asked!" "Past needed-by," not "LATE."
+- **No guilt accumulation.** No streaks, no running totals of missed items, no
+  "you have 12 overdue." Show the next thing that needs a decision. Aggregates
+  belong in the periodic metrics review (§11), not the daily view.
+- **Absence of pressure is not absence of signal.** The information still has to
+  be *there* and sortable. Calm and useless is also a failure.
+
+Applies to the dashboard, the session-start nudge, escalation rows, prep output,
+and anything the agent says about a requirement.
+
 ---
 
 ## 1. Foundations (Phase 0)
@@ -140,14 +166,23 @@ already established by `Frontmatter.Normalize`.
 
 ### 1.5 Viewer identity (item 5)
 
-Add `me: <handle>` to `config.yaml`. The existing `ViewLeadSelector` landing
-screen (`internal/tui/tui.go:42`) becomes the **identity** picker on first run
-— "who are you?" — and persists the answer instead of asking every launch.
-Filtering by *other* people remains available as a secondary lens (`f`).
+The existing `ViewLeadSelector` landing screen (`internal/tui/tui.go:42`)
+becomes the **identity** picker on first run — "who are you?" — and persists the
+answer instead of asking every launch. Filtering by *other* people remains
+available as a secondary lens (`f`).
 
-**Scope honesty:** `me` is a preference, not authentication, and this is still
-one store per machine. If Ryan uses Dossier, it is Ryan's laptop and Ryan's
-`~/.dossier`. A genuinely shared store is out of scope — see §9.
+**Identity does not live in the store.** The obvious home is `config.yaml`, and
+that is wrong: `me` is a property of *this machine and this person*, while
+`~/.dossier` is the corpus. The moment the store is shared or synced (§9), a
+`me:` key inside it would hand your identity to whoever pulled the repo. Put it
+in `~/.config/dossier/identity.yaml`, outside `DOSSIER_HOME`, overridable by
+`DOSSIER_ME` for scripted use.
+
+This costs nothing today and is the difference between a sharable store and one
+that has to be untangled later.
+
+**Scope honesty:** `me` is a lens, not authentication. See §9 for what that does
+and does not enable.
 
 ---
 
@@ -197,33 +232,61 @@ This is the highest-value single change in the plan.
 
 ### 3.1 The lean attribute set
 
-You asked for a recommendation. Seven fields, each earning its place:
+Six human-set fields, two system-stamped:
 
 ```yaml
 requirements:
   - id: req_01j8x…            # stable; referenced by audit entries and answers
     need: "Contacts for the Website Builder vendor"
     from: alex                 # roster handle, or free text for externals
-    via: "1:1"                 # interface slug — where this gets asked/chased
-    asked_on: 2026-08-05       # null = not yet asked
+    via: "1:1"                 # interface slug — the forum this gets raised in
     needed_by: 2026-08-08      # date, resolved in the requester's zone
-    status: open | answered | dropped
+    state: needed              # needed → requested → answered | dropped
+    requested_at: …            # system-stamped on the needed → requested move
+    answered_at: …             # system-stamped on answer
     answer_ref: art_01j8y…     # provenance once it lands
 ```
 
-**Why `asked_on` being nullable matters more than it looks.** It separates two
-states that every tool conflates:
+**`asked_on` is gone — you were right that maintaining a date is overhead.**
+The human moves a state; Dossier stamps the time. This is the pattern the
+product already uses everywhere else (`last_touched_at`, audit entries with
+field-level diffs) and it produces the same information for zero effort.
 
-- `asked_on: null` → **you** are the bottleneck. You have not even asked.
-- `asked_on: <date>` → **they** are the bottleneck, and aging starts here.
+The state is also a **better** carrier of the bottleneck signal than a nullable
+date, because it is legible at a glance rather than requiring a null check:
 
-A leader's most common failure is the first one, and no tool surfaces it.
-Dossier can, for free.
+- `needed` → **you** are the bottleneck. It has not been raised with anyone yet.
+- `requested` → **they** are the bottleneck, and aging runs from `requested_at`.
+- `answered` / `dropped` → closed, never deleted (non-destruction rule).
 
-**Why `via` matters:** it turns interfaces from a tag into a router.
-"Requirements where `from: alex` and `via: 1:1`" *is* your 1:1 agenda (§7.2).
+A leader's most common failure is the first state, and no tool surfaces it.
 
-### 3.2 What I would deliberately leave out
+### 3.2 Routing state: raise, chase, suppress
+
+Your point about `via` is the one that changes the model rather than tidying it.
+`via` is not a label saying which forum a thing *belongs* to — it is a **queue
+with a state**. Walking into a 1:1, you do not want everything you have ever
+asked Alex. You want what you still need to **raise**, plus anything you already
+raised that has since gone past its date.
+
+That falls straight out of `state` + `needed_by`, with nothing new to store:
+
+| Bucket | Condition | Why it is there |
+|---|---|---|
+| **Raise** | `state: needed`, `via` = this interface | Not yet asked — this is the agenda |
+| **Chase** | `state: requested`, past `needed_by` | Asked, went quiet, now late |
+| *(suppressed)* | `state: requested`, not past `needed_by` | In flight and on time — clutter |
+
+The suppression is the valuable half. An agenda that re-lists everything
+in-flight trains you to skim it, and then you miss the one item that matters.
+
+**Re-routing rule:** changing `via` on a `requested` item resets it to `needed`
+— escalating an unanswered ask from the 1:1 to Steerco means it has not been
+raised *there* yet, so it belongs back on the Raise list. The prior routing is
+not lost; it is in the audit log, and the Chase framing at the next 1:1 can
+still reference it.
+
+### 3.3 What I would deliberately leave out
 
 Per-requirement priority (inherit the dossier's), a separate assignee from
 `from`, reminder cadence / snooze (derive it from `needed_by`), effort
@@ -231,7 +294,7 @@ estimates, threaded comments. Each is individually reasonable and collectively
 they turn Dossier into a ticket tracker — which is the thing you are using
 Dossier to escape.
 
-### 3.3 `waiting` becomes derived
+### 3.4 `waiting` becomes derived
 
 A dossier with ≥1 open requirement **is** waiting. Stop asking a human to
 maintain that fact.
@@ -247,9 +310,10 @@ maintain that fact.
 > it behind the drills in §11 and be willing to revert to a manual `waiting` if
 > real use produces states that do not fit.
 
-### 3.4 Surfaces
+### 3.5 Surfaces
 
 - CLI: `dossier require <slug> "<need>" --from alex --via "1:1" --by 2026-08-08`,
+  `dossier require <slug> --raised req_…` (the `needed → requested` toggle),
   `dossier require <slug> --answer req_… --ref <artifact>`, `dossier requires`
   (cross-dossier view: everything owed to me, everything I owe).
 - MCP: `dossier_require` (create/answer/drop), plus `requirements` on
@@ -308,22 +372,37 @@ update: *"Alex now has the Website Builder contacts — move to 'Already has'?"*
 The profile improves as a by-product of work you were doing anyway. That is a
 `Save` on a Markdown file — mechanically trivial, compounding in value.
 
-### 4.3 Guardrail: this is a task-calibration note, not a performance file
+### 4.3 The profile is co-authored, and eventually self-authored
 
-A durable note about a colleague, stored on your disk, that an agent may quote
-back at you, is a thing to be deliberate about. Constraints to build in from the
-start:
+The guardrail and the product design turn out to be the same thing: **the more
+the subject owns the note, the more useful and the less fraught it is.**
 
-- The template and the guide scope it to **task context only** — what they know,
-  what they need, how they prefer to receive work. Explicitly **not** performance,
-  personality, or evaluative judgement.
-- Write it as though the person may read it. Ideally, share it with them — a
-  delegation profile is *more* useful when the subject can correct it.
-- The distillation guidance for these notes should say all of the above, because
-  the agent is what will actually be writing them.
+Rules, in order of strength:
 
-This is a design constraint, not a blocker. Worth getting right on the first
-pass rather than retrofitting.
+1. **Factual and task-scoped only.** What they know, what they need, what access
+   they have, how they prefer to receive work. Explicitly **not** performance,
+   personality, pace, or evaluative judgement of any kind. The template enforces
+   the shape; the guide (§7.3) enforces the tone, because the agent is what will
+   actually be writing these.
+2. **Written as though they will read it** — because they should.
+3. **Co-authored now, self-authored later.** Alex knows what Alex does not know
+   far better than you do. Every step toward their authorship makes the note
+   more accurate *and* removes the liability of holding an unreviewed file about
+   a colleague.
+
+**The co-authoring loop works today with zero infrastructure.** The profile is a
+Markdown file: send it to them. *"This is how I've been briefing you — what's
+wrong, what's missing?"* A Slack round-trip costs nothing and needs no sharing
+architecture. Make this an explicit, documented step of adding a person, not an
+afterthought — `dossier person add` should end by offering the note for review.
+
+If shared access lands (§9), the profile becomes **theirs to edit by
+convention**, with the audit log recording who changed what. That requires
+audit entries to record an actor, which brings us to a cheap thing to do now:
+`AuditEvent.Actor` already exists in `core/audit.go:10` and is populated **in
+exactly zero places**. Wire it to `me`. It is meaningless-but-harmless in
+single-user, and essential — and expensive to backfill — the moment two people
+touch one store.
 
 ### 4.4 Reporting structure (item 2)
 
@@ -369,7 +448,7 @@ Escalation is a function of `me` + `reports_to` + time.
 My view =
     my own items
   + items where a direct report is overdue or at risk      (rolls up to me)
-  + requirements where from == me and asked_on is aging     (I am the blocker)
+  + requirements where from == me, aging since requested_at (I am the blocker)
 ```
 
 - **`escalation_depth`** (default 1 = direct reports) keeps a deep org from
@@ -407,18 +486,35 @@ zone, and their working hours, when must this leave your hands — is the single
 most useful thing timezone data can produce, and it is perhaps fifty lines of
 arithmetic. This is the item I would build first among the additions.
 
+**Per §0.1, this is a horizon marker, not a deadline.** It states a fact about
+someone else's day so you can choose; it never counts down, turns red, or tells
+you that you have missed it. Passing 16:40 means Priya starts tomorrow — which
+is usually fine. Rendering that as a failure would be both inaccurate and the
+exact anxiety this tool should not manufacture.
+
 ### 7.2 `dossier prep <interface> [--with <handle>]` — composition, not filtering
 
-Today the TUI can *filter* by lead and interface. Prep should **compose**:
+Today the TUI can *filter* by lead and interface. Prep should **compose**.
+
+**`--with` is optional, because most interfaces are group forums.** Steerco, the
+standups, and OpsRev have no single counterpart; 1:1 does. The flag narrows, it
+is not required:
 
 ```
-dossier prep "1:1" --with alex
+dossier prep "1:1" --with alex     # one counterpart
+dossier prep "steerco"             # group forum — grouped by person
 ```
 
-assembles, in one output: the interface note's objective and scope · dossiers
-tagged with that interface where Alex is lead or counterpart · open requirements
-`from: alex` routed `via: 1:1` · anything of Alex's that is overdue · **what I
-owe Alex** · Alex's profile note for anything needing pre-context.
+Both assemble: the interface note's Objective / Scope / Out-of-scope · dossiers
+tagged with that interface · the **Raise** and **Chase** buckets from §3.2 ·
+what is overdue · **what I owe them** · relevant profile notes for anything
+needing pre-context.
+
+The difference is only the grouping. With `--with`, output is one narrative for
+one person. Without it, output is **grouped by person**, drawing the attendee
+list from the interface's `participants` field, so you can see whose items are
+whose as you go round the table. An `--unassigned` group catches topics tagged
+to the forum with no lead.
 
 This is the command that makes items 2, 4, 5, and 6 pay off together, and it is
 the thing you actually do every week. Available on CLI, MCP, and TUI.
@@ -432,6 +528,9 @@ prose, how to consult a person's profile before delegating, how to propose a
 profile update after one, and the calibration-not-evaluation constraint from
 §4.3.
 
+Also needs a **tone clause** carrying §0.1 into agent output, since the agent
+narrates most of what the user actually reads.
+
 ### 7.4 The `--lead` gap, closed explicitly
 
 `dossier ls` has no `--lead` (`cli.go:305-307`) and `dossier_list` exposes only
@@ -440,18 +539,37 @@ the main surface, you cannot ask for one person's plate. Item 5 implies fixing
 this; listing it explicitly so it does not fall through. Add `lead` and `scope`
 (`me` | `reports` | `all`) to both.
 
+### 7.5 README rewrite (Phase 5)
+
+The self-improving profile loop (§4.2) is the clearest single expression of what
+v02 is *for*, and today's README has no vocabulary for it — it describes a
+memory layer for topics, not a working model of a team. Phase 5 should rewrite
+the README around the three moves in §0, leading with the loop: **you brief a
+teammate, the agent notices what you had to explain, and the next briefing is
+shorter.** That is the sentence that makes the product legible to someone who
+has not read this plan.
+
 ---
 
 ## 8. Sequencing
 
 | Phase | Contents | Why here |
 |---|---|---|
-| **0** | UTC canonicalization · `Roster` port + files · schema/migration scaffolding · `me` identity | Everything else depends on these |
+| **0a** | **UTC canonicalization, alone** — plus `AuditEvent.Actor` wiring | Ships first, as its own PR. See below. |
+| **0b** | `Roster` port + people/interfaces files · schema/migration scaffolding · `me` identity outside the store | Everything downstream depends on the roster |
 | **1** | Importance 3-way · delete `urgency` · computed rank + reason strings | Small, self-contained, unblocks every view |
-| **2** | Requirements model · derived `waiting` · CLI/MCP/TUI surfaces | Biggest single win; independent of notes |
+| **2** | Requirements model · routing state · derived `waiting` · CLI/MCP/TUI surfaces | Biggest single win; independent of notes |
 | **3** | Identity-first views · escalation up and down · `--lead`/`--scope` | Needs 0–2 in place |
 | **4** | People/interface notes · settings view · `dossier prep` · delegate-skill integration | Where the compounding value lands |
 | **5** | Guide + instructions rewrite · dogfood drills · metrics | Quality comes from the guide, per v1's own lesson |
+
+**Why 0a ships alone.** The timestamp inconsistency (`fsstore.go:283` and `:370`
+local, `service.go:1124` UTC) is a **live correctness bug**, not a v02 feature:
+any two machines, or one machine across a DST boundary, already produce
+timestamps that cannot be compared, which silently corrupts staleness and
+due-date ordering today. It is independently valuable, revision-stable (§1.1),
+touches no schema, and every later phase computes on those timestamps. It should
+merge before the rest of v02 is even reviewed.
 
 Each phase ships to the repo's existing definition of done: compiles, `go vet` +
 `gofmt` clean, tests pass, SPEC §14 criteria updated and demonstrably met,
@@ -459,19 +577,67 @@ Each phase ships to the repo's existing definition of done: compiles, `go vet` +
 
 ---
 
-## 9. Explicitly out of scope for v02
+## 9. The multi-machine question — recommendation
 
-- **A shared, multi-user store.** `me` is a lens, not authentication. v1's
-  concurrency design (`flock` + optimistic revisions + conflict artifacts) is
-  built for multiple *sessions* on one machine, not multiple *people* over a
-  network share — `flock` is unreliable on most sync engines. The escape hatch
-  remains real and unsupported: point `DOSSIER_HOME` at a synced folder or
-  private git repo (`config/config.go:24`), and conflicts degrade to conflict
-  files rather than corruption. **Open question worth deciding before Phase 3:**
-  if "Ryan uses it" means Ryan on his own machine, this plan is correct as
-  written; if it means Ryan and you against one store, that is a different
-  architecture and should be its own plan.
-- Teammate-facing read access of any kind (web view, export site, share links).
+You want Ryan working from his machine while you work from yours, are open to
+hosting later, and said colleague access is not strictly critical. Those three
+things resolve cleanly, because the request contains two very different asks
+that should be separated:
+
+**(a) Ryan runs Dossier on his own machine, his own store.** Works the day v02
+ships, with zero additional work — that is precisely what `me` as a lens buys.
+Each person gets their own durable memory layer, their own dossiers, their own
+requirements. You and Ryan exchange *rendered output* (delegation notes, prep
+summaries) the way you do today. **This is the v02 answer, and I think it is the
+right one to validate against first** — it tests whether the model is correct
+before adding any distribution problem on top of it.
+
+**(b) You and Ryan against one shared store.** This is the genuinely different
+architecture, and its prize is real: a requirement you file as `from: ryan`
+appears on Ryan's own dashboard as something he owes, without anyone pasting
+anything. That is the thing worth eventually building toward.
+
+### Recommendation: defer (b), but pick git — not a server, and not a synced folder
+
+When (b) comes, I would build it on **a private git repo, not hosting.**
+Reasoning:
+
+- Files are already the source of truth, history is already a product value, and
+  conflict artifacts already exist as a first-class concept. Git is not a
+  workaround here; it is the same model with a remote.
+- **Sync is explicit, which dissolves the locking problem.** The reason I flagged
+  synced folders as risky is that `flock` (`store/lock.go`) is unreliable over
+  Dropbox/iCloud, and continuous background sync can write under a live process.
+  Git has neither property: each person has a local clone where local `flock`
+  works normally, and cross-person divergence surfaces at merge time — exactly
+  the case v1's conflict machinery was built for. `audit.log` needs
+  `merge=union` in `.gitattributes` and then even it merges cleanly.
+- No server, no auth system, no hosting cost, no multi-tenancy — none of which
+  you want to own before the model is validated.
+- The non-dev friction is real but bounded: wrap it as `dossier sync`
+  (fetch, merge, surface conflicts as conflict artifacts, push). One command.
+
+A hosted MCP server remains possible later, but it should be a deployment
+choice for a model that already works, not the thing that makes it work.
+
+### Three constraints adopted now to keep (b) reachable
+
+These cost nothing in v02 and are expensive to retrofit:
+
+1. **Identity lives outside the store** (§1.5) — otherwise a shared store hands
+   your `me` to everyone who pulls it.
+2. **One file per entity** — `people/<handle>.md`, not `people.yaml`. Two people
+   editing different colleagues must not conflict. Already the plan; now it is
+   load-bearing for a second reason.
+3. **Populate `AuditEvent.Actor`** (§4.3) — declared, never written. Without an
+   actor, a shared store's audit log cannot answer "who changed this," which is
+   the whole point of having one.
+
+## 9.1 Explicitly out of scope for v02
+
+- Shared store, sync, or hosting of any kind — per the above, deferred by
+  choice, with the path named.
+- Teammate-facing read access (web view, export site, share links).
 - Automated chasing — Dossier does not send the Slack message. It composes it;
   you send it. Consistent with D6.
 - Per-requirement reminders, recurrence, snooze.
@@ -491,9 +657,14 @@ needs a short ADR in `docs/adr/` recording what changed and why:
    the `Roster` port and two reserved directories; confirms D9 (files are truth)
    still holds for non-dossier entities.
 3. **0008 — `waiting` becomes derived from open requirements.** Includes the
-   revert criteria from §3.3.
+   revert criteria from §3.4.
 4. **0009 — Viewer identity (`me`) and reporting-line escalation.** Must state
-   explicitly that this is not multi-user.
+   that this is not multi-user, and record why identity is stored outside
+   `DOSSIER_HOME` (§1.5).
+5. **0010 — Multi-machine posture.** Records the (a)/(b) split from §9, the
+   choice of git-over-hosting when (b) arrives, and the three reachability
+   constraints adopted now. Written *now*, while the reasoning is fresh —
+   deferring a decision is still a decision, and this one shapes three others.
 
 `CurrentSchemaVersion` bumps once for the whole v02 frontmatter change
 (importance enum, urgency ignored, requirements array). Reuse the existing
@@ -510,14 +681,23 @@ structure. The same applies here:
 
 1. **Delegation with a cold profile vs. a warm one** — measure the drop in
    gap-check questions asked.
-2. **Interface prep** — walk into a real 1:1 with `dossier prep` output only.
-   What was missing? What was noise?
-3. **Requirement round-trip** — open a requirement, chase it through the named
-   interface, land the answer with provenance, verify the derived `waiting`
-   cleared correctly.
-4. **Escalation noise test** — run for two weeks with five reports. If the
+2. **Profile co-authoring** — send two profiles to their subjects for correction.
+   How much was wrong? Did they want to keep editing it? That answer decides how
+   hard to push toward (b) in §9.
+3. **Group prep vs. 1:1 prep** — walk into a real Steerco and a real 1:1 with
+   `dossier prep` output only. What was missing? What was noise?
+4. **Requirement round-trip** — open a requirement, raise it in the named forum,
+   land the answer with provenance, verify the derived `waiting` cleared and the
+   item left the Raise bucket.
+5. **Suppression check** — the sharpest test of §3.2: at a 1:1, was anything
+   suppressed that you actually needed to discuss? One miss means the Chase
+   threshold is wrong; zero misses over a month means suppression is working.
+6. **Escalation noise test** — run for two weeks with five reports. If the
    escalation section is being ignored by week two, the thresholds are wrong.
-5. **The `asked_on: null` audit** — how many open requirements were never
-   actually asked? This number is the plan's own success metric.
-6. **Timezone honesty** — verify aging in working days matches your intuition
+7. **The `needed`-state audit** — how many open requirements were never actually
+   raised with anyone? This number is the plan's own success metric.
+8. **Timezone honesty** — verify aging in working days matches your intuition
    about "how long has Alex had this."
+9. **Cortisol check (§0.1)** — after two weeks, does opening the dashboard feel
+   like orientation or like a list of ways you are behind? If the latter, the
+   tone rules were not followed, and that is a defect, not a preference.
