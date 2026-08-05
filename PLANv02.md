@@ -4,7 +4,7 @@
 > Scope: the next major pass after v1 (all milestones complete, see `HANDOFF.md`)
 > Precedence note: this plan **reverses two settled decisions** (the Eisenhower
 > priority model, and `urgency` as a human-set field). Those reversals need ADRs
-> before implementation — see §10. Everything else extends v1 rather than
+> before implementation — see §11. Everything else extends v1 rather than
 > replacing it.
 
 ---
@@ -53,7 +53,7 @@ preference:
   not "You haven't asked!" "Past needed-by," not "LATE."
 - **No guilt accumulation.** No streaks, no running totals of missed items, no
   "you have 12 overdue." Show the next thing that needs a decision. Aggregates
-  belong in the periodic metrics review (§11), not the daily view.
+  belong in the periodic metrics review (§12), not the daily view.
 - **Absence of pressure is not absence of signal.** The information still has to
   be *there* and sortable. Calm and useless is also a failure.
 
@@ -171,15 +171,38 @@ becomes the **identity** picker on first run — "who are you?" — and persists
 answer instead of asking every launch. Filtering by *other* people remains
 available as a secondary lens (`f`).
 
-**Identity does not live in the store.** The obvious home is `config.yaml`, and
-that is wrong: `me` is a property of *this machine and this person*, while
-`~/.dossier` is the corpus. The moment the store is shared or synced (§9), a
-`me:` key inside it would hand your identity to whoever pulled the repo. Put it
-in `~/.config/dossier/identity.yaml`, outside `DOSSIER_HOME`, overridable by
-`DOSSIER_ME` for scripted use.
+#### Identity does not live in the store — worked through concretely
 
-This costs nothing today and is the difference between a sharable store and one
-that has to be untangled later.
+The obvious home for `me` is `~/.dossier/config.yaml`. Here is what happens if
+we do that and the store later syncs (§10):
+
+1. You set `me: herwin`. It lands in `config.yaml`, inside the store, and gets
+   committed and pushed.
+2. Ryan pulls. **His `config.yaml` now says `me: herwin`.** His dashboard shows
+   your plate; escalation runs against your reporting line, not his.
+3. Ryan sets `me: ryan` and pushes. Next time you pull, *your* identity flips
+   to Ryan.
+4. From then on, `config.yaml` conflicts on **every single sync, forever**, over
+   a field that should never have been shared in the first place.
+
+The underlying rule, which is worth stating once and applying everywhere:
+
+> **The store holds the corpus. Anything describing *this machine* or *this
+> person* lives outside it.**
+
+Applying that rule sorts today's state cleanly:
+
+| Lives in the store (shared) | Lives outside (machine-local) |
+|---|---|
+| dossiers, artifacts, audit, history | `me` — who is looking |
+| `people/`, `interfaces/` | `dossier_home` — a local path |
+| `schema_version` — describes the corpus | `sessions/` — session bindings are meaningless on another machine |
+| `token_target` — a shared preference | `.lock` files, temp files, sync state |
+
+So: `~/.config/dossier/identity.yaml` holds `me` (overridable by `DOSSIER_ME`),
+and `sessions/` plus lock/temp files are excluded from sync. Both cost nothing
+now and are painful to untangle later — `sessions/` in particular would
+otherwise have two machines fighting over each other's live session bindings.
 
 **Scope honesty:** `me` is a lens, not authentication. See §9 for what that does
 and does not enable.
@@ -307,7 +330,7 @@ maintain that fact.
 
 > **Flag for dogfooding before this is settled:** deriving a status is the one
 > genuinely clever move in this plan, and clever is where things go wrong. Ship
-> it behind the drills in §11 and be willing to revert to a manual `waiting` if
+> it behind the drills in §12 and be willing to revert to a manual `waiting` if
 > real use produces states that do not fit.
 
 ### 3.5 Surfaces
@@ -396,7 +419,7 @@ wrong, what's missing?"* A Slack round-trip costs nothing and needs no sharing
 architecture. Make this an explicit, documented step of adding a person, not an
 afterthought — `dossier person add` should end by offering the note for review.
 
-If shared access lands (§9), the profile becomes **theirs to edit by
+If shared access lands (§10), the profile becomes **theirs to edit by
 convention**, with the audit log recording who changed what. That requires
 audit entries to record an actor, which brings us to a cheap thing to do now:
 `AuditEvent.Actor` already exists in `core/audit.go:10` and is populated **in
@@ -561,7 +584,8 @@ has not read this plan.
 | **2** | Requirements model · routing state · derived `waiting` · CLI/MCP/TUI surfaces | Biggest single win; independent of notes |
 | **3** | Identity-first views · escalation up and down · `--lead`/`--scope` | Needs 0–2 in place |
 | **4** | People/interface notes · settings view · `dossier prep` · delegate-skill integration | Where the compounding value lands |
-| **5** | Guide + instructions rewrite · dogfood drills · metrics | Quality comes from the guide, per v1's own lesson |
+| **5** | Guide + instructions rewrite · README rewrite · dogfood drills · metrics | Quality comes from the guide, per v1's own lesson |
+| **6** | Shared store over git — merge driver · item-wise requirement merge · section-wise body merge · non-dev conflict resolution · `dossier sync` (§10) | Distribution on top of a validated model, not instead of one |
 
 **Why 0a ships alone.** The timestamp inconsistency (`fsstore.go:283` and `:370`
 local, `service.go:1124` UTC) is a **live correctness bug**, not a v02 feature:
@@ -597,10 +621,13 @@ architecture, and its prize is real: a requirement you file as `from: ryan`
 appears on Ryan's own dashboard as something he owes, without anyone pasting
 anything. That is the thing worth eventually building toward.
 
-### Recommendation: defer (b), but pick git — not a server, and not a synced folder
+**Decision (locked): (b) is the destination.** It becomes **Phase 6**, specified
+in §10. (a) is not a fallback or a lesser goal — it is Phase 3's natural state
+and the thing that validates the model before distribution is added on top.
 
-When (b) comes, I would build it on **a private git repo, not hosting.**
-Reasoning:
+### Why git — not a server, and not a synced folder
+
+Phase 6 builds on **a private git repo, not hosting.** Reasoning:
 
 - Files are already the source of truth, history is already a product value, and
   conflict artifacts already exist as a first-class concept. Git is not a
@@ -620,12 +647,11 @@ Reasoning:
 A hosted MCP server remains possible later, but it should be a deployment
 choice for a model that already works, not the thing that makes it work.
 
-### Three constraints adopted now to keep (b) reachable
+### Three constraints adopted in Phases 0–4 so Phase 6 is cheap
 
-These cost nothing in v02 and are expensive to retrofit:
+These cost nothing early and are expensive to retrofit:
 
-1. **Identity lives outside the store** (§1.5) — otherwise a shared store hands
-   your `me` to everyone who pulls it.
+1. **Identity and machine state live outside the store** (§1.5).
 2. **One file per entity** — `people/<handle>.md`, not `people.yaml`. Two people
    editing different colleagues must not conflict. Already the plan; now it is
    load-bearing for a second reason.
@@ -635,9 +661,10 @@ These cost nothing in v02 and are expensive to retrofit:
 
 ## 9.1 Explicitly out of scope for v02
 
-- Shared store, sync, or hosting of any kind — per the above, deferred by
-  choice, with the path named.
-- Teammate-facing read access (web view, export site, share links).
+- **Hosting.** A server or hosted MCP remains a later deployment choice for a
+  model that already works, not the thing that makes it work.
+- Teammate-facing read access for people *not* running Dossier (web view,
+  export site, share links).
 - Automated chasing — Dossier does not send the Slack message. It composes it;
   you send it. Consistent with D6.
 - Per-requirement reminders, recurrence, snooze.
@@ -645,7 +672,154 @@ These cost nothing in v02 and are expensive to retrofit:
 
 ---
 
-## 10. ADRs required before implementation
+## 10. Phase 6 — shared store over git
+
+The seamless handoff: a requirement you file as `from: ryan` shows up on Ryan's
+dashboard as something he owes, and his answer shows up on yours. No pasting.
+
+### 10.1 Mechanism
+
+`DOSSIER_HOME` becomes a git working tree with a private remote. Dossier shells
+out to the `git` binary — **it does not vendor a Go git library.** Reasons: the
+merge behavior below depends on git's own merge-driver machinery; a normal repo
+can be rescued with normal git commands when something exotic happens; and it
+keeps a large dependency out of a binary whose whole pitch is that it has none.
+`doctor` gains a `git present` check.
+
+### 10.2 What syncs and what does not
+
+Per the rule in §1.5. The store's `.gitignore`:
+
+```
+sessions/          # session bindings are machine-local
+**/.lock           # advisory locks
+**/*.tmp*          # atomic-write temp files
+*.bak              # harness config backups
+```
+
+Everything else — dossiers, artifacts, history, audit logs, `people/`,
+`interfaces/` — is corpus and syncs.
+
+### 10.3 Merge behavior: never conflict markers in a parsed file
+
+This is the core correctness requirement. If git writes `<<<<<<<` markers into
+`dossier.md`, the YAML frontmatter stops parsing and the store is broken for a
+non-dev user with no way back. So git is configured never to do it:
+
+```gitattributes
+dossier.md          merge=dossier
+people/*.md         merge=dossier
+interfaces/*.md     merge=dossier
+audit.log           merge=union
+history/**          -merge          # revision-hash filenames; never collide
+artifacts/**        -merge          # ULID filenames; never collide
+```
+
+`merge=dossier` is a **custom merge driver registered locally**, implemented as
+a hidden subcommand of the binary (`dossier git-merge-driver %O %A %B %P`). Its
+contract:
+
+1. Attempt the structured merge Dossier already knows how to do — non-overlapping
+   frontmatter auto-merges (v1, Milestone 7), and this extends to
+   non-overlapping **body sections** and to `requirements[]` (see 10.4).
+2. Anything genuinely contradictory: **keep ours, write theirs to
+   `conflicts/`**, append an audit entry, exit 0. The working tree stays valid
+   and parseable; the conflict surfaces through the machinery that already
+   exists for it in the CLI, MCP, and TUI.
+3. Never exit non-zero into a half-merged tree.
+
+`audit.log merge=union` is correct because it is append-only; interleaving two
+machines' entries loses nothing, and entries carry `Actor` (§4.3) and
+timestamps (now reliably UTC, §1.1) to be re-sorted on read.
+
+### 10.4 The risk that decides whether this works
+
+**Conflicts stop being exceptional and become routine, and today they are
+resolved with a dev-grade interaction.**
+
+v1's optimistic concurrency captures `base_revision` at recall and compares on
+save — within one machine, the window is seconds. Across machines with periodic
+sync, that window is *however long since the last pull*, so the conflict rate
+rises by orders of magnitude. And today's resolution path is a syntax-highlighted
+side-by-side merge in the TUI, which is a reasonable ask of a developer and an
+unreasonable one of a business leader mid-meeting.
+
+Two people using this for a week will produce a conflict backlog they cannot
+discharge, and they will stop trusting the store. **So Phase 6 is not "add git";
+it is "make concurrent edits mostly not conflict."** Three things must land with
+it:
+
+- **`requirements[]` merges item-wise, not as a blob.** Each has a stable `id`
+  (§3.1). "Alex answered req_A while I added req_B" is the single most common
+  concurrent edit under sharing, and it must be a clean auto-merge, not a
+  conflict. Independent items, independent merge — same-`id` divergence is the
+  only real conflict.
+- **Body sections merge independently.** Situation / Decisions / Findings /
+  Active Monitors / Current State / Next Steps are a fixed schema
+  (`assets/guide.md` §3). Two people editing different sections is not a
+  conflict. Only same-section divergence is.
+- **Conflict resolution gets a non-dev path.** At minimum: "keep mine / keep
+  theirs / keep both" on a per-section, per-requirement basis, in plain language,
+  with the full side-by-side view still available underneath for when it matters.
+
+If those three do not land, do not ship the sync.
+
+### 10.5 When sync runs
+
+Never blocking, never surprising:
+
+- **Pull on read boundaries** — session-start hook, TUI launch, and the first
+  `dossier_list`/`dossier_recall` of a session. Debounced (default: at most once
+  per 60s), with the debounce timestamp in machine-local state, not the store.
+- **Push after write boundaries** — coalesced after `Save`/`Promote`/requirement
+  changes and on the session-end hook, so a burst of edits is one push.
+- **Async and non-fatal.** Offline, or a remote that rejects, degrades to local
+  operation with a visible "last synced 14m ago" indicator — consistent with the
+  existing hard rule that missing capability is surfaced, never silent.
+- **Store-wide read/write lock.** A merge rewrites many files at once, so it
+  takes an exclusive lock on `~/.dossier/.sync.lock` while ordinary writes take
+  a shared one. `gofrs/flock` (already vendored, v0.13.0) provides `RLock`, so
+  this needs no new dependency. **The sync engine goes through the store's locks
+  — it never touches the filesystem behind them.**
+
+### 10.6 Slug collisions
+
+Two people creating "pricing-migration" independently produce the same directory
+path with two different frontmatter `id`s. The merge driver detects add/add with
+divergent `id`, renames one to `<slug>-2`, and surfaces it as an ambiguity —
+which routes into the existing `dossier merge` flow rather than inventing a
+second reconciliation path.
+
+### 10.7 Recovery is a product requirement
+
+Sync must never leave the repo in a state that requires git knowledge to escape.
+
+- Fast-forward or merge commit only. **Never rebase**, never rewrite history,
+  never force-push.
+- On any unexpected repo state (detached HEAD, merge in progress, diverged with
+  no common ancestor), **stop, touch nothing, and report in plain language**
+  through `dossier doctor` and `dossier sync --status`.
+- `dossier sync --status` shows: last pull, last push, unpushed changes,
+  unresolved conflicts. One command answers "am I current?"
+
+### 10.8 Two non-technical prerequisites
+
+Worth naming because neither is solved by code:
+
+- **Everyone in the loop runs Dossier.** Sharing only pays off if teammates
+  actually adopt it. **Validate with one teammate before building for five** —
+  if Ryan does not stick with it for a month, Phase 6 has no users, and (a) was
+  the right answer all along.
+- **A shared repo means Alex can read Priya's profile.** That turns §4.3 from
+  good practice into a load-bearing constraint: the factual, task-scoped,
+  co-authored discipline is *what makes the store safe to share*. Person notes
+  should be written from day one as though every colleague will read them —
+  because in Phase 6 they can. The repo must be private, and `dossier sync init`
+  should say all of this out loud before the first push.
+
+---
+
+## 11. ADRs required before implementation
 
 Per `CLAUDE.md`, settled decisions are not relitigated silently. Each of these
 needs a short ADR in `docs/adr/` recording what changed and why:
@@ -661,10 +835,11 @@ needs a short ADR in `docs/adr/` recording what changed and why:
 4. **0009 — Viewer identity (`me`) and reporting-line escalation.** Must state
    that this is not multi-user, and record why identity is stored outside
    `DOSSIER_HOME` (§1.5).
-5. **0010 — Multi-machine posture.** Records the (a)/(b) split from §9, the
-   choice of git-over-hosting when (b) arrives, and the three reachability
-   constraints adopted now. Written *now*, while the reasoning is fresh —
-   deferring a decision is still a decision, and this one shapes three others.
+5. **0010 — Shared store over git (Phase 6).** Records the (a)/(b) split, the
+   decision that (b) is the destination, git-over-hosting and the rejection of
+   synced folders, the merge-driver contract (§10.3), and the three constraints
+   adopted in earlier phases to make it cheap. Written *now*, while the reasoning
+   is fresh — this decision shapes three earlier ones.
 
 `CurrentSchemaVersion` bumps once for the whole v02 frontmatter change
 (importance enum, urgency ignored, requirements array). Reuse the existing
@@ -674,7 +849,7 @@ migration path.
 
 ---
 
-## 11. Dogfood drills for v02
+## 12. Dogfood drills for v02
 
 v1's lesson was that quality came from the guide and real use, not more
 structure. The same applies here:
@@ -701,3 +876,16 @@ structure. The same applies here:
 9. **Cortisol check (§0.1)** — after two weeks, does opening the dashboard feel
    like orientation or like a list of ways you are behind? If the latter, the
    tone rules were not followed, and that is a defect, not a preference.
+
+Before Phase 6 specifically:
+
+10. **One-teammate adoption trial** — Ryan runs his own store (mode (a)) for a
+    month. If it does not stick, Phase 6 has no users. This gates the phase.
+11. **Conflict-rate measurement** — with two stores and manual exchange,
+    estimate how often you and Ryan would have touched the same dossier in the
+    same window. That number sizes the risk in §10.4 before any code is written.
+12. **Merge-driver adversarial fixtures** — simultaneous edits to: different
+    requirements, the same requirement, different body sections, the same
+    section, the same person note, and two same-slug creations. Every case must
+    end with a parseable `dossier.md` and, where genuinely contradictory, a
+    conflict artifact. Golden-file tested, per the repo's existing bar.
