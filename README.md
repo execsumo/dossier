@@ -93,8 +93,8 @@ also has no built-in MCP client; if you run an MCP adapter extension, register
 Everything is scriptable too. The CLI, MCP, and hooks are thin layers over one core, so they behave identically.
 
 ```bash
-# Promote a topic into a Dossier (optionally seed its distilled state and lead)
-dossier promote "payments-migration" --lead "Alice" --distilled "## Situation
+# Promote a topic into a Dossier (optionally seed its distilled state, lead, and meeting interfaces)
+dossier promote "payments-migration" --lead "Alice" --interface "1:1" --interface "Steerco" --distilled "## Situation
 Migrating billing off the legacy gateway.
 ## Next action
 Confirm webhook signing keys with the vendor."
@@ -104,6 +104,8 @@ dossier show payments-migration   # full distilled state + metadata
 dossier search "webhook"          # search distilled state + archives
 dossier status payments-migration active
 dossier lead payments-migration "Bob"
+dossier interface payments-migration "1:1" "Pricing WBR"
+dossier ls --interface "1:1" --json   # topics to discuss in a 1:1
 dossier next payments-migration "Write the cutover runbook"
 dossier priority payments-migration --importance h --urgency h
 dossier link payments-migration --from-file ./notes.md   # attach a source to the archive
@@ -121,9 +123,10 @@ For interactive browsing and editing, launch the full-screen TUI — run `dossie
 dossier        # or: dossier tui
 ```
 
-It opens a priority-sorted dashboard of your open Dossiers, automatically grouped by their assigned Lead. From there you can:
+It opens a priority-sorted dashboard of your Dossiers, with Lead and discussion-interface filters for meeting prep. From there you can:
 
 - **open** a Dossier to read its distilled state (with a live token estimate and over-target warning). The distilled state is rendered natively as rich, syntax-highlighted Markdown. The view automatically live-refreshes when Claude Code updates the dossier in the background.
+- **filter** by Lead with `f`, then cycle through `All` and the seven discussion interfaces with `i` (for example, Marcus + `1:1`),
 - **edit** the Lead, status, priority (importance/urgency/due date), and next action inline without leaving the dashboard,
 - **link** a source, resolving ambiguous matches by picking from ranked candidates, and
 - **merge** one Dossier into another, resolving any conflicts in a syntax-highlighted side-by-side view (sources are archived, never deleted).

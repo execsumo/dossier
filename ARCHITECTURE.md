@@ -1,7 +1,7 @@
-# Dossier — Architecture (seeded)
+# Dossier — Architecture
 
-> Date: 2026-06-14 · Language: Go (see `BUILD-DECISIONS.md` B1)
-> Status: **seed**. This establishes the structure and the load-bearing decisions so the codebase starts correct. The dev agent owns keeping it current as it builds — update it in the same PR as any structural change.
+> Updated: 2026-08-05 · Language: Go (see `BUILD-DECISIONS.md` B1)
+> Status: **implemented**. This documents the current structure and load-bearing decisions.
 
 This document describes **how** to build what `SPEC.md` specifies. The SPEC defines the seams (data model, tool/CLI contracts, file layout, acceptance criteria); this defines the internal shape behind those seams.
 
@@ -49,7 +49,7 @@ dossier/
     main.go              # entrypoint: routes to `cli` (default) or `mcp serve`
   internal/
     core/                # PURE DOMAIN — no I/O, no third-party deps
-      dossier.go         # Dossier, Frontmatter, DistilledState, section model + invariants
+      dossier.go         # Dossier, Frontmatter, meeting-interface enums, section model + invariants
       artifact.go        # Artifact, types, size/format validation
       audit.go           # AuditEvent types (§4.4) + JSONL marshaling
       revision.go        # canonical hashing + optimistic-concurrency check (see §6)
@@ -114,11 +114,11 @@ func (s *Service) Save(ctx, SaveReq) (Result, error)        // optimistic concur
 func (s *Service) Link(ctx, LinkReq) (Result, error)        // candidates if id omitted
 func (s *Service) Merge(ctx, MergeReq) (Result, error)      // conflict detection
 func (s *Service) Recall(ctx, RecallReq) (Result, error)    // returns revision + token estimate
-func (s *Service) List(ctx, ListReq) (Result, error)
+func (s *Service) List(ctx, ListReq) (Result, error) // status + interface filters
 func (s *Service) Search(ctx, SearchReq) (Result, error)
 func (s *Service) Switch(ctx, SwitchReq) (Result, error)
 func (s *Service) Active(ctx, ActiveReq) (Result, error)
-func (s *Service) Save(ctx, SaveReq) (Result, error)        // single write path: distilled state + frontmatter (name/status/lead/next_action/priority/...) + artifacts, with optimistic-concurrency conflict handling. All metadata edits (status, lead, etc.) route through here so CLI/MCP/TUI stay identical.
+func (s *Service) Save(ctx, SaveReq) (Result, error)        // single write path: distilled state + frontmatter (name/status/lead/interfaces/next_action/priority/...) + artifacts, with optimistic-concurrency conflict handling. All metadata edits (status, lead, interfaces, etc.) route through here so CLI/MCP/TUI stay identical.
 func (s *Service) Archive(ctx, ArchiveReq) (Result, error)
 func (s *Service) Path(ctx, PathReq) (Result, error)
 func (s *Service) Doctor(ctx) (Result, error)
@@ -138,7 +138,7 @@ type Store interface {
     // CRUD over dossiers, artifacts, audit, sessions, conflicts, config.
     // Returns current revision on reads; enforces atomic writes (§5).
     Read(slugOrID string) (*Dossier, Revision, error)
-    List(filter StatusFilter) ([]DossierMeta, error)   // frontmatter scan only
+    List(statusFilter string) ([]Frontmatter, error)   // frontmatter scan only; service applies interface filters
     Write(d *Dossier, base Revision) (Revision, error) // optimistic; see §6
     WriteArtifact(dossierID string, a *Artifact) error
     AppendAudit(dossierID string, e AuditEvent) error
@@ -168,6 +168,16 @@ Why each is a port:
 - **Searcher** — lets native/ripgrep swap per B5 without core knowing.
 - **Tokenizer** — B4; swappable, mockable (tests assert behavior, not exact counts).
 - **Harness** — isolates the **riskiest, most fragile code** (mutating other tools' config files) behind one interface, and makes the capability matrix a set of table tests against fixture config dirs.
+
+### Structured meeting interfaces
+
+`Frontmatter.Interfaces` is an optional, ordered multi-select field. The canonical
+values are `Pricing WBR`, `1:1`, `OLG Standup`, `Growth Standup`, `Steerco`,
+`Solutioning`, and `OpsRev`. `Service.List` applies interface filters with **ANY**
+semantics: a dossier is returned when it contains at least one requested value.
+This shared service behavior is exposed by the CLI (`ls --interface`), MCP
+(`dossier_list.interfaces`), and the TUI (`i`), while `Lead` remains the person
+filter used to answer queries such as “Marcus in my 1:1.”
 
 ---
 
