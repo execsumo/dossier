@@ -277,29 +277,3 @@ func TestClaudeCodeHarnessSplitConfig(t *testing.T) {
 		t.Errorf("expected no new backups on idempotent run, got %d (was %d)", after, before)
 	}
 }
-
-func TestPiHarnessDetectsHookProvidedSession(t *testing.T) {
-	t.Setenv("PI_SESSION_ID", "pi-session")
-	t.Setenv("PI_SESSION_FILE", "/tmp/pi-session.jsonl")
-
-	caps, err := NewPiHarness("/tmp/dossier").Detect()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !caps.MCP || !caps.SessionStartHook || !caps.SessionEndHook || !caps.PreCompactionHook || !caps.TranscriptCapture {
-		t.Fatalf("expected full Pi capabilities, got %+v", caps)
-	}
-}
-
-func TestPiHarnessDoesNotClaimTranscriptWithoutSessionFile(t *testing.T) {
-	t.Setenv("PI_SESSION_ID", "pi-session")
-	t.Setenv("PI_SESSION_FILE", "")
-
-	caps, err := NewPiHarness("/tmp/dossier").Detect()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if caps.TranscriptCapture {
-		t.Fatal("Pi must not claim transcript capture without PI_SESSION_FILE")
-	}
-}

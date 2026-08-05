@@ -23,7 +23,7 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 > - **Milestone 7:** Optimistic concurrency control, non-overlapping frontmatter auto-merging, DP LCS unified diff body conflict generation (writing to `conflicts/`), and `dossier merge` CLI/Service commands are verified.
 > - **Milestone 8:** The final Distillation Guide is authored in `assets/guide.md` and embedded in the binary to be written to `~/.dossier/context/guide.md` upon initialization. It has been upgraded to employ rigorous linguistic compression (syntactic pruning, lexical density, and negative space framing). All dogfooding validations, test sweeps, and PRD success metrics have been fully met.
 > - **Stable Install & Auto-MCP Configuration:** Implemented stable binary self-install path command (`dossier install`, default `~/.local/bin/dossier`), volatile path detection on `init`, and auto-registration of both the MCP stdio server and lifecycle hooks in Claude Code's user/global configuration files (preserving existing third-party configs and backing up changed files).
-> - **v1 harness support (2026-08-03):** Claude Code remains fully integrated. Pi is now supported through a `PiHarness` when the user's existing Claude-like hooks extension meets the Pi Extension Contract below. Codex and Antigravity remain out of scope. The `Harness` interface/registry remain extensible.
+> - **v1 harness support (2026-08-03, revised 2026-08-04):** Claude Code remains fully integrated. Pi is supported through a `PiHarness` plus the Dossier Pi extension Dossier now installs itself (session identity today; lifecycle bridging still owed — see "Pi integration" below). Codex and Antigravity remain out of scope. The `Harness` interface/registry remain extensible.
 > - **In-session Dossier switching fixed (2026-06-16, ADR 0003):** Previously the MCP `dossier_session` tool (consolidating switch/active) required a `session_id` the agent had no way to obtain, so an agent could not change (or even read) its active Dossier from inside Claude Code. Root cause + fix: Claude Code sets `CLAUDE_CODE_SESSION_ID` in the MCP server's env (verified identical to the transcript UUID and hook stdin `session_id`). A shared `harness.ResolveSessionID` now resolves the session at the adapter edge (precedence: explicit → `CLAUDE_CODE_SESSION_ID` → `PI_SESSION_ID` → `DOSSIER_SESSION` → `sess_default`); MCP degrades visibly instead of falling back to the shared bucket. An agent can now call `dossier_session` with just a slug; per-session isolation is preserved. See `docs/harness-capabilities.md` (§ MCP Session Identity) and ADR 0003.
 > - **Hardening (2026-06-17):** Addressed critical system stability and performance risks. Prevented OOM crashes by streaming artifact frontmatter instead of loading large bodies. Fixed severe O(N) performance degradation by bypassing full YAML parsing with fast-path string lookups during directory scans. Ensured strict history preservation, bounded LCS diff matrices for massive conflict files, resolved symlink-destructive writes in the harness adapter, and fortified non-interactive stdin blocking. Enhanced `Doctor` with comprehensive provenance validation, artifact origin checks, and unresolved conflict reporting. Improved `SessionEnd` safety by adding explicit audit logging for missing payload scenarios.
 > - **TUI de-sessioned (2026-06-17, ADR 0004):** The TUI no longer resolves or carries a session identity and no longer exposes the per-session active binding. Removed the `a` ("make active") key, the `★` active marker/column, the `Session:`/`Active:` header fields, and the standalone-session footer warning — these only ever acted on the `sess_default` bucket that no live agent session reads (the "make-active does nothing for me" / "fixed Session value" confusion). The TUI is now purely a reactive browse/edit viewer (list, markdown recall with live hot-refreshing, status/priority/next-action inline editing, link, syntax-highlighted merge). `Service.Switch`/`Active` are unchanged and remain the CLI/MCP surface for per-session binding. Narrows B9 (see ADR 0004); supersedes ADR 0002 and obsoletes `docs/tui-plan.md`'s catch-up section.
@@ -38,26 +38,44 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 
 > - **SessionStart slimmed to a one-line nudge (2026-07-15):** Dogfooding found the unbound-session branch of `Service.SessionStart` — a full open-dossier bulletlist (name/status/slug/priority per line) plus a 3-step "check before creating" instruction block — was steering the agent toward thinking about Dossier on every single session, including ones with nothing to do with it, since the hook fires unconditionally on session start. Replaced it with a single-line nudge (`N open dossier(s): <names>. Use dossier_list ... dossier_session ... dossier_promote ...`). This isn't a capability loss: `dossier_promote` already runs its own similarity check server-side and returns `next_actions` guiding the agent through ambiguous matches (see `Service.Promote`), so the old instructional prose was purely redundant with behavior the tool already has. The **bound**-session branch (active dossier's full Distilled State + Distillation Guide inlined) is unchanged — a session with an explicit binding has earned the heavier payload. This is the same "active interception, zero-tax" principle documented under **Programmatic Context Injection** above, now applied to the hook's default-empty path too.
 
-> - **Pi harness support (2026-08-03):** Added a Dossier-side `PiHarness`. It detects the user's existing Pi Claude-like hooks extension through `PI_SESSION_ID`/`PI_SESSION_FILE`, resolves `PI_SESSION_ID` for MCP and hooks, reads `PI_SESSION_FILE` as the transcript fallback when hook stdin does not include one, and records Pi-specific transcript provenance. Dossier does not install or modify Pi hooks; the existing extension owns lifecycle invocation.
+> - **Pi harness support (2026-08-03):** Added a Dossier-side `PiHarness`. It detects the user's existing Pi Claude-like hooks extension through `PI_SESSION_ID`/`PI_SESSION_FILE`, resolves `PI_SESSION_ID` for MCP and hooks, reads `PI_SESSION_FILE` as the transcript fallback when hook stdin does not include one, and records Pi-specific transcript provenance. Dossier does not install or modify Pi hooks; the existing extension owns lifecycle invocation. **Partly superseded 2026-08-04 — see the next entry: the environment-variable assumption did not survive contact with Pi.**
+> - **Dossier Pi extension + session identity (2026-08-04, ADR 0005):** Verified against Pi 0.83.0 that `PI_SESSION_ID`/`PI_SESSION_FILE` are set **only for bash-tool children** (Pi strips and re-adds them per invocation), and that Pi has **no built-in MCP client**. So a Dossier MCP server under Pi had no session id at all — `ErrNoSessionID`, no binding, no switching — and any process spawned once kept a stale id across `/new`, `/resume`, `/fork`. Dossier now **ships its own Pi extension** (`assets/pi-extension.ts`, embedded), installed by `dossier init` when Pi is detected on the device, or by `dossier harness install pi` when Pi is added later. It publishes a per-Pi-pid **session pointer** and mirrors the identity into Pi's process environment; Dossier resolves it by walking its own process ancestry, which keeps concurrent Pi sessions isolated. Session-id precedence gains the pointer at step 4, resolution now **names its source**, and `Service.Switch` records that harness on the binding (a Pi session is no longer filed as Claude Code with Claude Code's capabilities). Capability reporting turned honest: Pi reports `Installed`/`SessionIdentity` and reports MCP + lifecycle hooks as unavailable, because Dossier does not provide them for Pi yet — surfaced by `init`, `dossier harness list`, and a non-fatal `doctor` advisory. `init` also stopped letting the last harness scanned answer for all of them (`data["harnesses"]` is now per-harness). **Lifecycle bridging for Pi remains out of scope** (see "Pi integration" below). Verified end-to-end against a real Pi session: the extension published the true session UUID and JSONL path, and a child process with no session environment resolved it, bound a Dossier, and read the binding back.
 > - **`dossier-delegate` skill bundled (2026-08-04):** The skill is now embedded (`assets/dossier-delegate-skill.md`) and installed by `dossier init`/`ClaudeCodeHarness.Install` into `~/.claude/skills/dossier-delegate/SKILL.md`, following the same idempotent/backed-up/single-confirmation contract as the rest of `Install`. It remains explicit-invocation-only and is never wired into `customInstructions`/session-start auto-injection.
 
 All features (CLI, MCP, and Rich TUI) are fully operational, tested, and integrated.
 
-## Pi Extension Contract
+## Pi integration (Dossier ships its own extension as of 2026-08-04)
 
-Dossier's Pi integration assumes the user's existing Claude-like hooks extension provides the lifecycle bridge. A separate Dossier-specific Pi extension is not required, but the extension must:
+> **Supersedes the "Pi Extension Contract" written on 2026-08-03**, which assumed
+> the user's own Claude-like hooks extension would supply everything through
+> `PI_SESSION_ID`/`PI_SESSION_FILE` in the process environment. Reading Pi 0.83.0
+> showed those variables reach **bash-tool children only**, and that Pi has **no
+> built-in MCP**. See ADR 0005 and `docs/harness-capabilities.md` §2.
 
-- invoke `dossier hook session-start` at Pi `session_start`;
-- invoke `dossier hook pre-compaction` at Pi's pre-compaction boundary;
-- invoke `dossier hook session-end` at Pi `session_shutdown`;
-- provide `PI_SESSION_ID` to the Dossier process for every invocation;
-- provide `PI_SESSION_FILE` when transcript capture is available;
-- invoke the pre-compaction hook before Pi discards or rewrites the relevant context;
-- invoke the session-end hook before the session process exits;
-- preserve the exit status and surface Dossier failures rather than silently swallowing them;
-- avoid concurrent duplicate lifecycle calls for the same Pi session boundary.
+**What Dossier now installs.** `dossier init` (and `dossier harness install pi`
+for a Pi added later) writes the bundled extension — `assets/pi-extension.ts`,
+embedded in the binary — to `<pi agent dir>/extensions/dossier/index.ts`,
+idempotently, backing up anything it replaces and confirming first (B7/B8).
 
-The extension may pass JSON on stdin with `session_id`, `transcript`, and `distilled_state`. If `transcript` is omitted, Dossier reads the file named by `PI_SESSION_FILE`. The Pi session file is retained as Pi JSONL; Dossier stores it as a transcript artifact and does not reinterpret or mutate the source file.
+**What it does.** On every `session_start` it publishes a session pointer at
+`<pi agent dir>/dossier/sessions/<pi-pid>.json` (`session_id`, `session_file`,
+`cwd`, pid) and mirrors the identity into the Pi process environment for
+children spawned afterwards. Dossier walks its own process ancestry to find the
+pointer of the Pi process that owns it, so concurrent Pi sessions stay isolated.
+Session-id precedence: explicit → `CLAUDE_CODE_SESSION_ID` → `PI_SESSION_ID` →
+**Pi pointer** → `DOSSIER_SESSION` → `sess_default` (never for MCP).
+
+**Still owed for Pi (deliberately out of scope this pass):** lifecycle bridging.
+The extension does not yet invoke `dossier hook session-start|session-end|
+pre-compaction`, so Pi sessions get no session-start injection, no end-of-session
+capture and no pre-compaction save. Detection reports those as unavailable
+rather than implying them. When that work happens, the bridge must: fire
+pre-compaction *before* Pi discards context; fire session-end before the process
+exits; pass JSON on stdin with `session_id`/`transcript`/`distilled_state`
+(Dossier falls back to the pointer's `session_file` when `transcript` is
+omitted); preserve exit status rather than swallowing failures; and avoid
+duplicate calls for the same boundary. The Pi session file is archived as Pi
+JSONL — never reinterpreted or mutated.
 
 > **Active Monitors & Agent Skill (Completed):** Added `## Active Monitors` to the Dossier schema (`assets/guide.md`) for tracking live, mutable context (e.g., Slack threads, Jira tickets) separately from static archived references. We have also created a "Resumption Protocol" Skill (`assets/skill.md`) that is embedded and written out during `dossier init` to `~/.dossier/context/skill.md`. `init` also configures Claude Code's `customInstructions` to point to this skill so agents automatically know to poll these monitors upon resuming a dossier.
 > **TUI catch-up to the session-id fix (2026-06-16) — later superseded:** The TUI's session/active presentation was updated to reflect real-session vs fallback (honest header banner + standalone footer warning). This was **superseded on 2026-06-17 by ADR 0004**, which removed the session/active concept from the TUI entirely (see the de-sessioned entry above). The honest-banner/footer work no longer exists.
@@ -137,7 +155,7 @@ for a human, async, offset delegate rather than a supervised agent.
 ## Resolved decisions (the foundation)
 
 Product (from `PRD.md` §0):
-- v1 supports **Claude Code and Pi**; local, single-user, file-based, **no database**. Pi requires the compatible hooks-extension contract documented below.
+- v1 supports **Claude Code and Pi**; local, single-user, file-based, **no database**. Pi integration is carried by the Dossier Pi extension Dossier installs (see "Pi integration" above).
 - A Dossier is a **flat durable topic** (no graph/tree). Each has `dossier.md` (frontmatter + Distilled State), `artifacts/`, `audit.log`.
 - **One active Dossier per session**, not global. Ordinary saves have **no human gate** (trust = non-destruction + the Distillation Guide). Ambiguous links and merge conflicts **do** ask the user.
 - **No native deletion** (archive only). Text-first artifacts; reject single artifacts > 1 GB. Every material claim carries provenance. 100k tokens is a **warning threshold**, not a hard limit. Missing harness capabilities are warned about, never silent.

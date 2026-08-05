@@ -1,6 +1,6 @@
 # Harness Capabilities
 
-Dossier v1 supports **Claude Code and Pi**. This document records Claude Code's integration capabilities and the Pi contract provided by a compatible hooks extension.
+Dossier v1 supports **Claude Code and Pi**. This document records Claude Code's integration capabilities and Pi's, as verified against each harness.
 
 Other harnesses (Codex, Antigravity) remain out of scope for v1. The `Harness` interface and registry remain extensible.
 
@@ -23,20 +23,77 @@ Other harnesses (Codex, Antigravity) remain out of scope for v1. The `Harness` i
 
 All capabilities are available, so Claude Code supports Dossier's full deterministic happy path. Even so, if a capability is missing in a given session (e.g. transcript access), Dossier must degrade visibly — warn rather than silently skip.
 
-## 2. Capability Contract (Pi)
+## 2. Capability Matrix (Pi)
 
-Pi support is provided by the user's existing Claude-like hooks extension. Dossier detects the contract from the process environment; it does not install Pi hooks.
+> **Verified against Pi (`@earendil-works/pi-coding-agent`) 0.83.0 — source-read, not assumed.**
+> This section **corrects** the earlier assumption (2026-08-03) that a user's
+> Claude-like hooks extension would supply the whole contract through
+> `PI_SESSION_ID`/`PI_SESSION_FILE` in the process environment. Two of those
+> assumptions do not hold; see *Findings* below.
 
-| Feature | Pi requirement |
+| Feature | Pi |
 |:---|:---|
-| Session identity | `PI_SESSION_ID` |
-| Transcript path | `PI_SESSION_FILE` |
-| Session-start hook | Extension invokes `dossier hook session-start` |
-| Session-end hook | Extension invokes `dossier hook session-end` |
-| Pre-compaction hook | Extension invokes `dossier hook pre-compaction` |
-| Transcript fallback | Dossier reads `PI_SESSION_FILE` when stdin has no `transcript` |
+| **Config dir** | `~/.pi/agent` (override: `PI_CODING_AGENT_DIR`) |
+| **Extension discovery** | `<agent dir>/extensions/*.ts` and `<agent dir>/extensions/*/index.ts`; project-local `.pi/extensions/…` |
+| **Extension model** | In-process TypeScript modules loaded via jiti; no build step |
+| **MCP Registration Path** | **None built in.** MCP arrives only through a third-party adapter extension |
+| **Hook Configuration** | **None.** Pi has extension *events*, not out-of-process hooks |
+| **SessionStart / SessionEnd / Pre-compaction** | Extension events (`session_start`, `session_shutdown`, `session_before_compact`) — **not bridged by Dossier yet** |
+| **Raw Transcript Access** | Yes — session JSONL at `<agent dir>/sessions/--<cwd>--/<ts>_<uuid>.jsonl` |
+| **Stable Session ID** | Yes (UUID; `ctx.sessionManager.getSessionId()`) |
+| **Session env vars** | `PI_SESSION_ID` / `PI_SESSION_FILE` — **bash-tool children only** |
+| **Session identity for other processes** | Via the bundled Dossier extension (below) |
+| **Install/Notice Surfacing** | Yes (`dossier init`, `dossier harness list`, `dossier doctor`) |
 
-Pi's JSONL file is archived as provided. Dossier does not mutate or reinterpret the source transcript.
+### Findings that contradicted the earlier assumptions
+
+1. **`PI_SESSION_ID`/`PI_SESSION_FILE` are not process-wide.** Pi builds them per
+   bash-tool invocation (`core/tools/bash.js` deletes them from the inherited
+   environment and re-adds them from the live session). A Dossier process Pi
+   starts any other way — an MCP server, a helper — never sees them, and a
+   process spawned once keeps a stale snapshot across `/new`, `/resume` and
+   `/fork`.
+2. **Pi ships no MCP client.** MCP support is a third-party adapter extension, so
+   Dossier must not claim the MCP capability under Pi.
+
+Consequence: Dossier claims neither MCP nor lifecycle hooks for Pi, and supplies
+session identity itself through a bundled extension.
+
+### The Dossier Pi extension (`assets/pi-extension.ts`)
+
+Installed to `<agent dir>/extensions/dossier/index.ts` by `dossier init` or
+`dossier harness install pi` — idempotent, backed up before replacement, and
+confirmed before writing (B7/B8). On every `session_start` it:
+
+- writes a **session pointer** to `<agent dir>/dossier/sessions/<pi-pid>.json`
+  (override: `DOSSIER_PI_SESSION_DIR`) recording `session_id`, `session_file`,
+  `cwd` and the Pi pid, write-then-rename so a reader never sees a partial file;
+- mirrors `PI_SESSION_ID`/`PI_SESSION_FILE` into the Pi process environment, so
+  every child Pi spawns from then on inherits the identity directly;
+- prunes pointers whose Pi process is gone, and removes its own on quit.
+
+Dossier resolves the pointer by walking its own process ancestry (procfs, `ps`
+fallback) until it finds the pointer of the Pi process that owns it — so two
+concurrent Pi sessions can never read each other's binding. `Service.Switch`
+records the resolved source, so a Pi session's binding is filed under `pi` with
+Pi's capabilities even on a machine that also has Claude Code configured.
+
+Verified end-to-end against Pi 0.83.0: a real session published its UUID and
+JSONL path, a child process with no session environment resolved that id through
+the ancestry walk, bound a Dossier, and read the binding back.
+
+### Out of scope in this pass (named, not forgotten)
+
+- **Lifecycle bridging.** The extension does not yet call `dossier hook
+  session-start|session-end|pre-compaction`. Until it does, Pi sessions get no
+  session-start context injection, no end-of-session capture, and no
+  pre-compaction save. `Detect` reports those capabilities as unavailable rather
+  than implying them.
+- **MCP registration.** Users who run an MCP adapter extension register
+  `dossier mcp serve` with that adapter themselves; Dossier does not write
+  `mcp.json` for Pi.
+- Pi's JSONL is archived as provided — Dossier never mutates or reinterprets the
+  source transcript.
 
 ---
 

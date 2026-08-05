@@ -52,6 +52,10 @@ func (c *ClaudeCodeHarness) Detect() (core.Capabilities, error) {
 		SessionEndHook:    true,
 		PreCompactionHook: true,
 		TranscriptCapture: true,
+		Installed:         true,
+		// Claude Code sets CLAUDE_CODE_SESSION_ID in every session's process
+		// environment (verified; ADR 0003), so identity needs no bridge.
+		SessionIdentity: true,
 	}, nil
 }
 

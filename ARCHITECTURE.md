@@ -71,16 +71,20 @@ dossier/
       bpe.go             # embedded vocab; estimate()
     harness/             # driven adapters (implement core.HarnessRegistry / Harness)
       harness.go         # Registry + shared hook-merge helpers
-      claudecode.go      # Claude Code harness (B2)
-      pi.go              # Pi contract adapter (B2)
+      claudecode.go      # Claude Code: hooks + MCP registration + skill install (B2)
+      pi.go              # Pi: detection + installs the bundled Pi extension (B2, ADR 0005)
+      pisession.go       # Pi session pointer: location, record, process-ancestry walk
+      session.go         # session-id resolution ladder shared by CLI/MCP (ADR 0003/0005)
     config/              # config.yaml load/save/defaults
     hooks/               # hook PAYLOAD builders + session-start/end handlers (call core)
     cli/                 # cobra commands → core.Service → render (text/--json)
     mcp/                 # stdio MCP server → core.Service → §8.2 envelope
     tui/                 # bubbletea models/views (fsnotify hot-refresh, glamour markdown) → core.Service
-  assets/                # go:embed — Distillation Guide + context templates
+  assets/                # go:embed — Distillation Guide, context templates, installables
     guide.md
     library.tmpl.md
+    dossier-delegate-skill.md  # installed into Claude Code's skills dir
+    pi-extension.ts            # installed into Pi's extensions dir (session identity)
   docs/
     harness-capabilities.md   # PRODUCED by dev agent (Milestone 1)
 ```
@@ -119,6 +123,8 @@ func (s *Service) Archive(ctx, ArchiveReq) (Result, error)
 func (s *Service) Path(ctx, PathReq) (Result, error)
 func (s *Service) Doctor(ctx) (Result, error)
 func (s *Service) Init(ctx, InitReq) (Result, error)
+func (s *Service) HarnessStatus(ctx) (Result, error)                  // per-harness detection, read-only
+func (s *Service) InstallHarness(ctx, InstallHarnessReq) (Result, error) // one harness added after init
 ```
 
 `Result` carries `data any`, `warnings []Warning`, `next_actions []NextAction` — the exact §8.2 envelope, but surface-agnostic. The MCP adapter serializes it as JSON; the CLI adapter prints text or `--json`; the TUI renders it. **Warnings (e.g. over-token-target, transcript-unavailable) are produced once in core** and flow to every surface — never re-implemented per adapter.
@@ -243,7 +249,7 @@ ts: 2026-06-14T16:10:00-07:00
 
 All three construct the Service identically via a small `wire()` that picks adapters (native vs ripgrep search, real vs fake store) — keep composition in one place.
 
-**Session resolution (adapter-side, see ADR 0003).** `core` stays pure: every session-scoped method takes an explicit `SessionID`. *Which* session an adapter is acting for is discovered at the edge by `harness.ResolveSessionID(explicit, allowDefault)`, with precedence `explicit param/flag → CLAUDE_CODE_SESSION_ID (set by Claude Code in each session's env) → DOSSIER_SESSION → sess_default`. The MCP adapter calls it with `allowDefault=false` and **degrades visibly** (`harness_capability_unavailable`) rather than silently sharing the `sess_default` bucket across concurrent sessions; the CLI calls it with `allowDefault=true` for manual use. This is the bridge that lets an in-session agent call `dossier_session` with only a slug. The **TUI carries no session identity at all** (it does not expose `Switch`/`Active`/`Session` binding) — it is a read/edit viewer over the store; see [ADR 0004](docs/adr/0004-tui-no-session.md).
+**Session resolution (adapter-side, see ADR 0003 and ADR 0005).** `core` stays pure: every session-scoped method takes an explicit `SessionID`. *Which* session an adapter is acting for is discovered at the edge by `harness.ResolveSessionID(explicit, allowDefault)` — or `harness.ResolveSession(...)`, which also names the harness the id came from — with precedence `explicit param/flag → CLAUDE_CODE_SESSION_ID (set by Claude Code in each session's env) → PI_SESSION_ID (Pi sets this for bash-tool children only) → Pi session pointer (published by the bundled Pi extension for the owning Pi process, found by walking this process's ancestry) → DOSSIER_SESSION → sess_default`. Adapters pass the resolved harness name into `SwitchReq.HarnessName` so a binding records the harness the session actually ran under rather than the first one configured on the machine. The MCP adapter calls it with `allowDefault=false` and **degrades visibly** (`harness_capability_unavailable`) rather than silently sharing the `sess_default` bucket across concurrent sessions; the CLI calls it with `allowDefault=true` for manual use. This is the bridge that lets an in-session agent call `dossier_session` with only a slug. The **TUI carries no session identity at all** (it does not expose `Switch`/`Active`/`Session` binding) — it is a read/edit viewer over the store; see [ADR 0004](docs/adr/0004-tui-no-session.md).
 
 **MCP**: use the official Go MCP SDK over stdio. Each `dossier_*` tool (SPEC §8.1) is a ~10-line handler: parse input → call one Service method → marshal `Result` into the §8.2 envelope. Map typed errors → §8.2 codes in **one** place (`mcp/errors.go`).
 
@@ -255,7 +261,13 @@ All three construct the Service identically via a small `wire()` that picks adap
 
 The harness implements `Detect()` and `Install()`. `Install` is **idempotent, non-clobbering, and backs up** every file it touches (B7), and is **gated by confirmation** in `init` (B8). It registers both the lifecycle hooks and the MCP server (under name `"dossier"`) using the stable binary path passed via `InstallOpts.StableBinaryPath`. Claude Code keeps these in **distinct files**: hooks go to `~/.claude/settings.json` while the MCP server must go to `~/.claude.json` (the only location Claude Code reads user-scope MCP servers from). `Install` also injects the Dossier Resumption Protocol into Claude Code's `customInstructions` array in `settings.json`. `Install` also migrates stale entries an older build wrote to the wrong file (e.g. a `dossier` MCP entry left in `settings.json`). Capability detection produces the booleans in SPEC §5.1.
 
-v1 supports **Claude Code and Pi** (B2). Claude Code provides the full capability set directly; Pi provides it through a compatible Claude-like hooks extension. The `Harness` interface and `Registry` remain extensible, while Codex and Antigravity remain out of scope for v1. The product must still **degrade visibly** — a capability missing in a given session is a warning surfaced through `Result`, never a silent no-op.
+v1 supports **Claude Code and Pi** (B2). Claude Code provides the full capability set directly. **Pi does not**: its `PI_SESSION_ID`/`PI_SESSION_FILE` reach bash-tool children only, and it has no built-in MCP client, so Dossier ships a Pi extension of its own (ADR 0005). The `Harness` interface and `Registry` remain extensible, while Codex and Antigravity remain out of scope for v1. The product must still **degrade visibly** — a capability missing in a given session is a warning surfaced through `Result`, never a silent no-op.
+
+`Capabilities` (`internal/core/session.go`) therefore separates *what a harness offers* from *what it is*: `Installed` (present on this device, so its integration is installable ahead of first use) and `SessionIdentity` (Dossier can resolve a per-session id for it) sit alongside the MCP/hook/transcript booleans of SPEC §5.1. `LiveSession()` and `Present()` are the two predicates the service uses; `Present()` is what makes `init` install into a harness that is installed but idle.
+
+**`PiHarness`** (`internal/harness/pi.go`) detects Pi from its agent directory (`PI_CODING_AGENT_DIR`, default `~/.pi/agent`), a `pi` on PATH, the Pi process environment, or a live session pointer. `Install` writes the embedded `assets/pi-extension.ts` to `<agent dir>/extensions/dossier/index.ts` under the same idempotent/backed-up/confirmed contract (B7/B8) as the Claude Code installer. It claims **neither** MCP nor lifecycle hooks — Dossier does not provide those for Pi yet, and overclaiming them would be a silent no-op instead of a visible gap. `internal/harness/pisession.go` owns the pointer record, its location, and the depth-bounded process-ancestry walk (procfs, `ps` fallback) that finds the owning Pi process.
+
+Per-harness reporting lives in `core`: `HarnessReport` + `Service.HarnessStatus` (read-only detection) and `Service.InstallHarness` (install one integration by name, the "user added Pi after `init`" path, exposed as `dossier harness list|install`). `harnessAdvisories` produces the actionable line that `init`, `harness list` and `doctor` all surface when a harness is installed but its bridge is not. Doctor treats such an advisory as a warning, not an issue — `Doctor.OK` now tracks `report.Issues`, so a missing integration never masquerades as store damage.
 
 ---
 
@@ -277,7 +289,7 @@ The `session-start` hook is the one injection point that fires unconditionally o
 - **store**: integration tests against a temp `DOSSIER_HOME`. Assert atomic-write durability, the 500-Dossier frontmatter scan < 2s (SPEC §14.1), append-only audit, slug collisions.
 - **Distillation Guide**: golden-file fixtures — sample transcript in, assert the distilled output's *structure and provenance presence* (not verbatim prose). This is how guide quality stays regression-safe.
 - **MCP**: drive the server over in-memory pipes; assert the §8.2 envelope and error-code mapping for each tool.
-- **harness**: fixture Claude Code config dirs; assert `Detect()` capabilities and that `Install()` is idempotent and backs up.
+- **harness**: fixture Claude Code and Pi config dirs; assert `Detect()` capabilities (including that Pi does **not** claim MCP or lifecycle hooks) and that `Install()` is idempotent, backs up, and writes nothing without confirmation. Pointer resolution is tested with an injected ancestry function: ancestor pointers resolve, a concurrent session's pointer does not, and malformed/newer-schema pointers are rejected.
 - **doctor**: corrupt-store fixtures (bad YAML, dangling provenance, unparseable audit, stale context) → assert each is reported.
 
 ---
