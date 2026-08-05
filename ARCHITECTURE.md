@@ -71,7 +71,8 @@ dossier/
       bpe.go             # embedded vocab; estimate()
     harness/             # driven adapters (implement core.HarnessRegistry / Harness)
       harness.go         # Registry + shared hook-merge helpers
-      claudecode.go      # the only supported harness in v1 (B2)
+      claudecode.go      # Claude Code harness (B2)
+      pi.go              # Pi contract adapter (B2)
     config/              # config.yaml load/save/defaults
     hooks/               # hook PAYLOAD builders + session-start/end handlers (call core)
     cli/                 # cobra commands → core.Service → render (text/--json)
