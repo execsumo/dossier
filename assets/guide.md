@@ -55,7 +55,13 @@ Immediate execution context. Active files, blockers, or configurations.
 Immediate required actions. Must align with `next_action` and `open_questions` metadata.
 ```
 
-## 4. Distillation Comparison
+## 4. Multi-author Dossiers
+
+- **Attribute opinions:** Attribute contested or opinion-bearing claims via provenance.
+- **Update, don't duplicate:** Prefer updating a claim over duplicating it.
+- **Surface disagreement:** When two authors' sessions disagree, record the disagreement explicitly rather than averaging it away.
+
+## 5. Distillation Comparison
 
 ### BAD DISTILLATION (Low Density, Lossy, High Noise)
 > Hey there! So I started looking into the pricing bug. I ran the test script `go test ./...` and it failed on line 12. Then I talked to Herwin and he said we should use usage-tier instead. I tried fixing it by changing the condition and it passed. Next step is to clean up.

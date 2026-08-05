@@ -126,7 +126,7 @@ func TestPriorityScoreMapsLegacyValueTowardAttention(t *testing.T) {
 
 func TestSaveHealsLegacyFrontmatterAndWarns(t *testing.T) {
 	fakeStore := newLocalFakeStore()
-	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)}, Config{TokenTarget: 100})
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)}, Config{TokenTarget: 100}, nil)
 	ctx := context.Background()
 
 	// Seed a dossier carrying a legacy "medium" importance directly in the store,
@@ -175,7 +175,7 @@ func TestSaveHealsLegacyFrontmatterAndWarns(t *testing.T) {
 
 func TestMigrateHealsStoreWideAndIsIdempotent(t *testing.T) {
 	fakeStore := newLocalFakeStore()
-	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)}, Config{TokenTarget: 100})
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)}, Config{TokenTarget: 100}, nil)
 	ctx := context.Background()
 
 	// One legacy dossier and one already-canonical dossier.

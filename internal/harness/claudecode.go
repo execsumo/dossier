@@ -362,3 +362,35 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 
 	return nil
 }
+
+// ResolveTranscript attempts to read the transcript file either from the provided path or by finding the file named <sessionID>.jsonl under ~/.claude/projects.
+func ResolveTranscript(sessionID, transcriptPath string) string {
+	if transcriptPath != "" {
+		if b, err := os.ReadFile(transcriptPath); err == nil {
+			return string(b)
+		}
+	}
+	if sessionID != "" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			projectsDir := filepath.Join(home, ".claude", "projects")
+			var foundPath string
+			_ = filepath.Walk(projectsDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return nil
+				}
+				if !info.IsDir() && info.Name() == sessionID+".jsonl" {
+					foundPath = path
+					return filepath.SkipAll
+				}
+				return nil
+			})
+			if foundPath != "" {
+				if b, err := os.ReadFile(foundPath); err == nil {
+					return string(b)
+				}
+			}
+		}
+	}
+	return ""
+}

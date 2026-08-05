@@ -3,20 +3,29 @@ package config
 import (
 	"dossier/internal/core"
 	"os"
+	osuser "os/user"
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
 
+// TeamConfig holds configuration for the team sync remote.
+type TeamConfig struct {
+	Remote string `yaml:"remote,omitempty"`
+	Branch string `yaml:"branch,omitempty"`
+}
+
 // Config represents the schema of ~/.dossier/config.yaml.
 type Config struct {
 	DossierHome string `yaml:"dossier_home"`
 	TokenTarget int    `yaml:"token_target"`
+	Author      string `yaml:"author"`
 	// SchemaVersion records the frontmatter schema the store was last migrated to.
 	// It is intentionally left at its zero value in Default so that a config file
 	// written by an older build (which lacks the key) is detected as stale and
 	// triggers the one-time migration sweep on the next launch.
-	SchemaVersion int `yaml:"schema_version"`
+	SchemaVersion int        `yaml:"schema_version"`
+	Team          TeamConfig `yaml:"team,omitempty"`
 }
 
 // Default returns the default configuration with standard paths.
@@ -33,9 +42,19 @@ func Default() *Config {
 		}
 	}
 
+	var author string
+	if u, err := osuser.Current(); err == nil && u.Username != "" {
+		author = u.Username
+	} else if envUser := os.Getenv("USER"); envUser != "" {
+		author = envUser
+	} else {
+		author = "unknown"
+	}
+
 	return &Config{
 		DossierHome: homePath,
 		TokenTarget: 100000,
+		Author:      author,
 	}
 }
 
@@ -72,5 +91,6 @@ func (c *Config) ToCoreConfig() core.Config {
 	return core.Config{
 		DossierHome: c.DossierHome,
 		TokenTarget: c.TokenTarget,
+		Author:      c.Author,
 	}
 }

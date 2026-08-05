@@ -50,7 +50,7 @@ func (r *stubRegistry) Get(name string) (Harness, error) {
 func serviceWithHarnesses(t *testing.T, harnesses ...Harness) *Service {
 	t.Helper()
 	return NewService(newLocalFakeStore(), &mockSearcher{}, &mockTokenizer{},
-		&stubRegistry{harnesses: harnesses}, &mockClock{now: time.Now()}, Config{})
+		&stubRegistry{harnesses: harnesses}, &mockClock{now: time.Now()}, Config{}, nil)
 }
 
 func reportFor(t *testing.T, reports []HarnessReport, name string) HarnessReport {
@@ -215,7 +215,7 @@ func TestSwitchRecordsTheHarnessTheSessionCameFrom(t *testing.T) {
 	pi := &stubHarness{name: "pi", caps: Capabilities{Installed: true, SessionIdentity: true}}
 	store := newLocalFakeStore()
 	svc := NewService(store, &mockSearcher{}, &mockTokenizer{},
-		&stubRegistry{harnesses: []Harness{claude, pi}}, &mockClock{now: time.Now()}, Config{})
+		&stubRegistry{harnesses: []Harness{claude, pi}}, &mockClock{now: time.Now()}, Config{}, nil)
 
 	res, err := svc.Promote(context.Background(), PromoteReq{Name: "Pi bound topic", Force: true})
 	if err != nil {
@@ -247,7 +247,7 @@ func TestSwitchFallsBackToDetectionWhenSourceUnknown(t *testing.T) {
 	}}
 	store := newLocalFakeStore()
 	svc := NewService(store, &mockSearcher{}, &mockTokenizer{},
-		&stubRegistry{harnesses: []Harness{claude}}, &mockClock{now: time.Now()}, Config{})
+		&stubRegistry{harnesses: []Harness{claude}}, &mockClock{now: time.Now()}, Config{}, nil)
 
 	res, err := svc.Promote(context.Background(), PromoteReq{Name: "Fallback topic", Force: true})
 	if err != nil {

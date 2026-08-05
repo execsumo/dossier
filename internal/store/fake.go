@@ -124,6 +124,18 @@ func (f *FakeStore) ReadAuditLog(dossierID string) ([]core.AuditEvent, error) {
 	return f.Audits[dossierID], nil
 }
 
+func (f *FakeStore) ValidateAuditShards(dossierID string) []string {
+	return nil
+}
+
+func (f *FakeStore) EnsureAuditDir(dossierID string) error {
+	return nil
+}
+
+func (f *FakeStore) WriteSessionStash(dossierID string, author string, sessionID string, content string) error {
+	return nil
+}
+
 func (f *FakeStore) SaveSessionBinding(binding *core.SessionBinding) error {
 	f.Sessions[binding.SessionBindingID] = binding
 	return nil

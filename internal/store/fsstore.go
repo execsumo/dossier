@@ -10,6 +10,7 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -483,13 +484,48 @@ func (s *FSStore) listArtifactsInternal(dossierID string, dossierDir string) ([]
 	return list, nil
 }
 
+// SanitizeAuthorString converts an author name to a path-safe string.
+func SanitizeAuthorString(author string) string {
+	author = strings.ToLower(author)
+	var sb strings.Builder
+	lastWasDash := false
+	for _, r := range author {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			sb.WriteRune(r)
+			lastWasDash = false
+		} else {
+			if !lastWasDash {
+				sb.WriteRune('-')
+				lastWasDash = true
+			}
+		}
+	}
+	res := strings.Trim(sb.String(), "-")
+	if res == "" {
+		return "unknown"
+	}
+	return res
+}
+
 // AppendAudit logs a JSONL event.
 func (s *FSStore) AppendAudit(dossierID string, e core.AuditEvent) error {
 	dossierDir, err := s.findDossierDir(dossierID)
 	if err != nil {
 		return err
 	}
-	return AppendAuditLine(filepath.Join(dossierDir, "audit.log"), e)
+
+	author := e.Author
+	if author == "" {
+		author = "unknown"
+	}
+	safeAuthor := SanitizeAuthorString(author)
+
+	auditDir := filepath.Join(dossierDir, "audit")
+	if err := os.MkdirAll(auditDir, 0755); err != nil {
+		return err
+	}
+
+	return AppendAuditLine(filepath.Join(auditDir, safeAuthor+".log"), e)
 }
 
 // ReadAuditLog reads the audit events log.
@@ -498,7 +534,90 @@ func (s *FSStore) ReadAuditLog(dossierID string) ([]core.AuditEvent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ReadAuditEntries(filepath.Join(dossierDir, "audit.log"))
+
+	var allEntries []core.AuditEvent
+
+	legacyEntries, err := ReadAuditEntries(filepath.Join(dossierDir, "audit.log"))
+	if err == nil && len(legacyEntries) > 0 {
+		allEntries = append(allEntries, legacyEntries...)
+	}
+
+	auditDir := filepath.Join(dossierDir, "audit")
+	files, err := os.ReadDir(auditDir)
+	if err == nil {
+		for _, f := range files {
+			if !f.IsDir() && strings.HasSuffix(f.Name(), ".log") {
+				shardEntries, err := ReadAuditEntries(filepath.Join(auditDir, f.Name()))
+				if err == nil {
+					allEntries = append(allEntries, shardEntries...)
+				}
+			}
+		}
+	}
+
+	sort.Slice(allEntries, func(i, j int) bool {
+		return allEntries[i].TS.Before(allEntries[j].TS)
+	})
+
+	return allEntries, nil
+}
+
+// ValidateAuditShards checks shard filenames and readability.
+func (s *FSStore) ValidateAuditShards(dossierID string) []string {
+	var issues []string
+	dossierDir, err := s.findDossierDir(dossierID)
+	if err != nil {
+		return []string{fmt.Sprintf("could not find dossier %s", dossierID)}
+	}
+	auditDir := filepath.Join(dossierDir, "audit")
+	files, err := os.ReadDir(auditDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return []string{fmt.Sprintf("could not read audit dir for %s", dossierID)}
+	}
+
+	for _, f := range files {
+		if !f.IsDir() && strings.HasSuffix(f.Name(), ".log") {
+			name := strings.TrimSuffix(f.Name(), ".log")
+			if SanitizeAuthorString(name) != name {
+				issues = append(issues, fmt.Sprintf("Audit shard %s in dossier %s has malformed name", f.Name(), dossierID))
+			}
+			_, err := ReadAuditEntries(filepath.Join(auditDir, f.Name()))
+			if err != nil {
+				issues = append(issues, fmt.Sprintf("Audit shard %s in dossier %s is unparseable: %v", f.Name(), dossierID, err))
+			}
+		}
+	}
+	return issues
+}
+
+// EnsureAuditDir creates the audit directory for a dossier.
+func (s *FSStore) EnsureAuditDir(dossierID string) error {
+	dossierDir, err := s.findDossierDir(dossierID)
+	if err != nil {
+		return err
+	}
+	auditDir := filepath.Join(dossierDir, "audit")
+	return os.MkdirAll(auditDir, 0755)
+}
+
+// WriteSessionStash writes a session transcript snapshot to the per-dossier stash.
+func (s *FSStore) WriteSessionStash(dossierID string, author string, sessionID string, content string) error {
+	dossierDir, err := s.findDossierDir(dossierID)
+	if err != nil {
+		return err
+	}
+	safeAuthor := SanitizeAuthorString(author)
+	stashDir := filepath.Join(dossierDir, "sessions", safeAuthor)
+	if err := os.MkdirAll(stashDir, 0755); err != nil {
+		return err
+	}
+	filePath := filepath.Join(stashDir, fmt.Sprintf("%s.md", sessionID))
+
+	// overwrite-or-append per session id is fine. We will overwrite.
+	return os.WriteFile(filePath, []byte(content), 0644)
 }
 
 // SaveSessionBinding saves session bindings.

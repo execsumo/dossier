@@ -57,8 +57,8 @@ dossier/
       suggest.go         # lexical suggestion ranking (SPEC §11.2)
       result.go          # Result/Warning/NextAction value types (the §8.2 envelope, surface-agnostic)
       errors.go          # typed domain errors ↔ the §8.2 error codes
-      ports.go           # Store, Searcher, Tokenizer, HarnessRegistry, Clock interfaces
-      service.go         # Service: orchestrates use-cases over the ports
+      ports.go           # Store, Searcher, Tokenizer, HarnessRegistry, Clock, Syncer interfaces
+      service.go         # Service: orchestrates use-cases over the ports (incl. Sync/SyncStatus)
     store/               # driven adapter: filesystem (implements core.Store)
       fsstore.go         # layout, read/write, atomic write protocol (§5)
       auditlog.go        # append-only JSONL with O_APPEND + lock
@@ -75,7 +75,13 @@ dossier/
       pi.go              # Pi: detection + installs the bundled Pi extension (B2, ADR 0005)
       pisession.go       # Pi session pointer: location, record, process-ancestry walk
       session.go         # session-id resolution ladder shared by CLI/MCP (ADR 0003/0005)
-    config/              # config.yaml load/save/defaults
+    sync/                # driven adapter: Team Sync go-git engine (implements core.Syncer)
+      gitsync.go         # GitSync + Config/report types; sync.go: pull→resolve→commit→push
+      merge.go/tree.go   # remote-wins 3-way merge (no git markers ever); DiffTree + MergeBase
+      credentials.go     # PAT resolution (~/.dossier/credentials 0600, `gh auth token` fallback)
+      gitignore.go       # machine-local exclusion set (config.yaml, root sessions/, context/)
+      adapter.go         # maps GitSync's internal types → core.Sync* DTOs (keeps core pure)
+    config/              # config.yaml load/save/defaults (incl. team.remote / team.branch)
     hooks/               # hook PAYLOAD builders + session-start/end handlers (call core)
     cli/                 # cobra commands → core.Service → render (text/--json)
     mcp/                 # stdio MCP server → core.Service → §8.2 envelope
@@ -125,6 +131,8 @@ func (s *Service) Doctor(ctx) (Result, error)
 func (s *Service) Init(ctx, InitReq) (Result, error)
 func (s *Service) HarnessStatus(ctx) (Result, error)                  // per-harness detection, read-only
 func (s *Service) InstallHarness(ctx, InstallHarnessReq) (Result, error) // one harness added after init
+func (s *Service) TeamCreate(ctx, TeamCreateReq) (Result, error)
+func (s *Service) TeamJoin(ctx, TeamJoinReq) (Result, error)
 ```
 
 `Result` carries `data any`, `warnings []Warning`, `next_actions []NextAction` — the exact §8.2 envelope, but surface-agnostic. The MCP adapter serializes it as JSON; the CLI adapter prints text or `--json`; the TUI renders it. **Warnings (e.g. over-token-target, transcript-unavailable) are produced once in core** and flow to every surface — never re-implemented per adapter.
@@ -161,6 +169,17 @@ type Harness interface {
 type HarnessRegistry interface{ All() []Harness }
 
 type Clock interface{ Now() time.Time }
+
+// Team Sync (Phase 2). core owns the Sync* DTOs; internal/sync maps to them so
+// core never imports the go-git adapter. Sync is local-first: the local commit
+// always lands; a nil Syncer means team sync is not configured (Service.Sync
+// returns a clear error, never panics).
+type Syncer interface {
+    Sync(ctx context.Context) (SyncReport, error)     // pull→resolve(remote-wins)→commit→push
+    Status(ctx context.Context) (SyncStatus, error)   // ahead/behind/last-sync, no mutation
+    Create(ctx context.Context) error                 // initialize team store and push
+    Clone(ctx context.Context, url, dir string, depth int) error // join team store
+}
 ```
 
 Why each is a port:
@@ -168,6 +187,9 @@ Why each is a port:
 - **Searcher** — lets native/ripgrep swap per B5 without core knowing.
 - **Tokenizer** — B4; swappable, mockable (tests assert behavior, not exact counts).
 - **Harness** — isolates the **riskiest, most fragile code** (mutating other tools' config files) behind one interface, and makes the capability matrix a set of table tests against fixture config dirs.
+- **Syncer** — isolates the go-git networking/merge engine (B12 Team Sync) behind one interface. `Service.Sync` orchestrates: it calls the port, then routes any both-modified `dossier.md` into the **existing** `conflicts/*.md` machinery via `store.WriteConflict` (`kind: sync_concurrent_edit`) — one conflict mechanism, two triggers (local edit + cross-machine sync). Remote wins the working tree; the local version is preserved; never last-write-wins, never git merge markers.
+
+**Auto-sync (Phase 3b) — lifecycle, not a daemon.** Sync becomes automatic at three trigger points, all best-effort and non-blocking: (1) `Service.SessionStart`/`SessionEnd` (short-lived hook processes) do a bounded pull/push, gated on a configured syncer; (2) the long-lived `mcp serve` process runs a **debounced background sync goroutine** (`internal/mcp/server.go`) triggered after `dossier_save`/`dossier_recall`, coalescing rapid edits and **drained (bounded) on stdin EOF** so the last change is never stranded; (3) short-lived CLI commands do NOT debounce — they rely on the session-boundary hooks and explicit `dossier sync`. There is no daemon and nothing survives the process. Concurrent pushes from these independent paths are safe because the Phase 2 store-wide `.sync.lock` serializes every `Sync()`. `dossier doctor` surfaces sync health (configured / ahead / behind / last-sync / unresolved conflicts) via `Syncer.Status`. **The fast-forward pull path stashes machine-local files (`config.yaml`, root `sessions/`, `context/`, sync state) across go-git's Force checkout**, which would otherwise delete these gitignored files and silently un-team a joined colleague.
 
 ### Structured meeting interfaces
 
@@ -197,7 +219,9 @@ Implements SPEC §12. The non-negotiables:
 
 **Artifacts**: generate id first → write file atomically (temp+rename) → append audit. Reject any single artifact > 1 GB (`artifact_too_large`). Validate format ∈ {markdown, json, txt}; binary → `binary_artifact_unsupported`, store metadata/path/provenance only.
 
-**`audit.log`**: `O_APPEND` single-line JSONL writes (atomic for lines < `PIPE_BUF` on POSIX), under a short-held dir lock. Read = parse line-by-line, order by `ts`.
+**Audit Log**: Sharded by sanitized author slug (`audit/<author>.log`). `O_APPEND` single-line JSONL writes (atomic for lines < `PIPE_BUF` on POSIX), under a short-held dir lock. Read = parse all shards line-by-line plus legacy `audit.log`, sort globally by `ts`.
+
+**Session Stash**: Transcripts are written to `sessions/<author>/<session-id>.md` upon session end to provide an uncompressed author-specific history independent of distillation.
 
 **IDs / slugs** (`ids.go`): ULID with prefixes `dos_ art_ sess_ rev_ conf_`. Slug per SPEC §12.2; on collision append `-` + last 6 chars of the ULID (Crockford base32).
 

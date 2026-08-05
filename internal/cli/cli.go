@@ -9,6 +9,7 @@ import (
 	"dossier/internal/mcp"
 	"dossier/internal/search"
 	"dossier/internal/store"
+	"dossier/internal/sync"
 	"dossier/internal/tokenizer"
 	"dossier/internal/tui"
 	"encoding/json"
@@ -230,6 +231,25 @@ func NewRootCmd() *cobra.Command {
 				fmt.Println("Dossier workspace is healthy!")
 			} else {
 				fmt.Println("Dossier workspace checks failed.")
+			}
+
+			if report, ok := res.Data.(core.DoctorReport); ok {
+				fmt.Printf("\nChecked: %d dossiers, %d artifacts, %d audit logs\n", report.DossiersChecked, report.ArtifactsChecked, report.AuditLogsChecked)
+				if report.SyncConfigured {
+					fmt.Println("\nTeam Sync Status:")
+					if report.SyncStatus != nil {
+						lastSync := report.SyncStatus.LastSync.Format(time.RFC3339)
+						if report.SyncStatus.LastSync.IsZero() {
+							lastSync = "never"
+						}
+						fmt.Printf("  Last sync: %s\n", lastSync)
+						fmt.Printf("  Ahead: %d, Behind: %d\n", report.SyncStatus.Ahead, report.SyncStatus.Behind)
+						fmt.Printf("  Unresolved conflicts: %d\n", report.SyncStatus.ConflictsFound)
+					} else {
+						fmt.Println("  Configured but status unavailable")
+					}
+				}
+				fmt.Println()
 			}
 
 			for _, warning := range res.Warnings {
@@ -1111,7 +1131,7 @@ func NewRootCmd() *cobra.Command {
 			var payload struct {
 				SessionID      string `json:"session_id"`
 				HookEventName  string `json:"hook_event_name"`
-				Transcript     string `json:"transcript"`
+				TranscriptPath string `json:"transcript_path"`
 				DistilledState string `json:"distilled_state"`
 			}
 
@@ -1125,13 +1145,11 @@ func NewRootCmd() *cobra.Command {
 			if sessID == "" {
 				sessID, _ = resolveSessionID()
 			}
-			if payload.Transcript == "" {
-				if transcriptPath := piTranscriptPath(); transcriptPath != "" {
-					if transcriptBytes, readErr := os.ReadFile(transcriptPath); readErr == nil {
-						payload.Transcript = string(transcriptBytes)
-					}
-				}
+			if payload.TranscriptPath == "" {
+				payload.TranscriptPath = piTranscriptPath()
 			}
+
+			transcript := harness.ResolveTranscript(sessID, payload.TranscriptPath)
 
 			switch args[0] {
 			case "session-start":
@@ -1143,7 +1161,7 @@ func NewRootCmd() *cobra.Command {
 				fmt.Print(resText)
 
 			case "session-end", "pre-compaction":
-				err := svc.SessionEnd(context.Background(), sessID, payload.DistilledState, payload.Transcript)
+				err := svc.SessionEnd(context.Background(), sessID, payload.DistilledState, transcript)
 				if err != nil {
 					fmt.Printf("Session end hook failed: %v\n", err)
 					os.Exit(1)
@@ -1210,7 +1228,179 @@ func NewRootCmd() *cobra.Command {
 	// Match `dossier version` output for the built-in `--version` flag.
 	rootCmd.SetVersionTemplate("dossier {{.Version}}\n")
 
+	var syncStatusFlag bool
+	syncCmd := &cobra.Command{
+		Use:   "sync",
+		Short: "Synchronize the dossier store with the team remote",
+		Run: func(cmd *cobra.Command, args []string) {
+			homeDir := resolveHomeDir()
+			svc, err := wire(homeDir)
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			if syncStatusFlag {
+				res, err := svc.SyncStatus(context.Background())
+				if err != nil {
+					if jsonFlag {
+						printJSON(map[string]any{"ok": false, "error": err.Error()})
+						os.Exit(1)
+					}
+					fmt.Printf("Status failed: %v\n", err)
+					os.Exit(1)
+				}
+				if jsonFlag {
+					printJSON(res.Data)
+					return
+				}
+				st := res.Data.(core.SyncStatus)
+				fmt.Printf("Ahead:     %d\n", st.Ahead)
+				fmt.Printf("Behind:    %d\n", st.Behind)
+				fmt.Printf("Dirty:     %d\n", st.Dirty)
+				fmt.Printf("Conflicts: %d\n", len(st.Conflicts))
+				fmt.Printf("Last Sync: %s\n", st.LastSync.Format(time.RFC3339))
+				return
+			}
+
+			res, err := svc.Sync(context.Background())
+			if err != nil {
+				if jsonFlag {
+					printJSON(map[string]any{"ok": false, "error": err.Error()})
+					os.Exit(1)
+				}
+				fmt.Printf("Sync failed: %v\n", err)
+				os.Exit(1)
+			}
+
+			if jsonFlag {
+				printJSON(res)
+				return
+			}
+
+			for _, warning := range res.Warnings {
+				fmt.Printf("Warning: %s\n", warning)
+			}
+
+			report := res.Data.(core.SyncReport)
+			fmt.Println("Sync successful")
+			if report.Pulled {
+				fmt.Println("- Pulled remote changes")
+			}
+			if report.Pushed {
+				fmt.Println("- Pushed local changes")
+			}
+			if !report.Pulled && !report.Pushed {
+				fmt.Println("- Already up to date")
+			}
+		},
+	}
+	syncCmd.Flags().BoolVar(&syncStatusFlag, "status", false, "Show sync status without syncing")
+	syncCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
+	rootCmd.AddCommand(syncCmd)
+
+	teamCmd := &cobra.Command{
+		Use:   "team",
+		Short: "Manage team sync setup",
+	}
+
+	teamCreateCmd := &cobra.Command{
+		Use:   "create <url>",
+		Short: "Turn the current store into a team's shared store",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			homeDir := resolveHomeDir()
+
+			cfgPath := filepath.Join(homeDir, "config.yaml")
+			cfg, err := config.Load(cfgPath)
+			if err != nil {
+				fmt.Printf("Error loading config: %v\n", err)
+				os.Exit(1)
+			}
+			cfg.Team.Remote = args[0]
+			cfg.Team.Branch = "main"
+			if err := cfg.Save(cfgPath); err != nil {
+				fmt.Printf("Error saving config: %v\n", err)
+				os.Exit(1)
+			}
+
+			svc, err := wire(homeDir)
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{
+				RemoteURL: args[0],
+				Branch:    "main",
+			})
+			if err != nil {
+				fmt.Printf("Team create failed: %v\n", err)
+				os.Exit(1)
+			}
+
+			if jsonFlag {
+				printJSON(res)
+				return
+			}
+			fmt.Println("Team store created successfully.")
+		},
+	}
+	teamCreateCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
+
+	teamJoinCmd := &cobra.Command{
+		Use:   "join <url>",
+		Short: "Join an existing team store",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			homeDir := resolveHomeDir()
+
+			cfgPath := filepath.Join(homeDir, "config.yaml")
+			cfg, err := config.Load(cfgPath)
+			if err != nil {
+				fmt.Printf("Error loading config: %v\n", err)
+				os.Exit(1)
+			}
+			cfg.Team.Remote = args[0]
+			cfg.Team.Branch = "main"
+			if err := cfg.Save(cfgPath); err != nil {
+				fmt.Printf("Error saving config: %v\n", err)
+				os.Exit(1)
+			}
+
+			svc, err := wire(homeDir)
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			res, err := svc.TeamJoin(context.Background(), core.TeamJoinReq{
+				RemoteURL: args[0],
+				Branch:    "main",
+			})
+			if err != nil {
+				fmt.Printf("Team join failed: %v\n", err)
+				os.Exit(1)
+			}
+
+			if jsonFlag {
+				printJSON(res)
+				return
+			}
+			fmt.Println("Successfully joined team store.")
+			for _, warning := range res.Warnings {
+				fmt.Printf("Warning: %s\n", warning)
+			}
+		},
+	}
+	teamJoinCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
+
+	teamCmd.AddCommand(teamCreateCmd)
+	teamCmd.AddCommand(teamJoinCmd)
+	rootCmd.AddCommand(teamCmd)
+
 	return rootCmd
+
 }
 
 // Execute runs the cobra command parser.
@@ -1348,7 +1538,23 @@ func wire(dossierHome string) (*core.Service, error) {
 	hregAdapter := harness.NewRegistry(dossierHome)
 	clockAdapter := &realClock{}
 
-	svc := core.NewService(storeAdapter, searchAdapter, tokAdapter, hregAdapter, clockAdapter, cfg.ToCoreConfig())
+	var syncerAdapter core.Syncer
+	if cfg.Team.Remote != "" {
+		auth, err := sync.GetAuth("")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to load credentials: %v\n", err)
+		}
+		gs := sync.New(sync.Config{
+			AuthorName: cfg.Author,
+			RemoteURL:  cfg.Team.Remote,
+			StoreDir:   dossierHome,
+			Branch:     cfg.Team.Branch,
+			Auth:       auth,
+		})
+		syncerAdapter = sync.NewAdapter(gs)
+	}
+
+	svc := core.NewService(storeAdapter, searchAdapter, tokAdapter, hregAdapter, clockAdapter, cfg.ToCoreConfig(), syncerAdapter)
 
 	// One-time, version-gated migration: when the store was last touched by an
 	// older build, eagerly heal any frontmatter the current schema no longer

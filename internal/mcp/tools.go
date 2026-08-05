@@ -227,6 +227,9 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			return
 		}
 		res, err = s.svc.Recall(ctx, core.RecallReq{ID: params.ID})
+		if err == nil {
+			s.triggerSync()
+		}
 
 	case "dossier_search":
 		var params struct {
@@ -289,6 +292,9 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			FrontmatterUpdates:     params.FrontmatterUpdates,
 			Artifacts:              arts,
 		})
+		if err == nil {
+			s.triggerSync()
+		}
 
 	case "dossier_promote":
 		var params struct {
