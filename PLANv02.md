@@ -566,37 +566,55 @@ the main surface, you cannot ask for one person's plate. Item 5 implies fixing
 this; listing it explicitly so it does not fall through. Add `lead` and `scope`
 (`me` | `reports` | `all`) to both.
 
-### 7.5 README rewrite (Phase 5)
+### 7.5 README — updated as the last step of every phase
 
-The self-improving profile loop (§4.2) is the clearest single expression of what
-v02 is *for*, and today's README has no vocabulary for it — it describes a
-memory layer for topics, not a working model of a team. Phase 5 should rewrite
-the README around the three moves in §0, leading with the loop: **you brief a
-teammate, the agent notices what you had to explain, and the next briefing is
-shorter.** That is the sentence that makes the product legible to someone who
-has not read this plan.
+**Not a Phase 5 rewrite.** The README is updated at the end of each phase to
+cover what that phase actually shipped, so it never describes capability that
+does not exist yet. This is a standing addition to the definition of done (§8),
+not a separate work item.
 
-**The README must also carry the co-authoring rule — and its reason.** This is
-the paragraph that has to land, because it converts a guideline people skip into
-a design constraint they understand:
+Two rules make that work:
+
+- **Describe only what has merged.** No forward-looking feature prose. If a
+  phase ships requirements but not escalation, the README gains requirements
+  and stays silent on escalation.
+- **A rule may precede its capability; a feature may not.** Guidance about *how
+  to write something* can land with the thing being written, even when the
+  reason it matters arrives later. That distinction is what resolves the
+  co-authoring case below.
+
+By the end of Phase 4, the README should have arrived — incrementally — at
+leading with the self-improving profile loop (§4.2), which is the clearest
+single expression of what v02 is *for*: **you brief a teammate, the agent
+notices what you had to explain, and the next briefing is shorter.** Today's
+README has no vocabulary for that; it describes a memory layer for topics, not
+a working model of a team.
+
+#### The co-authoring rule, split across two phases
+
+The rule itself lands in **Phase 4**, with the person notes it governs, and it
+stands on its own merits without reference to sync:
 
 > A person note is a **task-calibration note**: what this colleague already
 > knows, what they need supplied, what access they lack, how they prefer to
 > receive work. It is not a performance file, and it is not a personality
 > sketch. Write it as though the person will read it — and share it with them,
 > because they know what they don't know better than you do.
->
-> This is not only good manners. In a shared store (§10), **Alex can read
-> Priya's profile.** A note that is factual, task-scoped, and co-authored from
-> day one needs no cleanup when sync arrives; one written as private commentary
-> becomes a liability the moment the repo has a second reader. The discipline is
-> what makes the store safe to share.
 
-Placing this in the README rather than only in the guide matters for sequencing:
-the notes get written in Phase 4, and sync does not arrive until Phase 6. Anyone
-who writes notes in between should already be writing them the right way — the
-constraint has to be visible *before* the capability that makes it load-bearing
-exists. A rule introduced alongside sync arrives one phase too late.
+The **reason it was load-bearing** lands in **Phase 6**, with the capability
+that makes it so:
+
+> This was not only good manners. Now that the store can be shared, **Alex can
+> read Priya's profile.** A note that is factual, task-scoped, and co-authored
+> from day one needs no cleanup; one written as private commentary becomes a
+> liability the moment the repo has a second reader. The discipline is what
+> makes the store safe to share.
+
+This split is the general pattern, not a special case: **write the rule when the
+thing it governs ships; write the justification when the capability that makes
+it matter ships.** The Phase 4 reader gets a rule they can follow. The Phase 6
+reader learns why they are glad they did. Neither reads about software that does
+not exist.
 
 ---
 
@@ -610,7 +628,7 @@ exists. A rule introduced alongside sync arrives one phase too late.
 | **2** | Requirements model · routing state · derived `waiting` · CLI/MCP/TUI surfaces | Biggest single win; independent of notes |
 | **3** | Identity-first views · escalation up and down · `--lead`/`--scope` | Needs 0–2 in place |
 | **4** | People/interface notes · settings view · `dossier prep` · delegate-skill integration | Where the compounding value lands |
-| **5** | Guide + instructions rewrite · README rewrite · dogfood drills · metrics | Quality comes from the guide, per v1's own lesson |
+| **5** | Guide + instructions rewrite · dogfood drills · metrics | Quality comes from the guide, per v1's own lesson |
 | **6** | Shared store over git — merge driver · item-wise requirement merge · section-wise body merge · non-dev conflict resolution · `dossier sync` (§10) | Distribution on top of a validated model, not instead of one |
 
 **Why 0a ships alone.** The timestamp inconsistency (`fsstore.go:283` and `:370`
@@ -624,6 +642,11 @@ merge before the rest of v02 is even reviewed.
 Each phase ships to the repo's existing definition of done: compiles, `go vet` +
 `gofmt` clean, tests pass, SPEC §14 criteria updated and demonstrably met,
 `ARCHITECTURE.md` updated if structure changed, `HANDOFF.md` status refreshed.
+
+**Plus one addition to the definition of done, for every phase: update the
+README as the final step**, covering what that phase shipped and nothing more
+(§7.5). The README then tracks the binary instead of running ahead of it, and
+there is no end-of-project documentation debt to pay down.
 
 ---
 
@@ -915,3 +938,113 @@ Before Phase 6 specifically:
     section, the same person note, and two same-slug creations. Every case must
     end with a parseable `dossier.md` and, where genuinely contradictory, a
     conflict artifact. Golden-file tested, per the repo's existing bar.
+
+---
+
+## 13. Open questions — decide before the phase that depends on them
+
+These are genuinely unresolved. Each is cheap to decide now and expensive to
+discover late.
+
+### 13.1 Private topics in a shared store — **blocks Phase 6, decide by Phase 3**
+
+**The gap:** there is no privacy model anywhere in this plan. In single-user
+mode that is correct. The moment the store is shared (§10), *everything* in it
+is readable by every teammate — and a people leader unavoidably has topics that
+cannot be: compensation, performance concerns, a reorg, a hiring decision, an
+exit. That is not an edge case, it is a normal week, and it is the single
+likeliest reason Phase 6 gets abandoned after being built.
+
+Three options:
+
+- **(a) `visibility: private` frontmatter + exclusion from sync.** Rejected on
+  sight: one field, one bug, one mistaken commit, and confidential material is
+  in a repo five people have cloned. Never build a privacy boundary out of a
+  field inside the thing being shared.
+- **(b) Two stores** — a personal `~/.dossier` and a team store, with the binary
+  reading both and every write targeting one explicitly. Matches how people
+  already think ("is this a me thing or a team thing?"), and the boundary is a
+  directory, which is hard to get wrong.
+- **(c) Team store only, private topics stay out of Dossier entirely.** Honest
+  and free, but it means the tool cannot hold a meaningful slice of a leader's
+  actual work — which undercuts the whole premise.
+
+**Lean: (b).** It is more work than it looks — `me`, roster, prep, and
+escalation all have to span two stores coherently, and "which store am I writing
+to?" becomes a question every write path must answer unambiguously. That cost is
+why this needs deciding by Phase 3, not discovered in Phase 6.
+
+### 13.2 The §2.2 sort order is probably wrong — **blocks Phase 1**
+
+As written, §2.2 puts *everything* overdue in tier 1. That means a trivial
+overdue item outranks a critical one due tomorrow, which is not how anyone
+actually triages, and it will train you to distrust the top of the list.
+
+The likely fix is that **importance is the primary key and time pressure the
+secondary** — high (overdue → due soon → rest), then medium, then low — with one
+exception that earns its own tier:
+
+> **Anything overdue that another person is waiting on jumps to the top**,
+> regardless of importance. Blocking someone else's day is categorically
+> different from being late to yourself, and on an offset team it is the
+> expensive kind of late.
+
+That reconciles both instincts: importance orders *your* work, and blocking
+*someone else* is its own class. It also makes the downward escalation in §6 fall
+out of the sort rather than being bolted on beside it. I am fairly confident in
+this shape but not certain it survives contact with a real list — worth building
+behind a quick A/B against your actual dossiers in Phase 1.
+
+### 13.3 Delegations and requirements overlap — **design in Phase 2, resolve in Phase 4**
+
+Two structures will exist for "Alex owes me something":
+
+- the `dossier-delegate` skill's persisted contract (Objective / Success
+  Criteria / Validation / … in the body), and
+- `requirements[]` (§3.1).
+
+The intended line is that a **requirement** is a discrete input you need (a
+contact, a number, an approval) while a **delegation** is a piece of work with
+success criteria. In practice nobody will sort them that way reliably, and if
+they diverge, "what does Alex owe me?" returns half the truth — which is exactly
+the question the whole plan exists to answer.
+
+**Proposed resolution: a delegation *creates* a requirement.** Delegating work
+opens a requirement (`from: alex`, `need: "<the objective, one line>"`,
+`via`, `needed_by`) whose detail field points at the persisted contract. One
+list, two levels of zoom: the requirement is the tracking unit, the contract is
+what you open when you need the specifics. Requirements stay the single answer
+to "who owes what," and the contract stays the single answer to "what exactly
+did we agree."
+
+### 13.4 Where requirements live — **decide in Phase 2, matters in Phase 6**
+
+Specced as an array in dossier frontmatter. The alternative is
+`requirements/<id>.md`, one file per requirement, the same argument that made
+`people/<handle>.md` right.
+
+| | Frontmatter array | One file per requirement |
+|---|---|---|
+| D9 "one file is the truth" | preserved | fragmented |
+| Obsidian-readable in place | yes | no |
+| Cross-dossier query | scan (same as `List` today) | scan (same) |
+| Item-wise merge in Phase 6 | needs driver logic | free |
+
+**Lean: frontmatter.** D9 and human-readability are load-bearing product
+properties, cross-dossier querying is a scan either way, and v1 already
+auto-merges non-overlapping frontmatter, so the driver work is an extension
+rather than a new mechanism.
+
+**What would flip it:** if requirements turn out to be high-churn — several
+edits a day across multiple people — one-file-per-item wins on merge behavior
+alone. Drill 11 should capture enough signal to tell.
+
+### 13.5 Is the leader in their own roster? — minor, Phase 0b
+
+Probably yes: escalation needs a `reports_to` for you too (who do *you* escalate
+to?), `prep` benefits from knowing your own working hours, and under Phase 6 a
+profile for you is arguably the most useful one in the store — your team needs
+your escalation defaults and standing decision rights more than you need theirs.
+The only awkwardness is writing a delegation profile about yourself in Phase 4,
+before anyone else can read it. Cheap either way; just decide it once rather
+than half-implementing it.
