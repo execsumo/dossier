@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"dossier/internal/core"
 	"os"
 	"path/filepath"
@@ -318,5 +319,220 @@ func TestFSStoreAuditLog(t *testing.T) {
 	}
 	if events[0].Actor != "agent:unit-test" {
 		t.Errorf("expected actor %q, got %q", "agent:unit-test", events[0].Actor)
+	}
+}
+
+func TestSanitizeAuthorString(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Alice", "alice"},
+		{"Bob-Smith", "bob-smith"},
+		{"user@domain.com", "user-domain-com"},
+		{"  Spaces! ", "spaces"},
+		{"", "unknown"},
+		{"---", "unknown"},
+		{"a_b_c", "a-b-c"},
+	}
+	for _, tc := range tests {
+		actual := SanitizeAuthorString(tc.input)
+		if actual != tc.expected {
+			t.Errorf("SanitizeAuthorString(%q) = %q, expected %q", tc.input, actual, tc.expected)
+		}
+	}
+}
+
+func TestFSStoreAuditLogShardsAndLegacy(t *testing.T) {
+	tempHome, err := os.MkdirTemp("", "dossier-test-audit-shards-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+	defer os.RemoveAll(tempHome)
+
+	store := NewFSStore(tempHome)
+	_ = store.Init()
+
+	now := time.Now().Truncate(time.Second)
+	dossier := &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:            "dos_audit_shards",
+			Name:          "Audit Shards",
+			Slug:          "audit-shards",
+			Status:        core.StatusActive,
+			Importance:    core.ImportanceLow,
+			Urgency:       core.UrgencyLow,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+			LastTouchedAt: now,
+		},
+		DistilledState: core.DistilledState{Body: "# Body"},
+	}
+	_, err = store.Write(dossier, "")
+	if err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	// 1. Manually write legacy audit.log
+	legacyPath := filepath.Join(tempHome, "audit-shards", "audit.log")
+	e1 := core.AuditEvent{TS: now.Add(-10 * time.Minute), Event: core.AuditEventCreate, Actor: "legacy"}
+	err = AppendAuditLine(legacyPath, e1)
+	if err != nil {
+		t.Fatalf("failed to write legacy audit: %v", err)
+	}
+	legacyStatBefore, _ := os.Stat(legacyPath)
+
+	// 2. Write new shards
+	e2 := core.AuditEvent{TS: now.Add(-5 * time.Minute), Event: core.AuditEventSave, Author: "Alice"}
+	e3 := core.AuditEvent{TS: now.Add(-2 * time.Minute), Event: core.AuditEventSave, Author: "Bob"}
+
+	_ = store.AppendAudit(dossier.Frontmatter.ID, e3) // Write Bob's first to test sorting
+	_ = store.AppendAudit(dossier.Frontmatter.ID, e2)
+
+	// 3. Read back
+	events, err := store.ReadAuditLog(dossier.Frontmatter.ID)
+	if err != nil {
+		t.Fatalf("ReadAuditLog failed: %v", err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("expected 3 audit events, got %d", len(events))
+	}
+	if events[0].Actor != "legacy" || events[1].Author != "Alice" || events[2].Author != "Bob" {
+		t.Errorf("unexpected event ordering or missing events: %+v", events)
+	}
+
+	// 4. Verify legacy file untouched
+	legacyStatAfter, _ := os.Stat(legacyPath)
+	if legacyStatBefore.Size() != legacyStatAfter.Size() || legacyStatBefore.ModTime() != legacyStatAfter.ModTime() {
+		t.Errorf("legacy audit.log was modified!")
+	}
+}
+
+func TestFSStoreSessionStash(t *testing.T) {
+	tempHome, err := os.MkdirTemp("", "dossier-test-session-stash-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+	defer os.RemoveAll(tempHome)
+
+	store := NewFSStore(tempHome)
+	_ = store.Init()
+
+	now := time.Now().Truncate(time.Second)
+	dossier := &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:            "dos_stash",
+			Name:          "Stash",
+			Slug:          "dos-stash",
+			Status:        core.StatusActive,
+			Importance:    core.ImportanceLow,
+			Urgency:       core.UrgencyLow,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+			LastTouchedAt: now,
+		},
+		DistilledState: core.DistilledState{Body: "# Body"},
+	}
+	_, err = store.Write(dossier, "")
+	if err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	err = store.WriteSessionStash("dos_stash", "Alice@Work", "sess-123", "transcript content here")
+	if err != nil {
+		t.Fatalf("WriteSessionStash failed: %v", err)
+	}
+
+	path := filepath.Join(tempHome, "dos-stash", "sessions", "alice-work", "sess-123.md")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("Failed to read expected stash file: %v", err)
+	}
+	if string(b) != "transcript content here" {
+		t.Errorf("unexpected content: %s", string(b))
+	}
+}
+
+type dummySearcher struct{}
+
+func (dummySearcher) Search(ctx context.Context, q string, scope core.SearchScope) ([]core.Hit, error) {
+	return nil, nil
+}
+
+type dummyTok struct{}
+
+func (dummyTok) Estimate(t string) int { return len(t) }
+
+type dummyHreg struct{}
+
+func (dummyHreg) All() []core.Harness                   { return nil }
+func (dummyHreg) Get(name string) (core.Harness, error) { return nil, nil }
+
+type dummyClock struct{ now time.Time }
+
+func (d dummyClock) Now() time.Time { return d.now }
+
+func TestTwoAuthorSimulation(t *testing.T) {
+	tempHome, err := os.MkdirTemp("", "dossier-test-two-author-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+	defer os.RemoveAll(tempHome)
+
+	fs := NewFSStore(tempHome)
+	_ = fs.Init()
+
+	now := time.Now().Truncate(time.Second)
+	dossier := &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:            "dos_sim",
+			Name:          "Sim",
+			Slug:          "dos-sim",
+			Status:        core.StatusActive,
+			Importance:    core.ImportanceLow,
+			Urgency:       core.UrgencyLow,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+			LastTouchedAt: now,
+		},
+		DistilledState: core.DistilledState{Body: "# Start"},
+	}
+	_, _ = fs.Write(dossier, "")
+
+	cfgAlice := core.Config{DossierHome: tempHome, Author: "Alice"}
+	svcAlice := core.NewService(fs, dummySearcher{}, dummyTok{}, dummyHreg{}, dummyClock{now}, cfgAlice, nil)
+
+	cfgBob := core.Config{DossierHome: tempHome, Author: "Bob"}
+	svcBob := core.NewService(fs, dummySearcher{}, dummyTok{}, dummyHreg{}, dummyClock{now}, cfgBob, nil)
+
+	_ = fs.SaveSessionBinding(&core.SessionBinding{
+		SessionBindingID: "sess-alice",
+		DossierID:        "dos_sim",
+		Harness:          "test",
+		LastSeenRevision: "rev_fake_1",
+	})
+	_ = fs.SaveSessionBinding(&core.SessionBinding{
+		SessionBindingID: "sess-bob",
+		DossierID:        "dos_sim",
+		Harness:          "test",
+		LastSeenRevision: "rev_fake_2",
+	})
+
+	ctx := context.Background()
+	_, _ = svcAlice.Save(ctx, core.SaveReq{ID: "dos_sim", BaseRevision: "rev_fake_1", DistilledStateMarkdown: "# Alice"})
+	_ = svcAlice.SessionEnd(ctx, "sess-alice", "", "alice transcript")
+
+	_, _ = svcBob.Save(ctx, core.SaveReq{ID: "dos_sim", BaseRevision: "rev_fake_2", DistilledStateMarkdown: "# Bob"})
+	_ = svcBob.SessionEnd(ctx, "sess-bob", "", "bob transcript")
+
+	aliceAuditPath := filepath.Join(tempHome, "dos-sim", "audit", "alice.log")
+	bobAuditPath := filepath.Join(tempHome, "dos-sim", "audit", "bob.log")
+	aliceStashPath := filepath.Join(tempHome, "dos-sim", "sessions", "alice", "sess-alice.md")
+	bobStashPath := filepath.Join(tempHome, "dos-sim", "sessions", "bob", "sess-bob.md")
+
+	for _, p := range []string{aliceAuditPath, bobAuditPath, aliceStashPath, bobStashPath} {
+		if _, err := os.Stat(p); os.IsNotExist(err) {
+			t.Errorf("expected file to exist: %s", p)
+		}
 	}
 }

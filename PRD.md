@@ -1,6 +1,6 @@
 # Dossier — Product Requirements Document (v1)
 
-> Codename: chainlink · Scope: objective-critical core · Local, single-user
+> Codename: chainlink · Scope: objective-critical core · Local, single-user [Amended to local-first, optionally team-synced (B12/ADR 0005, 2026-07-15)]
 > Date: 2026-06-14 · Companion: see `PRFAQ.md`
 
 ---
@@ -13,7 +13,7 @@ These are settled. They are placed up front because they constrain everything do
 |---|----------|-----------|-------------------|
 | **D1** | A **flat set of distinct Dossiers**. Artifacts belong to a Dossier. No topic graph/tree/cross-links. | A topic is self-contained; extra material is *artifacts of one topic*, not multiple topics. | Inter-topic link graph, nesting, topic hierarchies. |
 | **D2** | **Two layers** per Dossier: curated **Distilled State** + source-retaining **Archive** of captured artifacts. Provenance links connect distilled claims → source artifacts. | The Distilled State holds *all critical information with noise removed* — not a short summary; "be citable" and "carry the full substance of the topic" can't both live in the raw transcript. | A single evolving doc; lossy summaries that discard substance or sources. |
-| **D3** | Access via **MCP** (auto-surfaces available Dossiers on agent load) **+ CLI/TUI**. **Local, single-user.** v1 supports **Claude Code and Pi** (§5.5); Pi requires a compatible Claude-like hooks extension. | Meet the agent where it lives; degrade gracefully. | Cloud dependency, web app, account system (v1); other harnesses (Codex, Antigravity). |
+| **D3** | Access via **MCP** (auto-surfaces available Dossiers on agent load) **+ CLI/TUI**. **Local-first, optionally team-synced** (amended per B12/ADR 0005, 2026-07-15; originally local, single-user). v1 supports **Claude Code and Pi** (§5.5); Pi requires a compatible Claude-like hooks extension. | Meet the agent where it lives; degrade gracefully. | Cloud dependency, web app, account system (v1); other harnesses (Codex, Antigravity). |
 | **D4** | Distillation runs **without a human gate**, but it is **governed, not ad hoc**. *What* to retain is steered by a shipped **Distillation Guide** (a skill/instructions the agent loads). *When* to write is **deterministic** — hook-driven cadence + triggers (§4.11), never "the agent remembers to." | A confirm step adds friction; but "agent freely decides whether and what to write" is too loose. Steer content quality up front, enforce update cadence mechanically. Trust on content comes from **non-destruction** + the guide, not a gate. | A blocking human-confirm; relying on the agent's discretion to update. |
 | **D5** | Relatedness is resolved by **merge**, producing **one converged Distilled State**; **conflicts and ambiguous targets are surfaced to the human**. | Matches D1 (no persistent links); keeps one source of truth per topic. | Auto-merge that silently reconciles; permanent dossier-to-dossier references. |
 | **D6** | Dossier **stores** artifact content provided by the agent/user; it does **not fetch from external sources itself**. The agent (assumed to have its own integrations) fetches **on request**; snapshots are **refreshed while active** and **frozen on resolution**. | Sourcing is the agent's/user's job, not this app's. Accuracy during active work; stable citation after. | The app owning source integrations; live links only (rot); a snapshot that goes stale mid-thread. |
@@ -235,12 +235,12 @@ The token target governs the **Distilled State context loaded on recall**. The d
 
 ## 7. Non-functional requirements
 
-- **Local-first / single-user:** all data on the user's machine; no network dependency for core flows.
+- **Local-first / single-user** (amended to local-first, optionally team-synced per B12): all data on the user's machine; no network dependency for core flows.
 - **Inspectable & recoverable:** plain Markdown files are the source of truth; readable/editable in any Markdown reader (e.g. Obsidian) with no special tool and no database (D9).
 - **Non-destructive:** no flow deletes source material; supersession is via Archive + audit log. This is the primary trust mechanism in place of a distillation confirm gate (D4).
 - **Auditable:** every write, ambiguity confirmation, merge, archive, and freeze recorded in `audit.log` — also the provenance backbone.
 - **Harness:** v1 supports Claude Code and Pi (§5.5). Claude Code provides the full capability set; Pi requires a compatible Claude-like hooks extension. If a capability is missing in a given session, Dossier warns rather than silently degrading.
-- **Concurrency (light, v1):** single user but multiple agent sessions may touch one Dossier. Recommended v1 behavior: optimistic concurrency with a base revision/hash recorded when a session recalls or switches to a Dossier. On save, if the on-disk revision changed, do not blindly overwrite; create a conflict artifact/draft, surface the conflict to the agent/user, and require reconciliation. If only non-overlapping frontmatter changed, auto-merge and audit it. Last-write-wins is acceptable only for append-only audit entries and new artifacts.
+- **Concurrency (light, v1):** single user (amended to optionally team-synced per B12) but multiple agent sessions may touch one Dossier. Recommended v1 behavior: optimistic concurrency with a base revision/hash recorded when a session recalls or switches to a Dossier. On save, if the on-disk revision changed, do not blindly overwrite; create a conflict artifact/draft, surface the conflict to the agent/user, and require reconciliation. If only non-overlapping frontmatter changed, auto-merge and audit it. Last-write-wins is acceptable only for append-only audit entries and new artifacts.
 
 ---
 

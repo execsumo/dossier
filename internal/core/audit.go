@@ -8,6 +8,7 @@ type AuditEvent struct {
 	Event          string    `json:"event"`
 	DossierID      string    `json:"dossier_id"`
 	Actor          string    `json:"actor,omitempty"`
+	Author         string    `json:"author,omitempty"`
 	SessionID      string    `json:"session_id,omitempty"`
 	BeforeRevision string    `json:"before_revision,omitempty"`
 	AfterRevision  string    `json:"after_revision,omitempty"`

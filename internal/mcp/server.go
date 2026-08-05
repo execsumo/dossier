@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 )
 
 // JSONRPCRequest represents a generic JSON-RPC 2.0 request frame.
@@ -34,22 +35,87 @@ type JSONRPCError struct {
 
 // Server implements the MCP server protocol over stdio.
 type Server struct {
-	svc    *core.Service
-	reader io.Reader
-	writer io.Writer
+	svc      *core.Service
+	reader   io.Reader
+	writer   io.Writer
+	syncChan chan struct{}
+	doneChan chan struct{}
 }
 
 // NewServer creates a new Server instance.
 func NewServer(svc *core.Service, r io.Reader, w io.Writer) *Server {
 	return &Server{
-		svc:    svc,
-		reader: r,
-		writer: w,
+		svc:      svc,
+		reader:   r,
+		writer:   w,
+		syncChan: make(chan struct{}, 1),
+		doneChan: make(chan struct{}),
+	}
+}
+
+func (s *Server) triggerSync() {
+	select {
+	case s.syncChan <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Server) syncDebouncer(ctx context.Context) {
+	defer close(s.doneChan)
+
+	debounceInterval := 2 * time.Second
+	var pending bool
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case _, ok := <-s.syncChan:
+			if !ok {
+				if pending {
+					syncCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					_, _ = s.svc.Sync(syncCtx)
+					cancel()
+				}
+				return
+			}
+			pending = true
+		}
+
+		timer := time.NewTimer(debounceInterval)
+	settle:
+		for {
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case _, ok := <-s.syncChan:
+				if !ok {
+					timer.Stop()
+					syncCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					_, _ = s.svc.Sync(syncCtx)
+					cancel()
+					return
+				}
+				if !timer.Stop() {
+					<-timer.C
+				}
+				timer.Reset(debounceInterval)
+			case <-timer.C:
+				syncCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				_, _ = s.svc.Sync(syncCtx)
+				cancel()
+				pending = false
+				break settle
+			}
+		}
 	}
 }
 
 // Run starts the stdio read loop.
 func (s *Server) Run(ctx context.Context) error {
+	go s.syncDebouncer(ctx)
+
 	scanner := bufio.NewScanner(s.reader)
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -66,7 +132,15 @@ func (s *Server) Run(ctx context.Context) error {
 		s.handleRequest(ctx, req)
 	}
 
-	return scanner.Err()
+	err := scanner.Err()
+
+	close(s.syncChan)
+	select {
+	case <-s.doneChan:
+	case <-time.After(5 * time.Second):
+	}
+
+	return err
 }
 
 func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) {

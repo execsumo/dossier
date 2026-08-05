@@ -17,6 +17,7 @@ import (
 type Config struct {
 	DossierHome string
 	TokenTarget int
+	Author      string
 }
 
 // Service orchestrates Dossier domain use-cases over the port interfaces.
@@ -28,6 +29,7 @@ type Service struct {
 	hreg   HarnessRegistry
 	clock  Clock
 	cfg    Config
+	syncer Syncer
 }
 
 // RecallResult carries the output fields for dossier recall queries.
@@ -57,17 +59,27 @@ type ListItem struct {
 	Path          string   `json:"path"`
 }
 
+type SyncStatusData struct {
+	Ahead          int       `json:"ahead"`
+	Behind         int       `json:"behind"`
+	LastSync       time.Time `json:"last_sync"`
+	Dirty          int       `json:"dirty"`
+	ConflictsFound int       `json:"conflicts_found"`
+}
+
 // DoctorReport summarizes integrity checks run by Doctor.
 type DoctorReport struct {
-	DossiersChecked  int      `json:"dossiers_checked"`
-	ArtifactsChecked int      `json:"artifacts_checked"`
-	AuditLogsChecked int      `json:"audit_logs_checked"`
-	ConflictsFound   int      `json:"conflicts_found"`
-	Issues           []string `json:"issues,omitempty"`
+	DossiersChecked  int             `json:"dossiers_checked"`
+	ArtifactsChecked int             `json:"artifacts_checked"`
+	AuditLogsChecked int             `json:"audit_logs_checked"`
+	ConflictsFound   int             `json:"conflicts_found"`
+	Issues           []string        `json:"issues,omitempty"`
+	SyncConfigured   bool            `json:"sync_configured"`
+	SyncStatus       *SyncStatusData `json:"sync_status,omitempty"`
 }
 
 // NewService instantiates the core orchestration service.
-func NewService(store Store, search Searcher, tok Tokenizer, hreg HarnessRegistry, clock Clock, cfg Config) *Service {
+func NewService(store Store, search Searcher, tok Tokenizer, hreg HarnessRegistry, clock Clock, cfg Config, syncer Syncer) *Service {
 	return &Service{
 		store:  store,
 		search: search,
@@ -75,6 +87,7 @@ func NewService(store Store, search Searcher, tok Tokenizer, hreg HarnessRegistr
 		hreg:   hreg,
 		clock:  clock,
 		cfg:    cfg,
+		syncer: syncer,
 	}
 }
 
@@ -386,6 +399,10 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 			addIssue("%s", issue)
 		}
 
+		for _, issue := range s.store.ValidateAuditShards(fm.ID) {
+			addIssue("%s", issue)
+		}
+
 		if _, err := s.store.ReadAuditLog(fm.ID); err != nil {
 			addIssue("Dossier %s audit log is not readable: %v", fm.ID, err)
 		} else {
@@ -416,6 +433,22 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 		}
 	}
 
+	if s.syncer != nil {
+		report.SyncConfigured = true
+		status, err := s.syncer.Status(ctx)
+		if err != nil {
+			addIssue("Failed to get sync status: %v", err)
+		} else {
+			report.SyncStatus = &SyncStatusData{
+				Ahead:          status.Ahead,
+				Behind:         status.Behind,
+				LastSync:       status.LastSync,
+				Dirty:          status.Dirty,
+				ConflictsFound: len(status.Conflicts),
+			}
+		}
+	}
+
 	return Result{
 		OK:       len(report.Issues) == 0,
 		Data:     report,
@@ -427,7 +460,7 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 // Bump it whenever Frontmatter.Normalize gains a rule that should be applied
 // eagerly to existing stores; the startup sweep runs once when the store's
 // recorded version is older than this.
-const CurrentSchemaVersion = 1
+const CurrentSchemaVersion = 2
 
 // MigrateReport summarizes a one-time frontmatter migration sweep.
 type MigrateReport struct {
@@ -456,6 +489,10 @@ func (s *Service) Migrate(ctx context.Context) (Result, error) {
 
 	for _, fm := range fms {
 		report.DossiersScanned++
+
+		if err := s.store.EnsureAuditDir(fm.ID); err != nil {
+			warnings = append(warnings, Warning(fmt.Sprintf("Dossier %s: failed to create audit/ dir: %v", fm.ID, err)))
+		}
 
 		d, rev, err := s.store.Read(fm.ID)
 		if err != nil {
@@ -522,6 +559,69 @@ func validateDistilledStateProvenance(body string, dossierID string, artifactExi
 		}
 	}
 	return issues
+}
+
+// TeamCreateReq specifies parameters for creating a new team store.
+type TeamCreateReq struct {
+	RemoteURL string
+	Branch    string
+}
+
+// TeamCreate initializes the current store as a team store and pushes to the remote.
+func (s *Service) TeamCreate(ctx context.Context, req TeamCreateReq) (Result, error) {
+	if req.RemoteURL == "" {
+		return Result{}, NewError(ErrInvalidFrontmatter, "remote URL is required")
+	}
+	if req.Branch == "" {
+		req.Branch = "main"
+	}
+	if s.syncer == nil {
+		return Result{}, NewError(ErrInternal, "syncer is not configured")
+	}
+
+	err := s.syncer.Create(ctx)
+	if err != nil {
+		if strings.Contains(err.Error(), "already a team store") {
+			return Result{}, NewError(ErrConflictDetected, "store is already a team store")
+		}
+		return Result{}, fmt.Errorf("team create failed: %w", err)
+	}
+
+	return Result{OK: true}, nil
+}
+
+// TeamJoinReq specifies parameters for joining an existing team store.
+type TeamJoinReq struct {
+	RemoteURL string
+	Branch    string
+}
+
+// TeamJoin joins an existing team store by cloning it locally.
+func (s *Service) TeamJoin(ctx context.Context, req TeamJoinReq) (Result, error) {
+	if req.RemoteURL == "" {
+		return Result{}, NewError(ErrInvalidFrontmatter, "remote URL is required")
+	}
+	if req.Branch == "" {
+		req.Branch = "main"
+	}
+	if s.syncer == nil {
+		return Result{}, NewError(ErrInternal, "syncer is not configured")
+	}
+
+	err := s.syncer.Clone(ctx, req.RemoteURL, s.cfg.DossierHome, 50)
+	if err != nil {
+		if strings.Contains(err.Error(), "target directory is not empty") {
+			return Result{}, NewError(ErrConflictDetected, "target directory is not empty; cannot join into an existing store")
+		}
+		return Result{}, fmt.Errorf("team join failed: %w", err)
+	}
+
+	initRes, initErr := s.Init(ctx, InitReq{})
+	if initErr != nil {
+		return Result{}, fmt.Errorf("post-join init failed: %w", initErr)
+	}
+
+	return Result{OK: true, Warnings: initRes.Warnings}, nil
 }
 
 // Stubs for future milestones
@@ -647,6 +747,7 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 		_ = s.store.AppendAudit(newID, AuditEvent{
 			TS:             now,
 			Event:          AuditEventSave,
+			Author:         s.cfg.Author,
 			DossierID:      newID,
 			BeforeRevision: string(newRevision),
 			AfterRevision:  string(newRevision),
@@ -975,6 +1076,7 @@ func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 					_ = s.store.AppendAudit(d.Frontmatter.ID, AuditEvent{
 						TS:             s.clock.Now(),
 						Event:          AuditEventConflictCreated,
+						Author:         s.cfg.Author,
 						DossierID:      d.Frontmatter.ID,
 						SessionID:      sessID,
 						BeforeRevision: string(req.BaseRevision),
@@ -1045,6 +1147,7 @@ func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 	event := AuditEvent{
 		TS:             s.clock.Now(),
 		DossierID:      d.Frontmatter.ID,
+		Author:         s.cfg.Author,
 		BeforeRevision: string(baseRev),
 		AfterRevision:  string(newRev),
 		ArtifactsAdded: addedArtifactIDs,
@@ -1150,6 +1253,7 @@ func (s *Service) Link(ctx context.Context, req LinkReq) (Result, error) {
 	_ = s.store.AppendAudit(d.Frontmatter.ID, AuditEvent{
 		TS:             now,
 		Event:          AuditEventSave,
+		Author:         s.cfg.Author,
 		DossierID:      d.Frontmatter.ID,
 		BeforeRevision: string(baseRev),
 		AfterRevision:  string(newRev),
@@ -1219,6 +1323,7 @@ func (s *Service) Merge(ctx context.Context, req MergeReq) (Result, error) {
 			_ = s.store.AppendAudit(targetD.Frontmatter.ID, AuditEvent{
 				TS:             s.clock.Now(),
 				Event:          AuditEventMergeConflict,
+				Author:         s.cfg.Author,
 				DossierID:      targetD.Frontmatter.ID,
 				BeforeRevision: string(targetRev),
 				AfterRevision:  string(targetRev),
@@ -1235,6 +1340,7 @@ func (s *Service) Merge(ctx context.Context, req MergeReq) (Result, error) {
 	_ = s.store.AppendAudit(targetD.Frontmatter.ID, AuditEvent{
 		TS:        s.clock.Now(),
 		Event:     AuditEventMergeStarted,
+		Author:    s.cfg.Author,
 		DossierID: targetD.Frontmatter.ID,
 		Message:   fmt.Sprintf("Starting merge of source %s into target %s", req.SourceID, req.TargetID),
 	})
@@ -1280,6 +1386,7 @@ func (s *Service) Merge(ctx context.Context, req MergeReq) (Result, error) {
 	_ = s.store.AppendAudit(targetD.Frontmatter.ID, AuditEvent{
 		TS:             s.clock.Now(),
 		Event:          AuditEventMergeCompleted,
+		Author:         s.cfg.Author,
 		DossierID:      targetD.Frontmatter.ID,
 		BeforeRevision: string(targetRev),
 		AfterRevision:  string(newTargetRev),
@@ -1658,6 +1765,7 @@ func (s *Service) Archive(ctx context.Context, req ArchiveReq) (Result, error) {
 	_ = s.store.AppendAudit(d.Frontmatter.ID, AuditEvent{
 		TS:             s.clock.Now(),
 		Event:          AuditEventArchived,
+		Author:         s.cfg.Author,
 		DossierID:      d.Frontmatter.ID,
 		BeforeRevision: string(rev),
 		AfterRevision:  string(newRev),
@@ -1688,6 +1796,12 @@ func (s *Service) Path(ctx context.Context, req PathReq) (Result, error) {
 
 // SessionStart returns the injected context payload for a harness session.
 func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, error) {
+	if s.syncer != nil {
+		syncCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		_, _ = s.Sync(syncCtx) // Best-effort bounded pull
+	}
+
 	binding, err := s.store.GetSessionBinding(sessionID)
 	var activeDossierID string
 	if err == nil && binding != nil {
@@ -1837,6 +1951,17 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 	}
 
 	if transcript != "" {
+		if stashErr := s.store.WriteSessionStash(binding.DossierID, s.cfg.Author, sessionID, transcript); stashErr != nil {
+			_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
+				TS:        now,
+				Event:     AuditEventSave,
+				Author:    s.cfg.Author,
+				DossierID: binding.DossierID,
+				SessionID: sessionID,
+				Message:   fmt.Sprintf("Warning: failed to write session stash: %v", stashErr),
+			})
+		}
+
 		art := Artifact{
 			DossierID:     binding.DossierID,
 			Type:          ArtifactTypeTranscript,
@@ -1857,6 +1982,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 		_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 			TS:             now,
 			Event:          AuditEventSave,
+			Author:         s.cfg.Author,
 			DossierID:      binding.DossierID,
 			SessionID:      sessionID,
 			BeforeRevision: string(finalRevision),
@@ -1868,6 +1994,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 		_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 			TS:        now,
 			Event:     AuditEventTranscriptCaptureUnavailable,
+			Author:    s.cfg.Author,
 			DossierID: binding.DossierID,
 			SessionID: sessionID,
 			Message:   "Session boundary reached without transcript payload; no transcript artifact was captured.",
@@ -1878,6 +2005,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 		_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 			TS:        now,
 			Event:     AuditEventSave,
+			Author:    s.cfg.Author,
 			DossierID: binding.DossierID,
 			SessionID: sessionID,
 			Message:   "Session boundary reached without distilled_state payload; retained available artifacts and left Distilled State unchanged.",
@@ -1889,5 +2017,103 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 		_ = s.store.SaveSessionBinding(binding)
 	}
 
+	if s.syncer != nil {
+		syncCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		_, _ = s.Sync(syncCtx) // Best-effort bounded push
+	}
+
 	return nil
+}
+
+// Sync orchestrates the dossier team sync.
+func (s *Service) Sync(ctx context.Context) (Result, error) {
+	if s.syncer == nil {
+		return Result{OK: false}, NewError(ErrInternal, "team sync is not configured; set team.remote in config")
+	}
+
+	report, err := s.syncer.Sync(ctx)
+	if err != nil {
+		return Result{OK: false}, fmt.Errorf("sync failed: %w", err)
+	}
+
+	var warnings []Warning
+	if report.Error != "" {
+		warnings = append(warnings, Warning(fmt.Sprintf("Sync network error: %s", report.Error)))
+	}
+
+	for _, excl := range report.Excluded {
+		warnings = append(warnings, Warning(excl.Warning))
+	}
+
+	var createdConflicts []string
+	for i, conf := range report.Conflicts {
+		slugParts := strings.Split(filepath.ToSlash(conf.Path), "/")
+		slug := slugParts[0] // always the dossier slug
+		var targetID string
+		fms, listErr := s.store.List("all")
+		if listErr == nil {
+			for _, fm := range fms {
+				if fm.Slug == slug {
+					targetID = fm.ID
+					break
+				}
+			}
+		}
+		if targetID == "" {
+			// If we couldn't resolve the dossier ID by slug, just use the slug as ID fallback.
+			targetID = slug
+		}
+
+		confID := fmt.Sprintf("conf_%s_%s_%d", s.clock.Now().Format("20060102150405"), slug, i)
+		conflict := &Conflict{
+			ID:                 confID,
+			DossierID:          targetID,
+			Kind:               "sync_concurrent_edit",
+			BaseRevision:       conf.LocalRevision,
+			AttemptedRevision:  conf.RemoteRevision,
+			TS:                 s.clock.Now(),
+			RejectedBody:       string(conf.LocalContent),
+			DiffAgainstCurrent: GenerateUnifiedDiff(string(conf.RemoteContent), string(conf.LocalContent)),
+		}
+
+		writeErr := s.store.WriteConflict(conflict)
+		if writeErr == nil {
+			createdConflicts = append(createdConflicts, confID)
+			_ = s.store.AppendAudit(targetID, AuditEvent{
+				TS:             s.clock.Now(),
+				Event:          AuditEventConflictCreated,
+				Author:         s.cfg.Author,
+				DossierID:      targetID,
+				BeforeRevision: conf.LocalRevision,
+				AfterRevision:  conf.RemoteRevision,
+				Message:        fmt.Sprintf("Conflict %s created due to sync concurrent edit on %s", confID, conf.Path),
+			})
+			warnings = append(warnings, Warning(fmt.Sprintf("wrote conflicts/%s.md — remote won the working tree, your version preserved", confID)))
+		} else {
+			warnings = append(warnings, Warning(fmt.Sprintf("failed to write conflict for %s: %v", conf.Path, writeErr)))
+		}
+	}
+
+	return Result{
+		OK:       report.Error == "",
+		Data:     report,
+		Warnings: warnings,
+	}, nil
+}
+
+func (s *Service) SyncStatus(ctx context.Context) (Result, error) {
+	if s.syncer == nil {
+		return Result{OK: false}, NewError(ErrInternal, "team sync is not configured; set team.remote in config")
+	}
+
+	status, err := s.syncer.Status(ctx)
+	if err != nil {
+		return Result{OK: false}, fmt.Errorf("status failed: %w", err)
+	}
+
+	return Result{
+		OK:   true,
+		Data: status,
+	}, nil
 }

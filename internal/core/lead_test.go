@@ -13,7 +13,7 @@ import (
 func TestSaveLeadUpdateRecordsAudit(t *testing.T) {
 	fakeStore := newLocalFakeStore()
 	clk := &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}
-	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, clk, Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100})
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, clk, Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}, nil)
 
 	ctx := context.Background()
 	// Seed a dossier.
@@ -62,7 +62,7 @@ func TestSaveLeadUpdateRecordsAudit(t *testing.T) {
 func TestSaveStatusChangeAuditsStatusChanged(t *testing.T) {
 	fakeStore := newLocalFakeStore()
 	clk := &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}
-	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, clk, Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100})
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, clk, Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}, nil)
 
 	ctx := context.Background()
 	if _, err := svc.Save(ctx, SaveReq{

@@ -15,7 +15,7 @@ import (
 func newSessionTestService(t *testing.T) *core.Service {
 	t.Helper()
 	fakeStore := store.NewFakeStore()
-	svc := core.NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, core.Config{TokenTarget: 100})
+	svc := core.NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, core.Config{TokenTarget: 100}, nil)
 
 	clk := &mockClock{}
 	fakeStore.Dossiers["dos_1"] = &core.Dossier{

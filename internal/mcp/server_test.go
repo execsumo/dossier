@@ -43,7 +43,7 @@ func TestMCPServer(t *testing.T) {
 	srch := &mockSearcher{}
 	cfg := core.Config{TokenTarget: 100}
 
-	svc := core.NewService(fakeStore, srch, tok, hreg, clk, cfg)
+	svc := core.NewService(fakeStore, srch, tok, hreg, clk, cfg, nil)
 
 	// Pre-populate a dossier
 	d := &core.Dossier{

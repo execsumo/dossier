@@ -15,7 +15,7 @@ func TestOptimisticConcurrencyAutoMerge(t *testing.T) {
 	clk := &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}
 	cfg := Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}
 
-	svc := NewService(fakeStore, srch, tok, hreg, clk, cfg)
+	svc := NewService(fakeStore, srch, tok, hreg, clk, cfg, nil)
 	ctx := context.Background()
 
 	// 1. Create dossier
@@ -87,7 +87,7 @@ func TestOptimisticConcurrencyConflict(t *testing.T) {
 	clk := &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}
 	cfg := Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}
 
-	svc := NewService(fakeStore, srch, tok, hreg, clk, cfg)
+	svc := NewService(fakeStore, srch, tok, hreg, clk, cfg, nil)
 	ctx := context.Background()
 
 	// 1. Create dossier
@@ -139,7 +139,7 @@ func TestDossierMergeHappyPath(t *testing.T) {
 	clk := &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}
 	cfg := Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}
 
-	svc := NewService(fakeStore, srch, tok, hreg, clk, cfg)
+	svc := NewService(fakeStore, srch, tok, hreg, clk, cfg, nil)
 	ctx := context.Background()
 
 	// Create source dossier
@@ -214,7 +214,7 @@ func TestDossierMergeConflictAndResolution(t *testing.T) {
 	clk := &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}
 	cfg := Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}
 
-	svc := NewService(fakeStore, srch, tok, hreg, clk, cfg)
+	svc := NewService(fakeStore, srch, tok, hreg, clk, cfg, nil)
 	ctx := context.Background()
 
 	// Create source (status waiting)
