@@ -41,6 +41,10 @@ func getToolDefinitions() []ToolDefinition {
 						"type":        "string",
 						"description": "Filter by status (active|waiting|blocked|resolved|archived|all)",
 					},
+					"interfaces": map[string]any{
+						"type": "array", "items": map[string]any{"type": "string", "enum": interfaceEnumStrings()},
+						"description": "Filter by discussion interface; matches dossiers assigned to any supplied interface",
+					},
 				},
 			},
 		},
@@ -130,6 +134,8 @@ func getToolDefinitions() []ToolDefinition {
 					"name":                     map[string]any{"type": "string"},
 					"distilled_state_markdown": map[string]any{"type": "string"},
 					"from_file_path":           map[string]any{"type": "string"},
+					"lead":                     map[string]any{"type": "string"},
+					"interfaces":               map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": interfaceEnumStrings()}},
 				},
 				"required": []string{"name", "distilled_state_markdown"},
 			},
@@ -183,11 +189,20 @@ func getToolDefinitions() []ToolDefinition {
 					"importance":     map[string]any{"type": "string", "description": "high|low (omit to leave unchanged)"},
 					"urgency":        map[string]any{"type": "string", "description": "high|low (omit to leave unchanged)"},
 					"due_date":       map[string]any{"type": "string", "description": "ISO 8601 date or empty string to clear (omit to leave unchanged)"},
+					"interfaces":     map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": interfaceEnumStrings()}, "description": "Replace the discussion interface list (omit to leave unchanged)"},
 				},
 				"required": []string{"id"},
 			},
 		},
 	}
+}
+
+func interfaceEnumStrings() []string {
+	values := make([]string, 0, len(core.Interfaces))
+	for _, value := range core.Interfaces {
+		values = append(values, string(value))
+	}
+	return values
 }
 
 func (s *Server) handleToolCall(ctx context.Context, id any, name string, args json.RawMessage) {
@@ -197,10 +212,11 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 	switch name {
 	case "dossier_list":
 		var params struct {
-			Status string `json:"status"`
+			Status     string   `json:"status"`
+			Interfaces []string `json:"interfaces"`
 		}
 		_ = json.Unmarshal(args, &params)
-		res, err = s.svc.List(ctx, core.ListReq{Status: params.Status})
+		res, err = s.svc.List(ctx, core.ListReq{Status: params.Status, Interfaces: params.Interfaces})
 
 	case "dossier_recall":
 		var params struct {
@@ -276,11 +292,13 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 
 	case "dossier_promote":
 		var params struct {
-			Name                   string `json:"name"`
-			DistilledStateMarkdown string `json:"distilled_state_markdown"`
-			FromFilePath           string `json:"from_file_path"`
-			SessionContent         string `json:"session_content"`
-			Force                  bool   `json:"force"`
+			Name                   string   `json:"name"`
+			DistilledStateMarkdown string   `json:"distilled_state_markdown"`
+			FromFilePath           string   `json:"from_file_path"`
+			SessionContent         string   `json:"session_content"`
+			Lead                   string   `json:"lead"`
+			Interfaces             []string `json:"interfaces"`
+			Force                  bool     `json:"force"`
 		}
 		if err := json.Unmarshal(args, &params); err != nil {
 			s.sendError(id, -32602, "Invalid params", nil)
@@ -291,6 +309,8 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			DistilledStateMarkdown: params.DistilledStateMarkdown,
 			FromFilePath:           params.FromFilePath,
 			Content:                params.SessionContent,
+			Lead:                   params.Lead,
+			Interfaces:             params.Interfaces,
 			Force:                  params.Force,
 		})
 
@@ -366,6 +386,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			Importance    string   `json:"importance"`
 			Urgency       string   `json:"urgency"`
 			DueDate       string   `json:"due_date"`
+			Interfaces    []string `json:"interfaces"`
 		}
 		if err := json.Unmarshal(args, &params); err != nil {
 			s.sendError(id, -32602, "Invalid params", nil)
@@ -395,6 +416,9 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		}
 		if params.DueDate != "" {
 			updates["due_date"] = params.DueDate
+		}
+		if params.Interfaces != nil {
+			updates["interfaces"] = params.Interfaces
 		}
 		res, err = s.svc.Save(ctx, core.SaveReq{
 			ID:                 params.ID,

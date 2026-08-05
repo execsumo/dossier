@@ -55,6 +55,32 @@ func TestStatusNormalize(t *testing.T) {
 	}
 }
 
+func TestInterfaceEnum(t *testing.T) {
+	for _, allowed := range Interfaces {
+		if !allowed.IsValid() {
+			t.Errorf("canonical interface %q rejected", allowed)
+		}
+	}
+	if Interface("Weekly sync").IsValid() {
+		t.Fatal("unknown interface accepted")
+	}
+
+	now := time.Now()
+	fm := Frontmatter{
+		ID: "dos_interfaces", Name: "Interfaces", Slug: "interfaces",
+		CreatedAt: now, UpdatedAt: now, LastTouchedAt: now,
+		Status: StatusActive, Importance: ImportanceHigh, Urgency: UrgencyLow,
+		Interfaces: []string{"1:1", "Pricing WBR"},
+	}
+	if err := fm.Validate(); err != nil {
+		t.Fatalf("valid interfaces rejected: %v", err)
+	}
+	fm.Interfaces = []string{"weekly sync"}
+	if err := fm.Validate(); err == nil {
+		t.Fatal("invalid interface accepted")
+	}
+}
+
 func TestFrontmatterNormalizeReportsAndHeals(t *testing.T) {
 	fm := Frontmatter{
 		ID:         "dos_x",

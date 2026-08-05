@@ -107,6 +107,9 @@ updated_at: 2026-06-14T16:10:00-07:00
 last_touched_at: 2026-06-14T16:10:00-07:00
 status: active
 lead: "Alice"
+interfaces:
+  - "Pricing WBR"
+  - "Steerco"
 next_action: "Compare revised pricing scenarios with sales feedback."
 open_questions:
   - "Does Sales prefer account-tier or usage-tier packaging?"
@@ -134,6 +137,7 @@ Required fields:
 Optional fields:
 
 - `lead`
+- `interfaces`
 - `due_date`
 - `token_target`
 - `base_revision`
@@ -143,6 +147,7 @@ Valid enums:
 - `status`: `active`, `waiting`, `blocked`, `resolved`, `archived`
 - `importance`: `high`, `low`
 - `urgency`: `high`, `low`
+- `interfaces`: `Pricing WBR`, `1:1`, `OLG Standup`, `Growth Standup`, `Steerco`, `Solutioning`, `OpsRev` (multi-select)
 
 Derived, not stored:
 
@@ -353,7 +358,7 @@ The first implementation milestone should produce a capability matrix in `docs/h
 
 ```text
 dossier init
-dossier ls [--status active|waiting|blocked|resolved|archived|all] [--json]
+dossier ls [--status active|waiting|blocked|resolved|archived|all] [--interface <interface>] [--json]
 dossier show <slug-or-id> [--json]
 dossier promote [--name <name>] [--from-file <path>] [--json]
 dossier link [<slug-or-id>] [--from-file <path>] [--json]
@@ -362,6 +367,7 @@ dossier recall <slug-or-id> [--json]
 dossier search <query> [--dossier <slug-or-id>] [--json]
 dossier status <slug-or-id> <active|waiting|blocked|resolved|archived>
 dossier lead <slug-or-id> "<lead-name>"
+dossier interface <slug-or-id> "<interface>"...
 dossier next <slug-or-id> "<next action>"
 dossier questions <slug-or-id> add|set|clear [...]
 dossier priority <slug-or-id> --importance <h|l> --urgency <h|l> [--due <date>]
@@ -447,7 +453,7 @@ All MCP tools are prefixed with `dossier_`.
 
 Required tools:
 
-- `dossier_list`
+- `dossier_list` (supports `interfaces` filtering)
 - `dossier_recall`
 - `dossier_search`
 - `dossier_save`
@@ -457,7 +463,7 @@ Required tools:
 - `dossier_session`
 - `dossier_update`
 
-> **Note on `dossier_update`:** it accepts `name`, `status`, `lead`, `next_action`, `open_questions`, and priority fields, and routes them all through the single `Save` write path (so CLI/MCP/TUI behave identically and edits get optimistic-concurrency handling). Changing `name` updates the **display name only** — the `slug` (and the on-disk directory) is the durable identifier and never changes on rename.
+> **Note on `dossier_update`:** it accepts `name`, `status`, `lead`, `interfaces`, `next_action`, `open_questions`, and priority fields, and routes them all through the single `Save` write path (so CLI/MCP/TUI behave identically and edits get optimistic-concurrency handling). Changing `name` updates the **display name only** — the `slug` (and the on-disk directory) is the durable identifier and never changes on rename.
 
 ### 8.2 Tool Contracts
 

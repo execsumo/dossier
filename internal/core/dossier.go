@@ -92,6 +92,39 @@ func (u Urgency) Normalize() (Urgency, bool) {
 	return UrgencyHigh, true
 }
 
+// Interface identifies the forum where a dossier should be discussed.
+type Interface string
+
+const (
+	InterfacePricingWBR    Interface = "Pricing WBR"
+	InterfaceOneOnOne      Interface = "1:1"
+	InterfaceOLGStandup    Interface = "OLG Standup"
+	InterfaceGrowthStandup Interface = "Growth Standup"
+	InterfaceSteerco       Interface = "Steerco"
+	InterfaceSolutioning   Interface = "Solutioning"
+	InterfaceOpsRev        Interface = "OpsRev"
+)
+
+// Interfaces is the canonical enum order used by validation and selectors.
+var Interfaces = []Interface{
+	InterfacePricingWBR,
+	InterfaceOneOnOne,
+	InterfaceOLGStandup,
+	InterfaceGrowthStandup,
+	InterfaceSteerco,
+	InterfaceSolutioning,
+	InterfaceOpsRev,
+}
+
+func (i Interface) IsValid() bool {
+	for _, allowed := range Interfaces {
+		if i == allowed {
+			return true
+		}
+	}
+	return false
+}
+
 // Frontmatter represents the parsed metadata block of a Dossier.
 // In conformance with BUILD-DECISIONS, base_revision is session-side, not in frontmatter.
 type Frontmatter struct {
@@ -103,6 +136,7 @@ type Frontmatter struct {
 	LastTouchedAt time.Time  `yaml:"last_touched_at"`
 	Status        Status     `yaml:"status"`
 	Lead          string     `yaml:"lead,omitempty"`
+	Interfaces    []string   `yaml:"interfaces,omitempty"`
 	NextAction    string     `yaml:"next_action"`
 	OpenQuestions []string   `yaml:"open_questions"`
 	Importance    Importance `yaml:"importance"`
@@ -176,6 +210,11 @@ func (f *Frontmatter) Validate() error {
 	}
 	if !f.Urgency.IsValid() {
 		return fmt.Errorf("invalid urgency: %q", f.Urgency)
+	}
+	for _, interfaceName := range f.Interfaces {
+		if !Interface(interfaceName).IsValid() {
+			return fmt.Errorf("invalid interface: %q", interfaceName)
+		}
 	}
 	return nil
 }

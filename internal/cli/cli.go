@@ -40,6 +40,7 @@ var (
 	forceFlag         bool
 	sessionFlag       string
 	leadFlag          string
+	interfacesFlag    []string
 )
 
 // NewRootCmd constructs the root cobra command hierarchy.
@@ -252,7 +253,7 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
-			res, err := svc.List(context.Background(), core.ListReq{Status: statusFlag})
+			res, err := svc.List(context.Background(), core.ListReq{Status: statusFlag, Interfaces: interfacesFlag})
 			if err != nil {
 				fmt.Printf("List failed: %v\n", err)
 				os.Exit(1)
@@ -302,6 +303,7 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 	lsCmd.Flags().StringVar(&statusFlag, "status", "", "Filter by status (active|waiting|blocked|resolved|archived|all)")
+	lsCmd.Flags().StringSliceVar(&interfacesFlag, "interface", nil, "Filter by interface (repeat or comma-separate)")
 	lsCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
 	showCmd := &cobra.Command{
@@ -337,6 +339,7 @@ func NewRootCmd() *cobra.Command {
 			fmt.Printf("ID:             %s\n", recall.Frontmatter.ID)
 			fmt.Printf("Slug:           %s\n", recall.Frontmatter.Slug)
 			fmt.Printf("Lead:           %s\n", recall.Frontmatter.Lead)
+			fmt.Printf("Interfaces:      %s\n", strings.Join(recall.Frontmatter.Interfaces, ", "))
 			fmt.Printf("Status:         %s\n", recall.Frontmatter.Status)
 			fmt.Printf("Importance:     %s\n", recall.Frontmatter.Importance)
 			fmt.Printf("Urgency:        %s\n", recall.Frontmatter.Urgency)
@@ -565,6 +568,7 @@ func NewRootCmd() *cobra.Command {
 				DistilledStateMarkdown: distilledFlag,
 				Content:                content,
 				Lead:                   leadFlag,
+				Interfaces:             interfacesFlag,
 				Force:                  forceFlag || yesFlag,
 			}
 
@@ -599,6 +603,7 @@ func NewRootCmd() *cobra.Command {
 	promoteCmd.Flags().StringVar(&distilledFlag, "distilled", "", "Distilled state markdown body")
 	promoteCmd.Flags().StringVar(&fromFileFlag, "from-file", "", "Path to session content file")
 	promoteCmd.Flags().StringVar(&leadFlag, "lead", "", "Lead assignee for the dossier")
+	promoteCmd.Flags().StringSliceVar(&interfacesFlag, "interface", nil, "Discussion interface(s) for the dossier")
 	promoteCmd.Flags().BoolVar(&forceFlag, "force", false, "Force create dossier even if matches exist")
 	promoteCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
@@ -824,6 +829,28 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 			fmt.Printf("Lead updated successfully. New revision: %s\n", res.Data.(core.Revision))
+		},
+	}
+
+	interfaceCmd := &cobra.Command{
+		Use:   "interface <slug-or-id> <interface>...",
+		Short: "Set the discussion interface(s) of a dossier",
+		Args:  cobra.MinimumNArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			res, err := svc.Save(context.Background(), core.SaveReq{
+				ID:                 args[0],
+				FrontmatterUpdates: map[string]any{"interfaces": args[1:]},
+			})
+			if err != nil {
+				fmt.Printf("Interface update failed: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Interfaces updated successfully. New revision: %s\n", res.Data.(core.Revision))
 		},
 	}
 
@@ -1171,6 +1198,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(mergeCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(leadCmd)
+	rootCmd.AddCommand(interfaceCmd)
 	rootCmd.AddCommand(nextCmd)
 	rootCmd.AddCommand(questionsCmd)
 	rootCmd.AddCommand(priorityCmd)

@@ -59,6 +59,29 @@ type leadFilter struct {
 	name string // meaningful only when kind == filterByName
 }
 
+// interfaceFilter scopes the dashboard to dossiers assigned to one discussion
+// forum. The empty value means all interfaces.
+type interfaceFilter string
+
+func (f interfaceFilter) matches(item core.ListItem) bool {
+	if f == "" {
+		return true
+	}
+	for _, name := range item.Interfaces {
+		if name == string(f) {
+			return true
+		}
+	}
+	return false
+}
+
+func (f interfaceFilter) label() string {
+	if f == "" {
+		return "All"
+	}
+	return string(f)
+}
+
 // matches reports whether item belongs in this filter's view.
 func (f leadFilter) matches(item core.ListItem) bool {
 	switch f.kind {
@@ -213,17 +236,18 @@ type Model struct {
 
 	// Data
 	items        []core.ListItem // full dossier list, source of truth
-	visibleItems []core.ListItem // items[] narrowed by leadFilter and extrasExpanded; what the table shows
+	visibleItems []core.ListItem // items[] narrowed by lead/interface filters and extrasExpanded; what the table shows
 	liveCount    int             // visibleItems[:liveCount] are tier-0 (live) items; visibleItems[liveCount:] are extras, present only while expanded
 	extrasCount  int             // resolved/archived items matching leadFilter but excluded from visibleItems while collapsed
 	recallResult core.RecallResult
 
 	// Lead landing screen state
-	leadFilter  leadFilter      // active dashboard scope (defaults to All)
-	leadSearch  textinput.Model // search-as-you-type box
-	leadOptions []leadOption    // every selectable lead, counts included
-	leadResults []leadOption    // leadOptions narrowed by the search box
-	leadCursor  int
+	leadFilter      leadFilter      // active dashboard scope (defaults to All)
+	leadSearch      textinput.Model // search-as-you-type box
+	leadOptions     []leadOption    // every selectable lead, counts included
+	leadResults     []leadOption    // leadOptions narrowed by the search box
+	leadCursor      int
+	interfaceFilter interfaceFilter
 
 	// extrasExpanded controls the dashboard's "Show More... / Hide Extras..." row:
 	// when false (the default), resolved/archived dossiers are collapsed out of
@@ -655,7 +679,7 @@ func (m *Model) applyLeadFilter() {
 	visible := make([]core.ListItem, 0, len(m.items))
 	var extraItems []core.ListItem
 	for _, item := range m.items {
-		if !m.leadFilter.matches(item) {
+		if !m.leadFilter.matches(item) || !m.interfaceFilter.matches(item) {
 			continue
 		}
 		if statusTier(item.Status) == 1 {
@@ -1268,6 +1292,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.openLeadSelector()
 				return m, nil
 			}
+		case "i":
+			if m.currentView == ViewDashboard {
+				m.interfaceFilter = nextInterfaceFilter(m.interfaceFilter)
+				m.applyLeadFilter()
+				m.populateTableRows()
+				m.table.SetCursor(0)
+				return m, nil
+			}
 		case "k":
 			if m.currentView == ViewDashboard {
 				m.startLinkInput()
@@ -1800,6 +1832,20 @@ func (m Model) renderPriorityEditor() string {
 	return editorBoxStyle.Render(sb.String())
 }
 
+func nextInterfaceFilter(current interfaceFilter) interfaceFilter {
+	options := make([]interfaceFilter, 0, len(core.Interfaces)+1)
+	options = append(options, "")
+	for _, value := range core.Interfaces {
+		options = append(options, interfaceFilter(value))
+	}
+	for i, option := range options {
+		if option == current {
+			return options[(i+1)%len(options)]
+		}
+	}
+	return options[0]
+}
+
 func (m Model) renderLeadSelector() string {
 	var sb strings.Builder
 	sb.WriteString("Filters — scope the dashboard before a meeting.\n\n")
@@ -2004,13 +2050,13 @@ func (m Model) View() string {
 		if m.extrasCount > 0 && !m.extrasExpanded {
 			archivedNote = " · resolved/archived hidden"
 		}
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" Durable memory layer for agentic workflows — Dashboard · Lead: %s%s", m.leadFilter.label(), archivedNote)))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" Durable memory layer for agentic workflows — Dashboard · Lead: %s · Interface: %s%s", m.leadFilter.label(), m.interfaceFilter.label(), archivedNote)))
 		sb.WriteString("\n\n")
 
 		if m.loading && len(m.items) == 0 {
 			sb.WriteString(" Loading dossiers...\n")
 		} else if len(m.visibleItems) == 0 && m.extrasCount == 0 {
-			sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" No dossiers for lead: %s — press f to change filters.\n", m.leadFilter.label())))
+			sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" No dossiers for lead: %s / interface: %s — press f or i to change filters.\n", m.leadFilter.label(), m.interfaceFilter.label())))
 		} else {
 			sb.WriteString(m.table.View())
 			sb.WriteString("\n")
@@ -2082,6 +2128,7 @@ func (m Model) View() string {
 			"Lead:", leadLabel,
 		))
 		sb.WriteString(renderRow("Priority:", fmt.Sprintf("Score %d (Importance: %s, Urgency: %s)", score, fm.Importance, fm.Urgency)))
+		sb.WriteString(renderRow("Interfaces:", strings.Join(fm.Interfaces, ", ")))
 		sb.WriteString(renderRow("Tokens:", fmt.Sprintf("%d / %d", m.recallResult.TokenEstimate, targetTokens)))
 		sb.WriteString(renderRow("Next:", fm.NextAction))
 

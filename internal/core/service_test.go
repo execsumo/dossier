@@ -197,6 +197,35 @@ func (f *localFakeStore) ListConflicts() ([]Conflict, error) {
 }
 func (f *localFakeStore) WriteLibraryContext(data LibraryData) error { return nil }
 
+func TestServiceListFiltersInterfaces(t *testing.T) {
+	store := newLocalFakeStore()
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()}, Config{DossierHome: "/tmp/dossier-test"})
+	now := time.Now()
+	store.dossiers["dos_pricing"] = &Dossier{Frontmatter: Frontmatter{
+		ID: "dos_pricing", Name: "Pricing", Slug: "pricing", CreatedAt: now,
+		UpdatedAt: now, LastTouchedAt: now, Status: StatusActive,
+		Importance: ImportanceHigh, Urgency: UrgencyLow,
+		Interfaces: []string{"Pricing WBR", "Steerco"},
+	}, DistilledState: DistilledState{Body: "# Topic"}}
+	store.dossiers["dos_one"] = &Dossier{Frontmatter: Frontmatter{
+		ID: "dos_one", Name: "One on one", Slug: "one-on-one", CreatedAt: now,
+		UpdatedAt: now, LastTouchedAt: now, Status: StatusActive,
+		Importance: ImportanceHigh, Urgency: UrgencyLow,
+		Interfaces: []string{"1:1"},
+	}, DistilledState: DistilledState{Body: "# Topic"}}
+	store.revisions["dos_pricing"] = CalculateRevision(store.dossiers["dos_pricing"].Frontmatter, "# Topic", nil)
+	store.revisions["dos_one"] = CalculateRevision(store.dossiers["dos_one"].Frontmatter, "# Topic", nil)
+
+	res, err := svc.List(context.Background(), ListReq{Interfaces: []string{"Pricing WBR"}})
+	if err != nil {
+		t.Fatalf("filtered list failed: %v", err)
+	}
+	items := res.Data.([]ListItem)
+	if len(items) != 1 || items[0].Name != "Pricing" || len(items[0].Interfaces) != 2 {
+		t.Fatalf("unexpected filtered items: %+v", items)
+	}
+}
+
 func TestServiceListAndRecall(t *testing.T) {
 	fakeStore := newLocalFakeStore()
 	tok := &mockTokenizer{}

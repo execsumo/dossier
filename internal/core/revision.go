@@ -19,6 +19,12 @@ func CanonicalFrontmatter(fm Frontmatter) string {
 	}
 	sb.WriteString(fmt.Sprintf("id: %s\n", fm.ID))
 	sb.WriteString(fmt.Sprintf("importance: %s\n", fm.Importance))
+	if len(fm.Interfaces) > 0 {
+		sb.WriteString("interfaces:\n")
+		for _, interfaceName := range fm.Interfaces {
+			sb.WriteString(fmt.Sprintf("  - %s\n", interfaceName))
+		}
+	}
 	sb.WriteString(fmt.Sprintf("last_touched_at: %s\n", fm.LastTouchedAt.UTC().Format(time.RFC3339)))
 	sb.WriteString(fmt.Sprintf("name: %s\n", fm.Name))
 	sb.WriteString(fmt.Sprintf("next_action: %s\n", fm.NextAction))

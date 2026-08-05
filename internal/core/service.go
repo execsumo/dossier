@@ -46,6 +46,7 @@ type ListItem struct {
 	Slug          string   `json:"slug"`
 	Status        string   `json:"status"`
 	Lead          string   `json:"lead,omitempty"`
+	Interfaces    []string `json:"interfaces,omitempty"`
 	NextAction    string   `json:"next_action"`
 	OpenQuestions []string `json:"open_questions"`
 	Importance    string   `json:"importance"`
@@ -531,6 +532,7 @@ type PromoteReq struct {
 	FromFilePath           string
 	Content                string
 	Lead                   string
+	Interfaces             []string
 	Force                  bool
 }
 
@@ -607,8 +609,9 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 	saveRes, err := s.Save(ctx, SaveReq{
 		DistilledStateMarkdown: req.DistilledStateMarkdown,
 		FrontmatterUpdates: map[string]any{
-			"name": req.Name,
-			"lead": req.Lead,
+			"name":       req.Name,
+			"lead":       req.Lead,
+			"interfaces": req.Interfaces,
 		},
 	})
 	if err != nil {
@@ -745,6 +748,8 @@ func getFMField(fm Frontmatter, field string) any {
 		return string(fm.Status)
 	case "lead":
 		return fm.Lead
+	case "interfaces":
+		return strings.Join(fm.Interfaces, "|||")
 	case "next_action":
 		return fm.NextAction
 	case "importance":
@@ -777,6 +782,9 @@ func applyFrontmatterUpdates(d *Dossier, updates map[string]any) {
 		if strVal, ok := val.(string); ok {
 			d.Frontmatter.Lead = strVal
 		}
+	}
+	if val, ok := updates["interfaces"]; ok {
+		d.Frontmatter.Interfaces = interfaceNamesFromValue(val)
 	}
 	if val, ok := updates["next_action"]; ok {
 		if strVal, ok := val.(string); ok {
@@ -820,9 +828,23 @@ func applyFrontmatterUpdates(d *Dossier, updates map[string]any) {
 	}
 }
 
+func interfaceNamesFromValue(value any) []string {
+	var names []string
+	switch values := value.(type) {
+	case []string:
+		names = append(names, values...)
+	case []any:
+		for _, value := range values {
+			if name, ok := value.(string); ok {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
+}
+
 // describeFrontmatterChanges returns a human-readable, audit-friendly summary of
-// which frontmatter fields changed between before and after, each as "field old→new".
-// It returns "" when nothing material changed, so callers can fall back to a generic message.
+// which frontmatter fields changed between before and after.
 func describeFrontmatterChanges(before, after Frontmatter) string {
 	var parts []string
 	add := func(field, oldVal, newVal string) {
@@ -833,6 +855,9 @@ func describeFrontmatterChanges(before, after Frontmatter) string {
 	add("name", before.Name, after.Name)
 	add("status", string(before.Status), string(after.Status))
 	add("lead", before.Lead, after.Lead)
+	if strings.Join(before.Interfaces, "|||") != strings.Join(after.Interfaces, "|||") {
+		parts = append(parts, fmt.Sprintf("interfaces %q→%q", strings.Join(before.Interfaces, ", "), strings.Join(after.Interfaces, ", ")))
+	}
 	add("next_action", before.NextAction, after.NextAction)
 	add("importance", string(before.Importance), string(after.Importance))
 	add("urgency", string(before.Urgency), string(after.Urgency))
@@ -1300,7 +1325,22 @@ func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
 }
 
 type ListReq struct {
-	Status string
+	Status     string
+	Interfaces []string
+}
+
+func matchesInterfaces(have, want []string) bool {
+	if len(want) == 0 {
+		return true
+	}
+	for _, requested := range want {
+		for _, assigned := range have {
+			if requested == assigned {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
@@ -1311,6 +1351,9 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 
 	var filtered []Frontmatter
 	for _, fm := range fms {
+		if !matchesInterfaces(fm.Interfaces, req.Interfaces) {
+			continue
+		}
 		if req.Status == "" {
 			if fm.Status == StatusActive || fm.Status == StatusWaiting || fm.Status == StatusBlocked {
 				filtered = append(filtered, fm)
@@ -1367,6 +1410,7 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 			Slug:          sItem.fm.Slug,
 			Status:        string(sItem.fm.Status),
 			Lead:          sItem.fm.Lead,
+			Interfaces:    append([]string(nil), sItem.fm.Interfaces...),
 			NextAction:    sItem.fm.NextAction,
 			OpenQuestions: sItem.fm.OpenQuestions,
 			Importance:    string(sItem.fm.Importance),

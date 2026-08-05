@@ -190,6 +190,32 @@ func setupTestService(store core.Store) *core.Service {
 	)
 }
 
+func TestInterfaceFilter(t *testing.T) {
+	item := core.ListItem{Interfaces: []string{"Pricing WBR", "Steerco"}}
+	if !interfaceFilter("Pricing WBR").matches(item) {
+		t.Fatal("expected matching interface to pass")
+	}
+	if interfaceFilter("1:1").matches(item) {
+		t.Fatal("expected non-matching interface to be filtered")
+	}
+	if !interfaceFilter("").matches(item) {
+		t.Fatal("expected empty interface filter to match all")
+	}
+}
+
+func TestNextInterfaceFilterCyclesCanonicalOrder(t *testing.T) {
+	current := interfaceFilter("")
+	for _, want := range core.Interfaces {
+		current = nextInterfaceFilter(current)
+		if current != interfaceFilter(want) {
+			t.Fatalf("next filter = %q, want %q", current, want)
+		}
+	}
+	if nextInterfaceFilter(current) != "" {
+		t.Fatal("expected interface filter cycle to return to All")
+	}
+}
+
 func TestTUI_Dashboard(t *testing.T) {
 	store := newTestStore()
 	// Seed a dossier
