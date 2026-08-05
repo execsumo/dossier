@@ -4,7 +4,7 @@ Guidance for any agent (Claude Code, Codex, etc.) building Dossier. Read `HANDOF
 
 ## What this is
 
-Dossier (codename *chainlink*) is a local, single-user durable memory layer for agent-driven work in Claude Code (the only supported harness in v1). A Dossier is a flat durable topic with a curated Markdown **Distilled State**, a source-retaining **Archive**, and an append-only audit log. One self-contained **Go** binary serves CLI + MCP-over-stdio + hooks + TUI. No database; files are the source of truth.
+Dossier (codename *chainlink*) is a local, single-user durable memory layer for agent-driven work in Claude Code and Pi. Pi support depends on the compatible hooks-extension contract documented in `HANDOFF.md`. A Dossier is a flat durable topic with a curated Markdown **Distilled State**, a source-retaining **Archive**, and an append-only audit log. One self-contained **Go** binary serves CLI + MCP-over-stdio + hooks + TUI. No database; files are the source of truth.
 
 ## Reading order (do not skip)
 
@@ -22,7 +22,7 @@ If `SPEC.md` and `PRD.md` disagree, `SPEC.md` wins on mechanics; `BUILD-DECISION
 go build ./cmd/dossier        # compile the single binary
 go test ./...                 # all tests
 go test ./internal/core/...   # fast pure-domain tests
-go vet ./... && gofmt -l .    # lint / format check
+go vet ./... && test -z "$(gofmt -l .)"  # lint / format check
 DOSSIER_HOME=$(mktemp -d) ./dossier init   # exercise init against a throwaway store
 ./dossier mcp serve           # run the MCP server over stdio
 ```

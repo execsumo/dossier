@@ -97,7 +97,7 @@ the ancestry walk, bound a Dossier, and read the binding back.
 
 ---
 
-## 2. Claude Code Integration Details
+## 3. Claude Code Integration Details
 
 - **MCP Path:** Stdio-based server registered globally in `~/.claude.json` under `"mcpServers"` or locally in a project's `.mcp.json`.
 - **Hooks:** Lifecycle hooks trigger commands. The standard output of the `SessionStart` hook is directly injected into Claude Code's active context window. The `PreCompact` hook triggers just before history truncation, enabling a final `Save` of the session's active Dossier context.
@@ -117,7 +117,7 @@ A single Claude Code session may spawn two concurrent `dossier mcp serve` proces
 
 ---
 
-## 3. Hook Schema and Installation Caveats
+### 3.1 Hook Schema and Installation Caveats
 
 ### Hook Schema Format
 To ensure hooks are not ignored by the Claude Code hook executor, they must be registered in the correct array-of-matchers schema.
@@ -140,7 +140,7 @@ Requires the `"matcher"` key:
 }
 ```
 
-### Stable Binary-Path Installation and MCP Configuration
+### 3.2 Stable Binary-Path Installation and MCP Configuration
 
 To prevent dangling hook paths and ensure a reliable, persistent connection, Dossier uses a stable, self-managed path for all harness integrations.
 

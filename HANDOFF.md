@@ -164,7 +164,18 @@ Build (from `BUILD-DECISIONS.md`):
 - **Language: Go.** **Supported harnesses: Claude Code and Pi.** **Rich TUI** (Bubble Tea).
 - Tokenizer: embedded BPE benchmarked vs Opus 4.8, behind a port. Search: native Go default + ripgrep fast-path. Harness installs: non-clobbering, idempotent, confirmation before modifying. Several SPEC ambiguities resolved (notably: `base_revision` is session-side, not frontmatter; recall returns the revision; revision-hash canonicalization defined).
 
-## How to start
+## What remains
+
+Implementation is complete. The remaining work is product validation and minor maintenance:
+
+1. Keep the quality gate green: `go test ./...`, `go vet ./...`, and `test -z "$(gofmt -l .)"`.
+2. Dogfood with 10–20 real topics, including resume, ambiguity, unavailable-transcript, concurrency, and merge-conflict drills.
+3. Review distilled states and tune `assets/guide.md` based on those drills rather than adding confirmation overhead.
+4. Track the PRD success metrics: cross-session resume success, provenance misses, over-target warnings, and time-to-find-next-topic.
+
+The explicitly deferred items remain listed in `BUILD-DECISIONS.md`, `PRD.md`, and the delegation design above. No implementation milestone is currently outstanding.
+
+## Historical implementation starting point
 
 Milestone 1 (SPEC §15, sequenced in `ARCHITECTURE.md` §12):
 
