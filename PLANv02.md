@@ -413,6 +413,10 @@ Rules, in order of strength:
    more accurate *and* removes the liability of holding an unreviewed file about
    a colleague.
 
+This rule needs to be stated where people actually encounter it, not buried in a
+plan: the README carries it in Phase 5 (§7.5), the Distillation Guide carries it
+for the agent (§7.3), and the person-note template carries it inline.
+
 **The co-authoring loop works today with zero infrastructure.** The profile is a
 Markdown file: send it to them. *"This is how I've been briefing you — what's
 wrong, what's missing?"* A Slack round-trip costs nothing and needs no sharing
@@ -571,6 +575,28 @@ the README around the three moves in §0, leading with the loop: **you brief a
 teammate, the agent notices what you had to explain, and the next briefing is
 shorter.** That is the sentence that makes the product legible to someone who
 has not read this plan.
+
+**The README must also carry the co-authoring rule — and its reason.** This is
+the paragraph that has to land, because it converts a guideline people skip into
+a design constraint they understand:
+
+> A person note is a **task-calibration note**: what this colleague already
+> knows, what they need supplied, what access they lack, how they prefer to
+> receive work. It is not a performance file, and it is not a personality
+> sketch. Write it as though the person will read it — and share it with them,
+> because they know what they don't know better than you do.
+>
+> This is not only good manners. In a shared store (§10), **Alex can read
+> Priya's profile.** A note that is factual, task-scoped, and co-authored from
+> day one needs no cleanup when sync arrives; one written as private commentary
+> becomes a liability the moment the repo has a second reader. The discipline is
+> what makes the store safe to share.
+
+Placing this in the README rather than only in the guide matters for sequencing:
+the notes get written in Phase 4, and sync does not arrive until Phase 6. Anyone
+who writes notes in between should already be writing them the right way — the
+constraint has to be visible *before* the capability that makes it load-bearing
+exists. A rule introduced alongside sync arrives one phase too late.
 
 ---
 
