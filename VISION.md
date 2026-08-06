@@ -24,10 +24,10 @@ gap between two meetings, and mostly in memory. It survives right up until
 someone takes leave, changes role, works across an eight-hour offset, or simply
 comes back on Monday.
 
-Dossier makes that knowledge durable and shared, without asking anyone to
-maintain it. You do your work through the AI agent you already use. The agent
-keeps the record: what this topic is, what was decided, who owes what, what
-happens next. When you come back — tomorrow, or in three weeks, or as a
+Dossier makes that knowledge durable and shared, without turning it into a job
+somebody has to do. You do your work through the AI agent you already use. The
+agent keeps the record: what this topic is, what was decided, what is needed
+from whom, what happens next. When you come back — tomorrow, or in three weeks, or as a
 different person entirely — the state of the work is there, and it is honest
 about where it came from.
 
@@ -43,13 +43,21 @@ AI agents** — people running pricing, growth, operations, or strategy, not
 people writing software. The tool happens to live in the same terminal as the
 agent, but the work it holds is business work.
 
+One thing about that work shapes everything below. Very little of it is
+delivered by the people on your team alone. A growth lead with five reports gets
+things done through Finance, Legal, Product, an agency, a peer's roadmap and an
+executive's calendar — none of whom they manage, most of whom they cannot chase.
+So when this document says *team*, read it as the whole set of people a piece of
+work actually runs through. The org chart is one useful fact among many; it is
+not the shape of the problem.
+
 Five things break for these teams today, and each has a real cost:
 
 | What breaks | What it costs |
 |---|---|
 | Context dies with the conversation | You re-explain the same background every time you pick a topic back up |
 | Only one person holds the thread | When they are unavailable, the work stops rather than continuing |
-| "Waiting on someone" is invisible | Things sit for a week before anyone notices they were never actually asked |
+| "Waiting on someone" is invisible | Things sit for a week before anyone notices they were never actually asked — or never actually agreed to |
 | Handoffs are underspecified | A colleague eight hours away hits an ambiguity, and loses their whole day waiting for an answer |
 | Meeting prep is rebuilt from scratch | Twenty minutes before every recurring meeting, reconstructing what you already knew |
 
@@ -75,9 +83,15 @@ and every meaningful claim links back to where it came from. You can always ask
 
 **The agent maintains it; you do the work.** There is no form to fill in and no
 weekly hygiene ritual. You have the conversation you were going to have anyway,
-and the record updates. The one thing Dossier asks of you is judgement — who
-owns this, what is it worth, what do you need and from whom — because those are
-the things it cannot infer.
+and the record updates. Dossier asks two things of you, and only two. The first
+is **judgement** — who owns this, what is it worth, what do you need and from
+whom — because those are the things it cannot infer. The second is a **word at
+the boundary**: Dossier sees your conversations with your agent, and nothing
+else. It cannot know that you finally sent Alex that message in Slack, or that
+he replied yes. So when work crosses out of its view, it asks — *"mark this as
+raised?"* — and you answer in three words, or paste the reply back. That is the
+whole maintenance burden. What it will never do is guess, and then present the
+guess as fact.
 
 ---
 
@@ -92,9 +106,21 @@ mattered was wrong, the material is recoverable. This is why there is no
 "approve this update?" step slowing you down: safety comes from nothing being
 destroyed, not from you checking every write.
 
-**Every claim carries its source.** A decision in a dossier says who made it,
-when, why, and links to the conversation or document that settled it. This is
-what makes the record defensible months later, to someone who was not there.
+This is a different thing from the confirmations in §3, and the difference is
+worth holding onto. Dossier never asks your permission to record something it
+watched happen — that is the gate we removed, and it stays removed. It asks only
+when it needs you to **assert** something it could not see, because the
+alternative is guessing about the world outside the conversation. One is a
+bureaucratic checkpoint on the tool's own work; the other is the tool declining
+to invent facts.
+
+**Every claim carries its source — including how it got there.** A decision in a
+dossier says who made it, when, why, and links to the conversation or document
+that settled it. It also says how Dossier came to believe it: something it
+*observed* in the work, something *you told it*, or something it *inferred*. The
+three are never blurred together, because "Dossier thinks Alex agreed" and "Alex
+agreed" are different facts and only one of them is evidence. This is what makes
+the record defensible months later, to someone who was not there.
 
 **It never guesses when it should ask.** Two topics that might be the same
 thing, two people who edited the same record — Dossier surfaces the ambiguity
@@ -112,8 +138,8 @@ abandoned, and an abandoned memory is worse than none.
 
 ## 5. What it feels like to use
 
-The interface is mostly *no interface*. You work with your agent as you already
-do; Dossier is what the agent knows.
+Most of the time there is no screen at all. You work with your agent as you
+already do; Dossier is what the agent knows.
 
 **Opening a session.** The agent already knows what is open and what needs you.
 You say "let's pick up the pricing migration" and it has the state — no
@@ -131,8 +157,8 @@ waiting on Priya?" — and get an answer.
 handoff that is actually complete, and you paste it wherever your colleague
 lives — Slack, email, a ticket.
 
-The design principle underneath: **the fastest interface is a conversation, and
-the second fastest is a screen you did not have to configure.** Anything that
+The design principle underneath: **the fastest way in is a conversation, and the
+second fastest is a screen you did not have to configure.** Anything that
 requires setting up a view before it becomes useful has already failed.
 
 ---
@@ -171,38 +197,84 @@ Most tools model this as *waiting* — a passive status that tells you something
 has stalled but not what would unstall it. We think that is the wrong shape.
 
 Instead, a dossier carries a short list of **requirements**: specific things
-needed from specific people, each with the forum where it gets raised and the
-date it is needed by. Not a task list — a list of the inputs that are blocking
-progress, and who holds them.
+needed from specific people, each with the date it is needed by and the
+**interface** where it gets raised — Dossier's word for a recurring meeting,
+your 1:1s and standups and steering committees. Not a task list — a list of the
+inputs that are blocking progress, and who holds them.
+
+The wording here is deliberate, and it is not decoration. Something is **needed
+from** a person; it is not *owed by* them, and they are not *the blocker*. Much
+of this work runs through people nobody in the room manages — Finance, Legal, an
+agency, a peer's team — and a record that reads as an accusation is a record you
+cannot let those people see. Dossier states what progress depends on. It does
+not assign fault, and it does not imply an authority you do not have.
 
 The important distinction, and the one nothing else surfaces:
 
 > **Has it actually been asked yet?**
 
-A requirement sits in one of two live states. *Not yet raised* means **you** are
-the blocker — the ask exists in your head and nowhere else. *Raised* means they
-are, and the clock starts there. In practice, a surprising share of "I'm
-waiting on Alex" turns out to be "I never actually asked Alex," and that is a
-category of failure no tool currently shows anyone.
+*Not yet raised* means the ask exists in your head and nowhere else — **you**
+are the one holding it up. *Raised* means it is genuinely with them, and the
+clock starts there. In practice, a surprising share of "I'm waiting on Alex"
+turns out to be "I never actually asked Alex," and that is a category of failure
+no tool currently shows anyone.
+
+There is a second gap behind it, and it bites hardest with the people you have
+no authority over:
+
+> **And did they actually agree?**
+
+Raising something is not the same as getting a commitment. You can ask Legal for
+sign-off by Friday and hear nothing; Friday arriving does not mean Legal is
+late, it means nobody ever agreed to Friday. So a requirement can also be
+*accepted* — and if the other person named their own date, that date is recorded
+next to yours rather than replacing it. **Your needed-by is what you want.
+Their committed-by is what you have.** Most of the disappointment in
+cross-functional work lives in the gap between those two, and the gap is
+invisible when a tool stores only one date.
+
+This changes what deserves your attention. Something surfaces because it went
+quiet with no acknowledgement, or because a commitment somebody actually made
+has passed — not merely because a date you set alone went by. That distinction
+is the difference between a signal and a nag.
 
 **How it should feel:**
 
 ```
-Pricing migration                          Alex · due Fri
+Pricing migration                                    Alex · due Fri
   ⌁ Vendor contacts             not yet raised — 1:1
-  ⌁ Legal sign-off on tiering   raised 4d ago — Steerco
+  ⌁ Legal sign-off on tiering   raised 4d ago, no reply — Steerco
+  ⌁ Q3 forecast numbers         Priya committed Thu 14th — WBR
 ```
 
-#### 2b. Escalation that flows both ways
+That is the whole model: *not raised*, *raised*, *accepted*, *answered*, and
+*dropped* for the ones that stop mattering — closed rather than removed, because
+nothing here is ever deleted. What we are deliberately refusing is the next
+twenty states: declined, replanned, in progress, at risk. Each is individually
+reasonable and collectively they are a ticket tracker, which is the thing you
+are using Dossier to escape.
 
-Ownership is recorded, and so is who reports to whom. That makes two things
-possible that are usually left to memory:
+#### 2b. Escalation that follows the real route
+
+Ownership is recorded, and so is what to do when something stalls. That makes
+three things possible that are usually left to memory — and only one of them
+has anything to do with the org chart:
 
 **Upward — your team's exceptions become your list.** When something a direct
 report owns goes past its date, it appears on the leader's list, marked with
 whose it is and why it surfaced. Not their whole plate — that would be noise
 you learn to ignore within a fortnight — only the exceptions. A leader's view
 is their own work, plus their team's problems.
+
+**Sideways — the route is the relationship, not the org chart.** Most of what
+actually blocks this work sits with people outside your line: Legal, Finance,
+a partner team, an agency, an executive. A reporting structure says nothing
+useful about any of them, so Dossier does not pretend otherwise. What it records
+instead is the route you would actually use — the interface where this gets
+raised, and where it goes next if that room does not settle it. *"Raise in the
+launch steerco; if it is still open on Thursday, it goes to the VP."* That is a
+fact about a relationship, and you already know it; it has simply never been
+written down anywhere your agent can read.
 
 **Downward — what you owe your team goes to the very top.** This is the half
 that usually goes untracked. If a colleague is blocked on something *you* owe
@@ -238,8 +310,12 @@ day on an offset team are almost always the ones missing:
   one open question does not cost them the whole day.
 
 Everything else — the objective, the context, the constraints, what "done"
-means and how it will be checked — is usually already implicit in the dossier
-and does not need asking again.
+means and how it will be checked — the agent fills in from the dossier, because
+it is usually already there. It asks about those only where the dossier is
+genuinely silent or says two different things, which happens most often when the
+work crosses into a function that was never part of the original conversation.
+What it does not do is walk you through all seven every time to prove it
+checked.
 
 Two deliberate choices here:
 
@@ -251,11 +327,19 @@ overhead on the fast, informal path that works fine most of the time.
 the specific thing that is missing, or it tells you it is ready. A completeness
 score turns a judgement into a form, and forms get abandoned.
 
-The agreed contract is then stored on the dossier, and the message you paste to
-your colleague is generated from it. That matters for the check-back later: you
-can ask "did this meet what we agreed?" and get an answer against what was
+The contract is then stored on the dossier, and the message you paste to your
+colleague is generated from it. That matters for the check-back later: you can
+ask "did this meet what we agreed?" and get an answer against what was
 *actually* agreed. If the goalposts moved in between, they moved — but you will
 be told, rather than shown the new target as though it were the original.
+
+**And it is only a contract once they say so.** The note tells your colleague
+that three replies are useful — *accepted*, *I need one thing clarified*, or *I'd
+propose changing this* — and whichever comes back gets recorded against the
+handoff. This is the same honesty as Layer 2a, one level up: a brief you sent is
+not a brief they took on. Until someone accepts, what you have is a proposal, and
+Dossier will say so rather than let you spend a week believing the work is
+underway.
 
 #### 3b. The colleague profile that learns — in both directions
 
@@ -286,8 +370,12 @@ So a profile is not "how to manage this person." It is:
 
 **And it improves as a by-product of use.** After a handoff completes, the agent
 notices what you had to explain and offers to update the profile: *"Alex now
-has the vendor contacts — move them to 'already has'?"* Nobody maintains it.
-It gets better because you used it.
+has the vendor contacts — move them to 'already has'?"* Nobody sits down to
+maintain it; it gets better because you used it. Two guardrails on that: the
+agent **proposes, it never silently learns** — a note about a person changes
+only when a person agrees to the change. And entries get stale, because people
+grow. What was true about Alex a year ago is a liability now, so old entries are
+shown as old and can be reconfirmed or retired rather than quietly accumulating.
 
 **Who writes it matters.** These notes should be co-authored with the person
 they describe, and ideally written by them. Two reasons, and both are real:
@@ -304,13 +392,13 @@ they will read it. Because they should.
 #### 4a. Meetings that arrive pre-assembled
 
 Your week has a shape: 1:1s, a standup, a weekly business review, a steering
-committee. Each is a recurring forum with its own purpose, and each currently
-costs twenty minutes of reconstruction beforehand.
+committee. Each of these is an interface, each has its own purpose, and each
+currently costs twenty minutes of reconstruction beforehand.
 
-In Dossier, a topic is tagged with the forums it belongs to, and each forum has
-a short note of its own — what it decides, what belongs there, and importantly
-**what does not** (so the agent can say "this belongs in the solutioning
-session, not the steerco").
+In Dossier, a topic is tagged with the interfaces it belongs to, and each
+interface has a short note of its own — what it decides, what belongs there, and
+importantly **what does not** (so the agent can say "this belongs in the
+solutioning session, not the steerco").
 
 Then preparing is one request:
 
@@ -318,17 +406,19 @@ Then preparing is one request:
 prep my 1:1 with Alex
 ```
 
-and you get the forum's purpose, Alex's live topics, what he owes you, **what
-you owe him**, anything of his that has gone past its date, and the parts of
-his profile that matter for what you are about to discuss. Group forums work
-the same way, organised by person instead of scoped to one.
+and you get the interface's purpose, Alex's live topics, what you are waiting on
+from him, **what he is waiting on from you**, anything of his that has gone past
+its date, and the parts of his profile that matter for what you are about to
+discuss. Group interfaces work the same way, organised by person instead of
+scoped to one.
 
 **The refinement that makes it usable:** an agenda that lists everything
 in-flight teaches you to skim it, and then you miss the one item that mattered.
-So prep shows what you still need to **raise**, plus anything already raised
-that has gone quiet past its date and needs a **chase**. Things asked and still
-within their window stay out of the way. You walk in with the list of what
-needs saying, not an inventory of everything outstanding.
+So prep shows what you still need to **raise**, plus what needs a **chase** —
+raised and gone quiet with no acknowledgement, or accepted and now past the date
+they themselves named. Things asked and still within their window stay out of
+the way. You walk in with the list of what needs saying, not an inventory of
+everything outstanding.
 
 #### 4b. Time that respects whose day it is
 
@@ -353,9 +443,9 @@ so you can choose, not so you feel late.
 Everything above works for one person. The end state is a team that shares one
 memory.
 
-When it lands: a requirement you record against Ryan appears **on Ryan's own
-list**, as something he owes, without anyone pasting anything. His answer
-appears on yours. A colleague picks up a topic you started and gets the same
+When it lands: a requirement you record as needed from Ryan appears **on Ryan's
+own list**, as something he has been asked for, without anyone pasting anything.
+His answer appears on yours. A colleague picks up a topic you started and gets the same
 state you had, not a summary of it. Someone returns from leave and reads what
 happened instead of asking.
 
@@ -364,8 +454,19 @@ Two things we are being deliberate about:
 **Not everything can be shared.** A leader has topics that cannot go into a
 team-visible space — compensation, performance, a reorganisation, a hire. That
 is not an edge case, it is a normal week, and a shared memory that cannot hold
-that boundary safely is one we should not ship. How exactly that separation
-works is an open question, and it is the single thing we most want your view on.
+that boundary safely is one we should not ship.
+
+We have also learned that "mine" and "the team's" is probably too coarse a
+split. A single growth topic can carry a number the whole team should see, a
+board commitment that stops at the leadership group, an agency contract, and a
+vendor conversation that stops with one person. Whether that means named
+audiences per dossier, a smaller set of levels, or something else, we do not
+know yet. One requirement is already clear whatever we choose: if a claim is
+drawn from a restricted source, showing the claim must never expose the source.
+A summary that quietly leaks what it summarised is worse than no sharing at all.
+How this separation works is the open question we most want your view on, and
+until it is answered convincingly, compensation and performance topics stay out
+of shared memory entirely.
 
 **Sharing raises the bar on colleague profiles — which is why we set it early.**
 In a shared team memory, Alex can read Priya's profile. A note that has been
@@ -385,6 +486,17 @@ choice rather than a gap:
 percent-complete. Dossier holds the *knowledge* of the work, not its
 choreography. If it grows subtasks and reminders, we have built a worse Jira.
 
+The line is worth drawing precisely, because a team that keeps two versions of
+the truth will eventually trust neither. Dossier holds the things no execution
+tool has ever held well: what is going on and why, what was decided and by whom,
+what was ruled out, what this work depends on from outside it, what was agreed
+in a handoff, and where every claim came from. If you run a board or a tracker,
+that keeps what it is good at — tasks, delivery dates, execution state — and
+Dossier points at it rather than shadowing it. If you do not run one, which is
+the normal case for the teams we are building for, Dossier is not going to
+become one. Its answer to "what is the state of this work" will always be a
+paragraph you can read, not a percentage.
+
 **Not a system of record for HR.** Colleague profiles are about how to exchange
 work — what someone knows, needs, and prefers. They are never about
 performance, and the product should make writing that kind of note feel wrong.
@@ -393,9 +505,12 @@ performance, and the product should make writing that kind of note feel wrong.
 Automated nudges to colleagues from a manager's tool is a different product with
 a different relationship to the team.
 
-**Not a place your team logs their work.** Nobody is asked to update Dossier.
-The record is a by-product of conversations people were having anyway. The
-moment it requires maintenance, it stops being maintained.
+**Not a place your team logs their work.** Nobody is asked to write a status
+update, and there is no field anywhere that exists to be filled in. The record
+is a by-product of conversations people were having anyway. The confirmations in
+§3 are the exception that proves it: they are one word, at the moment you were
+already thinking about the thing. The moment Dossier requires more than that, it
+stops being maintained.
 
 **Not a replacement for talking to people.** The point of removing wasted
 round-trips is to spend the conversations you do have on things worth
@@ -414,12 +529,22 @@ Deliberately measured in outcomes, not usage:
 3. **Briefings get shorter.** The same colleague needs less context each time,
    because the profile learned what they already have.
 4. **The asked/unasked gap closes.** Fewer things sit unasked while everyone
-   believes they are waiting on someone.
+   believes they are waiting on someone — and fewer dates turn out to have been
+   wished for rather than agreed.
 5. **Meetings start assembled.** Prep time before recurring meetings drops to
    near zero, and fewer items get remembered on the walk back.
 6. **It stays calm.** Opening the dashboard feels like orientation, not like a
    list of ways you are behind. If it starts to feel like the latter, that is a
    defect, and we will treat it as one.
+
+These are worth measuring rather than asserting, and most of them can be:
+how long it takes someone else to resume a topic, how many clarifications they
+need first, how often work stalls overnight for want of something writable, how
+long things sit unraised, how much of the state we surface turns out to be wrong
+or stale. We would rather baseline a few of these on a real team before turning
+Dossier on than declare victory from the fact that people are using it — usage
+is not the outcome, and a tool people open every day while their work still
+stalls has failed.
 
 ---
 
@@ -428,14 +553,17 @@ Deliberately measured in outcomes, not usage:
 Honesty about state, so you can opine on the right things.
 
 **Working now:** durable topics that survive across sessions, curated state with
-full source retained, ownership, priorities, search, meeting-forum tagging with
+full source retained, ownership, priorities, search, interface tagging with
 filtered views, and the delegation-contract skill described in Layer 3a. It runs
 locally on one person's machine.
 
 **Being built next:** proper timezone handling; the requirements model in
-Layer 2a; three-level importance with time pressure computed rather than
-hand-maintained; identity, so the tool knows who is looking; escalation in both
-directions; colleague and forum notes; and assembled meeting prep.
+Layer 2a, including acceptance and the committed-by date; three-level importance
+with time pressure computed rather than hand-maintained; identity, so the tool
+knows who is looking; escalation up, across and down, routed by relationship
+rather than reporting line; colleague and interface notes; assembled meeting
+prep.
+Recipient acceptance on a handoff contract lands with that work.
 
 **Further out:** the shared team memory in Layer 5 — deliberately last, so the
 model is validated by real use before distribution is added on top of it.
@@ -454,289 +582,23 @@ in particular:
    The upward half is meant to save your reports a round-trip. Does it read as
    useful, or as uncomfortable? This is the idea we are least certain about.
 
-3. **How should private topics be separated from shared ones?** Comp, performance
-   and reorg work cannot live in a team-visible space. Is a clean separation
-   between "my own" and "the team's" the right model, or would you keep sensitive
-   topics out of the tool entirely?
+3. **Where should the audience boundaries fall?** We are convinced "mine versus
+   the team's" is too coarse (Layer 5), and unconvinced by every alternative so
+   far. In your week, how many genuinely different audiences does one topic have
+   — and is per-topic visibility enough, or does it have to reach individual
+   pieces of evidence inside a topic?
 
-4. **Is escalation-by-reporting-line right?** Should a leader see a report's
-   exceptions automatically, or is that surveillance-adjacent in a way that
-   changes how the team uses the tool?
+4. **Should a leader see a report's exceptions at all?** Routing now follows the
+   relationship rather than the org chart, but the upward roll-up survived, and
+   it is the piece we are least sure of. Is "your report's overdue items appear
+   on your list" a leader doing their job, or surveillance that changes how the
+   team writes things down?
 
 5. **Does prep suppress the right things?** Hiding requests that are asked and
    still within their window keeps agendas short. Is that a relief, or would you
    rather see everything and decide yourself?
 
-6. **Is "interface" the right word for a recurring meeting?** It is precise
-   internally and probably opaque to everyone else. If it does not land, say so —
-   this is the kind of thing that is cheap to change now and expensive later.
-
----
-
-## 11. Review and recommendations — Growth Director perspective
-
-> **Status:** Review input; not yet part of the agreed vision.
->
-> **Review perspective:** A Growth Director leading a small team of five across
-> timezones, with substantial work delivered through stakeholders and dotted-line
-> relationships outside the Director's formal authority.
->
-> **Purpose:** Give the team concrete alternatives to evaluate. Each recommendation
-> remains open until the team records a decision.
-
-### Overall assessment
-
-The central value proposition is strong, particularly the distinction between
-asked and unasked dependencies and the focus on preventing underspecified async
-handoffs. The main concern is that the operating model describes a reporting
-hierarchy more accurately than the stakeholder network in which growth work
-usually happens.
-
-The recommended reframing is:
-
-> **Dossier is the commitment memory of a distributed stakeholder network — not
-> merely the working memory of a team.**
-
-The Dossier can remain the durable object for a topic, while accountability is
-defined explicitly for each dependency rather than inferred from the org chart.
-
-### Recommendation 1 — Use explicit escalation contracts
-
-**Finding:** Reporting-line escalation is not a sufficient backbone for work
-that depends on peers, executives, agencies, Finance, Product, Legal, Sales and
-other teams the Growth Director does not manage.
-
-**Recommendation:** Record four roles on each dependency:
-
-- **Requester** — who needs the input.
-- **Contributor** — who can provide it.
-- **Decision owner** — who can approve it or resolve ambiguity.
-- **Escalation route** — the person or forum to use if it stalls.
-
-A reporting line can remain optional metadata for direct-report views, but it
-should not determine routing. For example:
-
-> Legal approval needed from Maya. Requested by Sam. Decision owner: Legal VP.
-> If unacknowledged after two working days, raise in Launch Steerco.
-
-**Decision to close:** Should explicit dependency roles and escalation routes
-replace reporting-line escalation as the default model?
-
-### Recommendation 2 — Promise agent maintenance with human confirmation at boundaries
-
-**Finding:** “Nobody maintains it” is incompatible with a product that neither
-sends requests nor receives every response. Dossier cannot safely infer that a
-message was sent, acknowledged, renegotiated or completed outside its view.
-
-**Recommendation:** Ask for lightweight confirmation only where truth crosses
-into another system. Possible actions include:
-
-- Copy and mark sent.
-- Attach the Slack thread, email or ticket.
-- Paste or import the response.
-- Mark acknowledged.
-- Confirm or correct potentially stale state before a meeting.
-
-Every state should distinguish an observed fact, a user-confirmed fact and an
-agent inference. A useful provenance line might read:
-
-> Drafted by Dossier · marked sent by Sam · commitment imported from Slack
-
-The revised promise would be:
-
-> **Dossier maintains the record from the work it can observe and asks for
-> lightweight confirmation when work crosses into another system.**
-
-Integrations can remove most of those confirmations later.
-
-**Decision to close:** Is this a sufficiently low-maintenance promise, and which
-boundary confirmations are acceptable in the first version?
-
-### Recommendation 3 — Model a commitment lifecycle, not only asked/unasked
-
-**Finding:** Asked versus unasked is valuable, but “raised” does not mean that
-the recipient has accepted responsibility or the requested date. This matters
-especially in dotted-line relationships.
-
-**Recommendation:** Use a small lifecycle:
-
-```text
-Not raised → Sent → Acknowledged → Committed → Delivered
-                         ↘ Declined / Replanned
-```
-
-Keep two dates separate:
-
-- **Needed by** — the requester's desired date.
-- **Committed by** — the contributor's accepted date.
-
-Surface an exception when a request has not been acknowledged within an agreed
-window or an accepted commitment has passed its date — not merely because the
-requester entered a deadline.
-
-**Decision to close:** Which lifecycle states are essential, and does the model
-need both desired and committed dates?
-
-### Recommendation 4 — Use neutral dependency language
-
-**Finding:** “Who owes what” and “they are the blocker” may work inside a direct
-team, but can sound accusatory or imply authority across peers and executives.
-
-**Recommendation:** Prefer language such as:
-
-- Needed from
-- Open dependency
-- Requested
-- Awaiting acknowledgement
-- Committed for
-- Decision needed from
-
-Reserve **owner** for the topic's directly responsible individual, and use
-**decision owner** for the person with approval authority. Say “progress depends
-on this input” rather than assigning blame.
-
-**Decision to close:** Which vocabulary creates clarity without implying a
-managerial relationship?
-
-### Recommendation 5 — Use explicit audiences and source-aware access
-
-**Finding:** “Mine” versus “the team's” is too coarse. Growth topics routinely
-contain material intended for different combinations of the core team,
-executives, Finance, agencies or individual partners.
-
-**Recommendation:** Support named audiences such as:
-
-- Only me
-- Named people
-- Growth team
-- Leadership group
-- Everyone with access to the topic
-
-Visibility should apply to the dossier and, where needed, individual sources.
-A claim derived from a restricted source must not reveal confidential material
-or expose that source to a broader audience.
-
-Replace a manager-owned colleague profile with a person-owned **working
-agreement**:
-
-- The person can see and edit it.
-- Changes are proposed, not silently learned.
-- Entries are factual and work-specific.
-- Entries can expire or be reconfirmed.
-- It cannot become private managerial commentary.
-
-Until this access model is trustworthy, compensation, performance and
-reorganisation topics should remain private rather than entering shared memory.
-
-**Decision to close:** What are the minimum useful audience levels, and should
-working agreements replace colleague profiles?
-
-### Recommendation 6 — Define a system-of-record contract
-
-**Finding:** Dossier contains owners, status, priorities, dates, dependencies
-and escalation while deliberately rejecting project management. Without a
-clear boundary, a small team will maintain conflicting truth in Dossier and its
-existing work tools.
-
-**Recommendation:** Define ownership by type of information.
-
-Dossier owns:
-
-- Current narrative and context
-- Decisions and rationale
-- Dependencies across systems
-- Handoff contracts
-- Provenance
-- Meeting synthesis
-
-Jira, Asana, Linear or another work system owns:
-
-- Tasks and subtasks
-- Execution status
-- Delivery dates
-- Work estimates
-- Sprint or project planning
-
-Slack and email own the communication record. Dossier should link to or project
-information from these systems instead of creating an independently editable
-copy. If no external task exists, Dossier can temporarily hold a dependency;
-once linked, the external object becomes authoritative for execution state.
-
-**Decision to close:** Is this the right ownership boundary, and what should
-happen when there is no external system of record?
-
-### Recommendation 7 — Validate every handoff contract
-
-**Finding:** Objective, constraints and the definition of done are not always
-safely implicit. They are often the source of cross-functional ambiguity.
-
-**Recommendation:** Inspect every delegation contract for:
-
-- Objective
-- Deliverable
-- Success criteria
-- Validation method
-- Constraints
-- Decision rights
-- Escalation and fallback work
-
-This should not become a form. Dossier should fill what it can from the topic,
-check decision rights and escalation first, and ask only about information that
-is absent or ambiguous.
-
-The recipient should be able to reply **accepted**, **clarification needed** or
-**proposed change**. Once accepted, the contract is versioned so later changes
-are shown as goalpost changes rather than silently replacing the agreement.
-
-**Decision to close:** What must be explicit before Dossier declares a handoff
-ready, and must the recipient accept the contract?
-
-### Recommendation 8 — Turn the outcomes into a pilot scorecard
-
-**Finding:** The stated outcomes are directionally right but do not yet define
-how the team will establish whether Dossier improved them.
-
-**Recommendation:** Run a six-week pilot with the five-person Growth team,
-covering two recurring forums and roughly 10–15 active dossiers. Establish a
-two-week baseline, then measure:
-
-- Median time for another person to resume a topic.
-- Clarification requests before useful work begins.
-- Overnight stalls caused by missing information.
-- Requests still unraised after one working day.
-- Time spent preparing recurring meetings.
-- Accepted commitments that pass their date.
-- Incorrect, stale or misattributed claims.
-- User-rated sense of orientation versus pressure.
-
-Set targets after the baseline. Candidate starting targets are:
-
-- Resume a topic in under five minutes with no more than one clarification.
-- Reduce avoidable overnight stalls by 50%.
-- Reduce recurring-meeting preparation to under five minutes.
-- Reduce unraised dependencies older than one working day by 75%.
-- Keep incorrect or stale surfaced claims below 5%.
-- Maintain at least 4/5 on “This helps me orient without making me anxious.”
-
-Outcome measures should remain primary, but adoption and trust signals are
-useful diagnostics. If contracts are never accepted, sources are rarely opened
-or users continually correct the state, outcomes alone will not explain why.
-
-**Decision to close:** What pilot scope, baseline period and success thresholds
-would give the team enough evidence to proceed?
-
-### Recommended sequence
-
-For this operating environment, the narrowest high-value sequence is:
-
-1. Accurate dependency and commitment lifecycle.
-2. Pre-assembled 1:1 and weekly-business-review preparation.
-3. Timezone-aware handoffs.
-4. Relationship-specific escalation routes.
-5. Working agreements and shared team memory after trust is established.
-
-### Proposed end-state product statement
-
-> **A Dossier captures the context of a topic, makes its dependencies explicit,
-> records commitments only when they are actually made, and routes exceptions
-> through agreed relationships and forums — not assumed authority.**
+6. **Is tracking what someone actually committed to honest, or bureaucratic?**
+   Recording that Priya said Thursday, separately from your wanting Tuesday, is
+   meant to stop you from believing in a date nobody agreed to. Does that read
+   as the tool being straight with you, or as one more thing to keep current?
