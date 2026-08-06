@@ -470,3 +470,273 @@ in particular:
 6. **Is "interface" the right word for a recurring meeting?** It is precise
    internally and probably opaque to everyone else. If it does not land, say so —
    this is the kind of thing that is cheap to change now and expensive later.
+
+---
+
+## 11. Review and recommendations — Growth Director perspective
+
+> **Status:** Review input; not yet part of the agreed vision.
+>
+> **Review perspective:** A Growth Director leading a small team of five across
+> timezones, with substantial work delivered through stakeholders and dotted-line
+> relationships outside the Director's formal authority.
+>
+> **Purpose:** Give the team concrete alternatives to evaluate. Each recommendation
+> remains open until the team records a decision.
+
+### Overall assessment
+
+The central value proposition is strong, particularly the distinction between
+asked and unasked dependencies and the focus on preventing underspecified async
+handoffs. The main concern is that the operating model describes a reporting
+hierarchy more accurately than the stakeholder network in which growth work
+usually happens.
+
+The recommended reframing is:
+
+> **Dossier is the commitment memory of a distributed stakeholder network — not
+> merely the working memory of a team.**
+
+The Dossier can remain the durable object for a topic, while accountability is
+defined explicitly for each dependency rather than inferred from the org chart.
+
+### Recommendation 1 — Use explicit escalation contracts
+
+**Finding:** Reporting-line escalation is not a sufficient backbone for work
+that depends on peers, executives, agencies, Finance, Product, Legal, Sales and
+other teams the Growth Director does not manage.
+
+**Recommendation:** Record four roles on each dependency:
+
+- **Requester** — who needs the input.
+- **Contributor** — who can provide it.
+- **Decision owner** — who can approve it or resolve ambiguity.
+- **Escalation route** — the person or forum to use if it stalls.
+
+A reporting line can remain optional metadata for direct-report views, but it
+should not determine routing. For example:
+
+> Legal approval needed from Maya. Requested by Sam. Decision owner: Legal VP.
+> If unacknowledged after two working days, raise in Launch Steerco.
+
+**Decision to close:** Should explicit dependency roles and escalation routes
+replace reporting-line escalation as the default model?
+
+### Recommendation 2 — Promise agent maintenance with human confirmation at boundaries
+
+**Finding:** “Nobody maintains it” is incompatible with a product that neither
+sends requests nor receives every response. Dossier cannot safely infer that a
+message was sent, acknowledged, renegotiated or completed outside its view.
+
+**Recommendation:** Ask for lightweight confirmation only where truth crosses
+into another system. Possible actions include:
+
+- Copy and mark sent.
+- Attach the Slack thread, email or ticket.
+- Paste or import the response.
+- Mark acknowledged.
+- Confirm or correct potentially stale state before a meeting.
+
+Every state should distinguish an observed fact, a user-confirmed fact and an
+agent inference. A useful provenance line might read:
+
+> Drafted by Dossier · marked sent by Sam · commitment imported from Slack
+
+The revised promise would be:
+
+> **Dossier maintains the record from the work it can observe and asks for
+> lightweight confirmation when work crosses into another system.**
+
+Integrations can remove most of those confirmations later.
+
+**Decision to close:** Is this a sufficiently low-maintenance promise, and which
+boundary confirmations are acceptable in the first version?
+
+### Recommendation 3 — Model a commitment lifecycle, not only asked/unasked
+
+**Finding:** Asked versus unasked is valuable, but “raised” does not mean that
+the recipient has accepted responsibility or the requested date. This matters
+especially in dotted-line relationships.
+
+**Recommendation:** Use a small lifecycle:
+
+```text
+Not raised → Sent → Acknowledged → Committed → Delivered
+                         ↘ Declined / Replanned
+```
+
+Keep two dates separate:
+
+- **Needed by** — the requester's desired date.
+- **Committed by** — the contributor's accepted date.
+
+Surface an exception when a request has not been acknowledged within an agreed
+window or an accepted commitment has passed its date — not merely because the
+requester entered a deadline.
+
+**Decision to close:** Which lifecycle states are essential, and does the model
+need both desired and committed dates?
+
+### Recommendation 4 — Use neutral dependency language
+
+**Finding:** “Who owes what” and “they are the blocker” may work inside a direct
+team, but can sound accusatory or imply authority across peers and executives.
+
+**Recommendation:** Prefer language such as:
+
+- Needed from
+- Open dependency
+- Requested
+- Awaiting acknowledgement
+- Committed for
+- Decision needed from
+
+Reserve **owner** for the topic's directly responsible individual, and use
+**decision owner** for the person with approval authority. Say “progress depends
+on this input” rather than assigning blame.
+
+**Decision to close:** Which vocabulary creates clarity without implying a
+managerial relationship?
+
+### Recommendation 5 — Use explicit audiences and source-aware access
+
+**Finding:** “Mine” versus “the team's” is too coarse. Growth topics routinely
+contain material intended for different combinations of the core team,
+executives, Finance, agencies or individual partners.
+
+**Recommendation:** Support named audiences such as:
+
+- Only me
+- Named people
+- Growth team
+- Leadership group
+- Everyone with access to the topic
+
+Visibility should apply to the dossier and, where needed, individual sources.
+A claim derived from a restricted source must not reveal confidential material
+or expose that source to a broader audience.
+
+Replace a manager-owned colleague profile with a person-owned **working
+agreement**:
+
+- The person can see and edit it.
+- Changes are proposed, not silently learned.
+- Entries are factual and work-specific.
+- Entries can expire or be reconfirmed.
+- It cannot become private managerial commentary.
+
+Until this access model is trustworthy, compensation, performance and
+reorganisation topics should remain private rather than entering shared memory.
+
+**Decision to close:** What are the minimum useful audience levels, and should
+working agreements replace colleague profiles?
+
+### Recommendation 6 — Define a system-of-record contract
+
+**Finding:** Dossier contains owners, status, priorities, dates, dependencies
+and escalation while deliberately rejecting project management. Without a
+clear boundary, a small team will maintain conflicting truth in Dossier and its
+existing work tools.
+
+**Recommendation:** Define ownership by type of information.
+
+Dossier owns:
+
+- Current narrative and context
+- Decisions and rationale
+- Dependencies across systems
+- Handoff contracts
+- Provenance
+- Meeting synthesis
+
+Jira, Asana, Linear or another work system owns:
+
+- Tasks and subtasks
+- Execution status
+- Delivery dates
+- Work estimates
+- Sprint or project planning
+
+Slack and email own the communication record. Dossier should link to or project
+information from these systems instead of creating an independently editable
+copy. If no external task exists, Dossier can temporarily hold a dependency;
+once linked, the external object becomes authoritative for execution state.
+
+**Decision to close:** Is this the right ownership boundary, and what should
+happen when there is no external system of record?
+
+### Recommendation 7 — Validate every handoff contract
+
+**Finding:** Objective, constraints and the definition of done are not always
+safely implicit. They are often the source of cross-functional ambiguity.
+
+**Recommendation:** Inspect every delegation contract for:
+
+- Objective
+- Deliverable
+- Success criteria
+- Validation method
+- Constraints
+- Decision rights
+- Escalation and fallback work
+
+This should not become a form. Dossier should fill what it can from the topic,
+check decision rights and escalation first, and ask only about information that
+is absent or ambiguous.
+
+The recipient should be able to reply **accepted**, **clarification needed** or
+**proposed change**. Once accepted, the contract is versioned so later changes
+are shown as goalpost changes rather than silently replacing the agreement.
+
+**Decision to close:** What must be explicit before Dossier declares a handoff
+ready, and must the recipient accept the contract?
+
+### Recommendation 8 — Turn the outcomes into a pilot scorecard
+
+**Finding:** The stated outcomes are directionally right but do not yet define
+how the team will establish whether Dossier improved them.
+
+**Recommendation:** Run a six-week pilot with the five-person Growth team,
+covering two recurring forums and roughly 10–15 active dossiers. Establish a
+two-week baseline, then measure:
+
+- Median time for another person to resume a topic.
+- Clarification requests before useful work begins.
+- Overnight stalls caused by missing information.
+- Requests still unraised after one working day.
+- Time spent preparing recurring meetings.
+- Accepted commitments that pass their date.
+- Incorrect, stale or misattributed claims.
+- User-rated sense of orientation versus pressure.
+
+Set targets after the baseline. Candidate starting targets are:
+
+- Resume a topic in under five minutes with no more than one clarification.
+- Reduce avoidable overnight stalls by 50%.
+- Reduce recurring-meeting preparation to under five minutes.
+- Reduce unraised dependencies older than one working day by 75%.
+- Keep incorrect or stale surfaced claims below 5%.
+- Maintain at least 4/5 on “This helps me orient without making me anxious.”
+
+Outcome measures should remain primary, but adoption and trust signals are
+useful diagnostics. If contracts are never accepted, sources are rarely opened
+or users continually correct the state, outcomes alone will not explain why.
+
+**Decision to close:** What pilot scope, baseline period and success thresholds
+would give the team enough evidence to proceed?
+
+### Recommended sequence
+
+For this operating environment, the narrowest high-value sequence is:
+
+1. Accurate dependency and commitment lifecycle.
+2. Pre-assembled 1:1 and weekly-business-review preparation.
+3. Timezone-aware handoffs.
+4. Relationship-specific escalation routes.
+5. Working agreements and shared team memory after trust is established.
+
+### Proposed end-state product statement
+
+> **A Dossier captures the context of a topic, makes its dependencies explicit,
+> records commitments only when they are actually made, and routes exceptions
+> through agreed relationships and forums — not assumed authority.**
