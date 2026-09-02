@@ -92,10 +92,11 @@ func CompileTranscript(raw string) (string, []Warning) {
 
 	rawLines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
 	var (
-		nodes       []TranscriptNode
-		unparsed    int
-		nonContent  = map[string]int{}
-		recordCount int
+		nodes        []TranscriptNode
+		unparsed     int
+		nonContent   = map[string]int{}
+		unknownBlock = map[string]int{}
+		recordCount  int
 	)
 
 	for _, rawLine := range rawLines {
@@ -117,7 +118,11 @@ func CompileTranscript(raw string) (string, []Warning) {
 			nonContent[rec.Type]++
 			continue
 		}
-		nodes = append(nodes, recordNodes(rec)...)
+		recNodes, recUnknown := recordNodes(rec)
+		nodes = append(nodes, recNodes...)
+		for t, n := range recUnknown {
+			unknownBlock[t] += n
+		}
 	}
 
 	// A trace with records but no recognizable JSONL envelope is almost
@@ -131,12 +136,24 @@ func CompileTranscript(raw string) (string, []Warning) {
 		warnings = append(warnings, Warning(fmt.Sprintf(
 			"Transcript compile: %d line(s) were not valid JSONL and were preserved verbatim as [unparsed] nodes.", unparsed)))
 	}
+	if len(unknownBlock) > 0 {
+		types := make([]string, 0, len(unknownBlock))
+		total := 0
+		for t, n := range unknownBlock {
+			types = append(types, fmt.Sprintf("%s=%d", t, n))
+			total += n
+		}
+		sort.Strings(types)
+		warnings = append(warnings, Warning(fmt.Sprintf(
+			"Transcript compile: %d content block(s) of unrecognized type were dropped [%s].", total, strings.Join(types, " "))))
+	}
 
-	return renderTranscript(nodes, recordCount, nonContent), warnings
+	return renderTranscript(nodes, recordCount, nonContent, unknownBlock), warnings
 }
 
-// recordNodes lowers one JSONL record into zero or more IR nodes.
-func recordNodes(rec transcriptRecord) []TranscriptNode {
+// recordNodes lowers one JSONL record into zero or more IR nodes, plus a
+// tally of block types it could not render (keyed by block type).
+func recordNodes(rec transcriptRecord) ([]TranscriptNode, map[string]int) {
 	content := rec.Content
 	role := rec.Type
 	if rec.Message != nil {
@@ -146,30 +163,33 @@ func recordNodes(rec transcriptRecord) []TranscriptNode {
 		}
 	}
 	if len(content) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Content is either a bare string or an array of typed blocks.
 	var text string
 	if err := json.Unmarshal(content, &text); err == nil {
 		if strings.TrimSpace(text) == "" {
-			return nil
+			return nil, nil
 		}
-		return []TranscriptNode{{Role: normalizeRole(role), Lines: splitLines(text)}}
+		return []TranscriptNode{{Role: normalizeRole(role), Lines: splitLines(text)}}, nil
 	}
 
 	var blocks []transcriptBlock
 	if err := json.Unmarshal(content, &blocks); err != nil {
-		return []TranscriptNode{{Role: TranscriptRoleUnparsed, Lines: splitLines(string(content))}}
+		return []TranscriptNode{{Role: TranscriptRoleUnparsed, Lines: splitLines(string(content))}}, nil
 	}
 
 	var nodes []TranscriptNode
+	unknown := map[string]int{}
 	for _, b := range blocks {
 		if n, ok := blockNode(b, role); ok {
 			nodes = append(nodes, n)
+		} else {
+			unknown[b.Type]++
 		}
 	}
-	return nodes
+	return nodes, unknown
 }
 
 // blockNode lowers a single content block into an IR node.
@@ -288,7 +308,7 @@ func splitLines(s string) []string {
 // renderTranscript lowers the IR to the final full view. Each node gets a
 // role-tagged header so a citation can name what it is citing, and the header
 // block states exactly what was elided.
-func renderTranscript(nodes []TranscriptNode, recordCount int, nonContent map[string]int) string {
+func renderTranscript(nodes []TranscriptNode, recordCount int, nonContent, unknownBlock map[string]int) string {
 	var sb strings.Builder
 	sb.WriteString("# Compiled Session Transcript\n")
 	sb.WriteString(fmt.Sprintf("Records read: %d. Content nodes: %d.\n", recordCount, len(nodes)))
@@ -303,6 +323,18 @@ func renderTranscript(nodes []TranscriptNode, recordCount int, nonContent map[st
 		sort.Strings(types)
 		sb.WriteString(fmt.Sprintf(
 			"Harness bookkeeping records not rendered (no conversational content): %d [%s]. The raw trace is retained in the session stash.\n",
+			total, strings.Join(types, " ")))
+	}
+	if len(unknownBlock) > 0 {
+		types := make([]string, 0, len(unknownBlock))
+		total := 0
+		for t, n := range unknownBlock {
+			types = append(types, fmt.Sprintf("%s=%d", t, n))
+			total += n
+		}
+		sort.Strings(types)
+		sb.WriteString(fmt.Sprintf(
+			"Unrecognized content block(s) dropped (not renderable in this view): %d [%s]. The raw trace is retained in the session stash.\n",
 			total, strings.Join(types, " ")))
 	}
 	sb.WriteString("Cite spans from this file as [src:<artifact_id>#L<start>-L<end>].\n")

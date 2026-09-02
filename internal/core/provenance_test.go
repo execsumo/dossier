@@ -68,6 +68,16 @@ func TestValidateDistilledStateProvenanceChecksLineRanges(t *testing.T) {
 			wantSub: "has only 100 line(s)",
 		},
 		{
+			name:    "range starts in bounds but ends past the artifact",
+			body:    "## Findings\n- [observed] Lock contention. [src:art_ok#L90-L680]",
+			wantSub: "has only 100 line(s)",
+		},
+		{
+			name:    "single-line citation past the artifact renders as a bare line, not a range",
+			body:    "## Findings\n- [observed] Lock contention. [src:art_ok#L500]",
+			wantSub: "cites art_ok#L500 but the artifact has only 100 line(s)",
+		},
+		{
 			name:    "fragment that is not a line range",
 			body:    "## Findings\n- [observed] Lock contention. [src:art_ok#section-3]",
 			wantSub: "not a line range",
@@ -215,7 +225,7 @@ func TestDoctorAdvisesOnUncitedEvidenceWithoutFailing(t *testing.T) {
 			Content: "one\n",
 		},
 		{
-			ID: "art_orphan", DossierID: "dos_thin", Type: ArtifactTypeTranscript,
+			ID: "art_orphan", DossierID: "dos_thin", Type: ArtifactTypeDecisionEvidence,
 			Title: "Orphan", CapturedAt: now, RefreshedAt: now,
 			Provenance: Provenance{Origin: "unit test"}, ContentFormat: ContentFormatText,
 			Content: "two\n",
@@ -237,5 +247,22 @@ func TestDoctorAdvisesOnUncitedEvidenceWithoutFailing(t *testing.T) {
 	}
 	if !strings.Contains(warningsText(res.Warnings), "art_orphan") {
 		t.Fatalf("expected an uncited-evidence advisory naming art_orphan, got:\n%s", warningsText(res.Warnings))
+	}
+}
+
+func TestUncitedArtifactsExemptsTranscripts(t *testing.T) {
+	body := "# Dossier\n\n## Findings\n- [observed] A claim. [src:art_cited]"
+	artifacts := []Artifact{
+		{ID: "art_cited", Type: ArtifactTypeDecisionEvidence},
+		{ID: "art_transcript", Type: ArtifactTypeTranscript},
+	}
+	uncited := uncitedArtifacts(body, artifacts)
+	for _, art := range uncited {
+		if art.Type == ArtifactTypeTranscript {
+			t.Fatalf("transcript artifact %s must be exempt from the uncited check", art.ID)
+		}
+	}
+	if msg := uncitedArtifactWarning(body, artifacts); strings.Contains(msg, "art_transcript") {
+		t.Fatalf("uncited warning must not name the transcript artifact, got: %q", msg)
 	}
 }
