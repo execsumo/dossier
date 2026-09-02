@@ -119,7 +119,9 @@ func (s *Service) Promote(ctx, PromoteReq) (Result, error)
 func (s *Service) Save(ctx, SaveReq) (Result, error)        // optimistic concurrency, §6
 func (s *Service) Link(ctx, LinkReq) (Result, error)        // candidates if id omitted
 func (s *Service) Merge(ctx, MergeReq) (Result, error)      // conflict detection
-func (s *Service) Recall(ctx, RecallReq) (Result, error)    // returns revision + token estimate
+func (s *Service) Recall(ctx, RecallReq) (Result, error)    // returns revision + token estimate + evidence index
+func (s *Service) ReadArtifact(ctx, ReadArtifactReq) (Result, error)   // resolves a [src:] citation, optionally a line range
+func (s *Service) ListArtifacts(ctx, ListArtifactsReq) (Result, error) // the evidence index alone
 func (s *Service) List(ctx, ListReq) (Result, error) // status + interface filters
 func (s *Service) Search(ctx, SearchReq) (Result, error)
 func (s *Service) Switch(ctx, SwitchReq) (Result, error)
@@ -317,6 +319,22 @@ The `session-start` hook is the one injection point that fires unconditionally o
 
 ---
 
+## 9b. The Archive as a resolvable full view
+
+The Distilled State is a *view* over the Archive, not the record. That framing only holds if a citation can be followed back, so three pieces have to agree:
+
+**One coordinate system.** An artifact file's physical line numbers are the only addressing scheme. `core.splitContentLines` is the single canonical split (a lone trailing newline terminates the last line; an interior blank line is a real line), and `artifactLineCount` is defined in terms of it. `[src:art_x#L10-L20]` citations, `Hit.LineNumber` from `internal/search`, and `Service.ReadArtifact` ranges therefore cannot disagree about which line is line *N*. Artifact files are written `0444` (§5), so those coordinates are stable for the artifact's lifetime.
+
+**Compiled transcripts.** `core.CompileTranscript` (`internal/core/transcript.go`) lowers a raw harness JSONL trace into role-tagged nodes (`user`, `assistant`, `thinking`, `tool_call`, `tool_result`) with verbatim content, then renders them as the artifact body. It is pure string→string, so it lives in `core` without violating the dependency rule. This exists because a line range into raw JSONL lands mid-record and cites nothing; a range into the compiled view lands on an assistant turn or a tool result. `SessionEnd` archives the compiled view and keeps the raw trace in the session stash, so nothing is lost. Records carrying no conversational content (`mode`, `bridge-session`, `cost-state`, …) are tallied in the compiled header rather than dropped silently, and lines that fail to parse are preserved verbatim as `[unparsed]` nodes plus a warning.
+
+**Citation validation.** `internal/core/provenance.go` owns the citation grammar. `ParseProvenanceRef` parses the `#L<start>-L<end>` fragment that was previously matched and discarded; `validateDistilledStateProvenance` checks that every content line carries a citation, that the artifact exists, and that the cited range fits inside it. `doctor` reports a dangling range as an issue — a pointer that reads as evidence while resolving to nothing is worse than no pointer.
+
+**The low-end signal.** The token target is a ceiling; `uncitedArtifactWarning` supplies the missing floor. `Save`, `Recall`, and `doctor` all surface archived artifacts the Distilled State never cites, since evidence the curated view does not point at is unreachable in practice. It is an advisory in `doctor` (a distillation smell, not store damage) and a warning elsewhere.
+
+`dossier_artifact` / `dossier_artifacts` (MCP) and `dossier artifact <dossier> [<artifact>] [-L a-b]` (CLI) are the two surfaces over the same `Service` methods.
+
+---
+
 ## 10. Testing strategy (how the acceptance criteria get met)
 
 - **core**: pure → table-driven unit tests. `revision.go`, `priority.go`, `suggest.go`, concurrency branches, frontmatter validation. Use a fake `Store`/`Clock`/`Tokenizer`.
@@ -324,7 +342,9 @@ The `session-start` hook is the one injection point that fires unconditionally o
 - **Distillation Guide**: golden-file fixtures — sample transcript in, assert the distilled output's *structure and provenance presence* (not verbatim prose). This is how guide quality stays regression-safe.
 - **MCP**: drive the server over in-memory pipes; assert the §8.2 envelope and error-code mapping for each tool.
 - **harness**: fixture Claude Code and Pi config dirs; assert `Detect()` capabilities (including that Pi does **not** claim MCP or lifecycle hooks) and that `Install()` is idempotent, backs up, and writes nothing without confirmation. Pointer resolution is tested with an injected ancestry function: ancestor pointers resolve, a concurrent session's pointer does not, and malformed/newer-schema pointers are rejected.
-- **doctor**: corrupt-store fixtures (bad YAML, dangling provenance, unparseable audit, stale context) → assert each is reported.
+- **doctor**: corrupt-store fixtures (bad YAML, dangling provenance, out-of-range citation, unparseable audit, stale context) → assert each is reported, and that uncited evidence advises rather than fails.
+- **transcript compiler**: table tests over a JSONL fixture — role headers assigned, tool arguments and results kept verbatim, bookkeeping records counted rather than dropped, unparsable lines preserved, plain text passed through.
+- **citations**: `ParseProvenanceRef` table tests over well-formed and malformed fragments; `ReadArtifact` range resolution, absolute line numbering, blank-line preservation, and warn-don'''t-truncate on an overlong range.
 
 ---
 

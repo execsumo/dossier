@@ -370,6 +370,7 @@ dossier link [<slug-or-id>] [--from-file <path>] [--json]
 dossier merge <source> <target> [--json]
 dossier recall <slug-or-id> [--json]
 dossier search <query> [--dossier <slug-or-id>] [--json]
+dossier artifact <slug-or-id> [<artifact-id>] [-L <a-b>] [--json]
 dossier sync [--status] [--json]
 dossier team create <url> [--json]
 dossier team join <url> [--json]
@@ -487,12 +488,16 @@ Required tools:
 - `dossier_list` (supports `interfaces` filtering)
 - `dossier_recall`
 - `dossier_search`
+- `dossier_artifact`
+- `dossier_artifacts`
 - `dossier_save`
 - `dossier_promote`
 - `dossier_link`
 - `dossier_merge`
 - `dossier_session`
 - `dossier_update`
+
+> **Note on `dossier_artifact`:** it takes `dossier_id` + `artifact_id`, and optionally either a `fragment` (a citation fragment such as `"L42-L68"`) or `start_line`/`end_line`. Content is returned with absolute 1-indexed line numbers, so the span read is the span cited. An unranged fetch returns the whole artifact and warns past 500 lines rather than truncating. `dossier_artifacts` returns the same evidence index that `dossier_recall` now carries in `artifacts[]`: one entry per archived artifact with its type, line count, and whether the Distilled State cites it.
 
 > **Note on `dossier_update`:** it accepts `name`, `status`, `lead`, `interfaces`, `next_action`, `open_questions`, and priority fields, and routes them all through the single `Save` write path (so CLI/MCP/TUI behave identically and edits get optimistic-concurrency handling). Changing `name` updates the **display name only** — the `slug` (and the on-disk directory) is the durable identifier and never changes on rename.
 
@@ -958,7 +963,8 @@ Checks:
 
 ### 14.2 Recall
 
-- `dossier_recall` returns full Distilled State.
+- `dossier_recall` returns full Distilled State, plus the evidence index of archived artifacts.
+- A `[src:art_x#L<a>-L<b>]` citation resolves through `dossier_artifact` to the verbatim lines it names; `doctor` reports a citation whose range does not fit its artifact.
 - Recall includes token estimate.
 - Over-target Distilled State returns warning and does not truncate.
 - Archive artifacts are not loaded by default.
