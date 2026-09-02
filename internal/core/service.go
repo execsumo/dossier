@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -39,6 +38,25 @@ type RecallResult struct {
 	Revision       Revision    `json:"revision"`
 	TokenEstimate  int         `json:"token_estimate"`
 	Path           string      `json:"path"`
+	// Artifacts is the evidence index: one entry per archived artifact, with
+	// the line count that bounds a citable range and whether the Distilled
+	// State currently cites it. Recall previously returned the curated view
+	// alone, which left the Archive invisible to the caller that has to decide
+	// what to cite.
+	Artifacts []ArtifactSummary `json:"artifacts,omitempty"`
+}
+
+// ArtifactSummary is one entry in the evidence index.
+type ArtifactSummary struct {
+	ID            string    `json:"id"`
+	Type          string    `json:"type"`
+	Title         string    `json:"title"`
+	ContentFormat string    `json:"content_format"`
+	Lines         int       `json:"lines"`
+	CapturedAt    time.Time `json:"captured_at"`
+	Origin        string    `json:"origin,omitempty"`
+	URL           string    `json:"url,omitempty"`
+	Cited         bool      `json:"cited"`
 }
 
 // ListItem represents a single summary item for dossier listings.
@@ -392,11 +410,19 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 			}
 		}
 
-		for _, issue := range validateDistilledStateProvenance(d.DistilledState.Body, fm.ID, func(artifactID string) bool {
-			_, err := s.store.ReadArtifact(fm.ID, artifactID)
-			return err == nil
+		for _, issue := range validateDistilledStateProvenance(d.DistilledState.Body, fm.ID, func(artifactID string) (int, bool) {
+			art, err := s.store.ReadArtifact(fm.ID, artifactID)
+			if err != nil {
+				return 0, false
+			}
+			return artifactLineCount(art.Content), true
 		}) {
 			addIssue("%s", issue)
+		}
+
+		// Advisory, not damage: uncited evidence is a thin-distillation signal.
+		if msg := uncitedArtifactWarning(d.DistilledState.Body, artifacts); msg != "" {
+			addAdvisory(fmt.Sprintf("Dossier %s: %s", fm.ID, msg))
 		}
 
 		for _, issue := range s.store.ValidateAuditShards(fm.ID) {
@@ -523,42 +549,6 @@ func (s *Service) Migrate(ctx context.Context) (Result, error) {
 		Data:     report,
 		Warnings: warnings,
 	}, nil
-}
-
-var provenanceRefRE = regexp.MustCompile(`\[src:([A-Za-z0-9_]+)(?:#[^\]]+)?\]`)
-
-func validateDistilledStateProvenance(body string, dossierID string, artifactExists func(string) bool) []string {
-	var issues []string
-	lines := strings.Split(body, "\n")
-	inFence := false
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") {
-			inFence = !inFence
-			continue
-		}
-		if inFence || trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "---") {
-			continue
-		}
-		if strings.HasPrefix(trimmed, ">") {
-			continue
-		}
-		if strings.Contains(trimmed, "[src:") && !provenanceRefRE.MatchString(trimmed) {
-			issues = append(issues, fmt.Sprintf("Dossier %s line %d has malformed provenance reference", dossierID, i+1))
-			continue
-		}
-		refs := provenanceRefRE.FindAllStringSubmatch(trimmed, -1)
-		if len(refs) == 0 {
-			issues = append(issues, fmt.Sprintf("Dossier %s line %d is missing provenance", dossierID, i+1))
-			continue
-		}
-		for _, ref := range refs {
-			if len(ref) < 2 || !artifactExists(ref[1]) {
-				issues = append(issues, fmt.Sprintf("Dossier %s line %d references missing artifact %s", dossierID, i+1, ref[1]))
-			}
-		}
-	}
-	return issues
 }
 
 // TeamCreateReq specifies parameters for creating a new team store.
@@ -732,13 +722,17 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 
 	var warnings []Warning
 	if req.Content != "" && newID != "" {
+		compiled, compileWarnings := CompileTranscript(req.Content)
+		for _, w := range compileWarnings {
+			warnings = append(warnings, w)
+		}
 		art := Artifact{
 			DossierID:     newID,
 			Type:          ArtifactTypeTranscript,
 			Title:         "Captured Session Transcript",
 			Provenance:    Provenance{Origin: "promote session content"},
-			ContentFormat: ContentFormatText,
-			Content:       req.Content,
+			ContentFormat: ContentFormatMarkdown,
+			Content:       compiled,
 			CapturedAt:    now,
 			RefreshedAt:   now,
 		}
@@ -1170,6 +1164,15 @@ func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 	}
 	_ = s.store.AppendAudit(d.Frontmatter.ID, event)
 
+	// A save is the moment the curated view and the Archive can drift apart.
+	// Surface evidence the Distilled State does not point at rather than let
+	// it accumulate unreachably.
+	if artifacts, listErr := s.store.ListArtifacts(d.Frontmatter.ID); listErr == nil {
+		if msg := uncitedArtifactWarning(d.DistilledState.Body, artifacts); msg != "" {
+			warnings = append(warnings, Warning(msg))
+		}
+	}
+
 	return Result{
 		OK:       true,
 		Data:     newRev,
@@ -1423,12 +1426,220 @@ func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
 		warnings = append(warnings, Warning(fmt.Sprintf("Distilled State exceeds token target (%d > %d tokens). Consider condensing.", tokens, target)))
 	}
 
+	index, indexWarnings := s.evidenceIndex(d.Frontmatter.ID, d.DistilledState.Body)
+	warnings = append(warnings, indexWarnings...)
+
 	dossierPath := filepath.Join(s.cfg.DossierHome, d.Frontmatter.Slug)
 	return Result{
 		OK:       true,
-		Data:     RecallResult{DistilledState: d.DistilledState.Body, Frontmatter: d.Frontmatter, Revision: rev, TokenEstimate: tokens, Path: dossierPath},
+		Data:     RecallResult{DistilledState: d.DistilledState.Body, Frontmatter: d.Frontmatter, Revision: rev, TokenEstimate: tokens, Path: dossierPath, Artifacts: index},
 		Warnings: warnings,
 	}, nil
+}
+
+// splitContentLines is the canonical split of artifact content into physical
+// lines. Every line-addressing path goes through it so a citation, a search
+// hit, and a fetch cannot disagree about which line is line N. A single
+// trailing newline terminates the last line rather than starting a new empty
+// one; any blank line before that is a real line and is preserved.
+func splitContentLines(content string) []string {
+	if content == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+}
+
+// artifactLineCount reports the number of physical lines in artifact content.
+// These are the coordinates a [src:art_x#L10-L20] citation addresses.
+func artifactLineCount(content string) int {
+	return len(splitContentLines(content))
+}
+
+// numberLines renders lines with absolute 1-indexed numbers, so the span a
+// caller reads is the span they can cite back without counting by hand.
+func numberLines(lines []string, startLine int) string {
+	var sb strings.Builder
+	for i, line := range lines {
+		sb.WriteString(fmt.Sprintf("%d\t%s\n", startLine+i, line))
+	}
+	return sb.String()
+}
+
+// evidenceIndex summarizes a dossier's archived artifacts and flags the ones
+// the Distilled State never cites.
+func (s *Service) evidenceIndex(dossierID string, body string) ([]ArtifactSummary, []Warning) {
+	artifacts, err := s.store.ListArtifacts(dossierID)
+	if err != nil {
+		return nil, []Warning{Warning(fmt.Sprintf("Artifacts could not be listed for the evidence index: %v", err))}
+	}
+	cited := citedArtifactIDs(body)
+
+	var (
+		index    []ArtifactSummary
+		warnings []Warning
+	)
+	for _, art := range artifacts {
+		lines := artifactLineCount(art.Content)
+		if lines == 0 {
+			// ListArtifacts may return metadata without bodies; fall back to a
+			// full read so the line count that bounds citations is accurate.
+			if full, readErr := s.store.ReadArtifact(dossierID, art.ID); readErr == nil {
+				lines = artifactLineCount(full.Content)
+			}
+		}
+		index = append(index, ArtifactSummary{
+			ID:            art.ID,
+			Type:          string(art.Type),
+			Title:         art.Title,
+			ContentFormat: string(art.ContentFormat),
+			Lines:         lines,
+			CapturedAt:    art.CapturedAt,
+			Origin:        art.Provenance.Origin,
+			URL:           art.Provenance.URL,
+			Cited:         cited[art.ID],
+		})
+	}
+
+	if msg := uncitedArtifactWarning(body, artifacts); msg != "" {
+		warnings = append(warnings, Warning(msg))
+	}
+	return index, warnings
+}
+
+// ReadArtifactReq addresses an artifact, optionally narrowing to a line range.
+type ReadArtifactReq struct {
+	DossierID  string
+	ArtifactID string
+	// Fragment is the raw citation fragment (e.g. "L10-L20"), accepted so a
+	// caller can paste a [src:] pointer straight through.
+	Fragment  string
+	StartLine int
+	EndLine   int
+}
+
+// ArtifactContent is a fetched artifact span.
+type ArtifactContent struct {
+	ArtifactSummary
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
+	Ranged    bool   `json:"ranged"`
+	Content   string `json:"content"`
+}
+
+// largeArtifactLineWarning is the point past which an unranged fetch is worth
+// a nudge toward citing a span instead.
+const largeArtifactLineWarning = 500
+
+// ReadArtifact resolves an artifact citation to its content.
+//
+// This is what makes elision safe. The Distillation Guide asks the author to
+// compress aggressively and cite what was compressed away; that trade is only
+// honest if the citation can be followed back to the verbatim record. Content
+// is returned line-numbered so the span read is the span cited.
+func (s *Service) ReadArtifact(ctx context.Context, req ReadArtifactReq) (Result, error) {
+	if req.ArtifactID == "" {
+		return Result{}, NewError(ErrInvalidFrontmatter, "artifact id is required")
+	}
+
+	d, _, err := s.store.Read(req.DossierID)
+	if err != nil {
+		return Result{}, err
+	}
+	dossierID := d.Frontmatter.ID
+
+	art, err := s.store.ReadArtifact(dossierID, req.ArtifactID)
+	if err != nil {
+		return Result{}, NewError(ErrNotFound, fmt.Sprintf("artifact %s not found in dossier %s", req.ArtifactID, dossierID))
+	}
+
+	start, end := req.StartLine, req.EndLine
+	if req.Fragment != "" {
+		ref, parseErr := ParseProvenanceRef(req.ArtifactID, strings.TrimPrefix(req.Fragment, "#"))
+		if parseErr != nil {
+			return Result{}, NewError(ErrInvalidFrontmatter, parseErr.Error())
+		}
+		if ref.HasRange {
+			start, end = ref.StartLine, ref.EndLine
+		}
+	}
+
+	total := artifactLineCount(art.Content)
+	summary := ArtifactSummary{
+		ID:            art.ID,
+		Type:          string(art.Type),
+		Title:         art.Title,
+		ContentFormat: string(art.ContentFormat),
+		Lines:         total,
+		CapturedAt:    art.CapturedAt,
+		Origin:        art.Provenance.Origin,
+		URL:           art.Provenance.URL,
+		Cited:         citedArtifactIDs(d.DistilledState.Body)[art.ID],
+	}
+
+	var warnings []Warning
+	ranged := start > 0 || end > 0
+
+	if !ranged {
+		if total > largeArtifactLineWarning {
+			warnings = append(warnings, Warning(fmt.Sprintf(
+				"Artifact %s is %d lines and was returned in full. Cite and fetch a range (#L<start>-L<end>) to keep the working context small.",
+				art.ID, total)))
+		}
+		return Result{
+			OK: true,
+			Data: ArtifactContent{
+				ArtifactSummary: summary,
+				StartLine:       1,
+				EndLine:         total,
+				Content:         numberLines(splitContentLines(art.Content), 1),
+			},
+			Warnings: warnings,
+		}, nil
+	}
+
+	if start < 1 {
+		start = 1
+	}
+	if end < 1 || end > total {
+		if end > total {
+			warnings = append(warnings, Warning(fmt.Sprintf(
+				"Requested range ends at line %d but artifact %s has %d line(s); returning through the last line.", end, art.ID, total)))
+		}
+		end = total
+	}
+	if start > total {
+		return Result{}, NewError(ErrNotFound, fmt.Sprintf(
+			"artifact %s has %d line(s); requested range starts at line %d", art.ID, total, start))
+	}
+
+	span := splitContentLines(art.Content)[start-1 : end]
+
+	return Result{
+		OK: true,
+		Data: ArtifactContent{
+			ArtifactSummary: summary,
+			StartLine:       start,
+			EndLine:         end,
+			Ranged:          true,
+			Content:         numberLines(span, start),
+		},
+		Warnings: warnings,
+	}, nil
+}
+
+// ListArtifactsReq addresses a dossier's evidence index.
+type ListArtifactsReq struct {
+	DossierID string
+}
+
+// ListArtifacts returns the evidence index for a dossier.
+func (s *Service) ListArtifacts(ctx context.Context, req ListArtifactsReq) (Result, error) {
+	d, _, err := s.store.Read(req.DossierID)
+	if err != nil {
+		return Result{}, err
+	}
+	index, warnings := s.evidenceIndex(d.Frontmatter.ID, d.DistilledState.Body)
+	return Result{OK: true, Data: index, Warnings: warnings}, nil
 }
 
 type ListReq struct {
@@ -1951,6 +2162,21 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 	}
 
 	if transcript != "" {
+		// The stash keeps the raw trace byte-for-byte; the artifact stores the
+		// compiled full view, whose physical line numbers are stable enough to
+		// cite. A range into raw JSONL lands mid-record and cites nothing.
+		compiled, compileWarnings := CompileTranscript(transcript)
+		for _, w := range compileWarnings {
+			_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
+				TS:        now,
+				Event:     AuditEventSave,
+				Author:    s.cfg.Author,
+				DossierID: binding.DossierID,
+				SessionID: sessionID,
+				Message:   string(w),
+			})
+		}
+
 		if stashErr := s.store.WriteSessionStash(binding.DossierID, s.cfg.Author, sessionID, transcript); stashErr != nil {
 			_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 				TS:        now,
@@ -1966,9 +2192,9 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 			DossierID:     binding.DossierID,
 			Type:          ArtifactTypeTranscript,
 			Title:         binding.Harness + " Session Transcript",
-			Provenance:    Provenance{Origin: binding.Harness + " session transcript", Harness: binding.Harness},
-			ContentFormat: ContentFormatText,
-			Content:       transcript,
+			Provenance:    Provenance{Origin: binding.Harness + " session transcript (compiled)", Harness: binding.Harness},
+			ContentFormat: ContentFormatMarkdown,
+			Content:       compiled,
 			CapturedAt:    now,
 			RefreshedAt:   now,
 		}

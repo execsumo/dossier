@@ -81,6 +81,50 @@ func getToolDefinitions() []ToolDefinition {
 			},
 		},
 		{
+			Name:        "dossier_artifact",
+			Description: "Fetch archived artifact content by id, optionally a cited line range. Resolves a [src:art_x#L10-L20] citation back to its verbatim source.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"dossier_id": map[string]any{
+						"type":        "string",
+						"description": "The dossier slug or ID holding the artifact",
+					},
+					"artifact_id": map[string]any{
+						"type":        "string",
+						"description": "The artifact ID, as it appears inside a [src:...] citation",
+					},
+					"fragment": map[string]any{
+						"type":        "string",
+						"description": "Optional citation fragment to resolve, e.g. \"L10-L20\". Overrides start_line/end_line.",
+					},
+					"start_line": map[string]any{
+						"type":        "integer",
+						"description": "Optional 1-indexed first line to return",
+					},
+					"end_line": map[string]any{
+						"type":        "integer",
+						"description": "Optional 1-indexed last line to return",
+					},
+				},
+				"required": []string{"dossier_id", "artifact_id"},
+			},
+		},
+		{
+			Name:        "dossier_artifacts",
+			Description: "List a dossier's evidence index: every archived artifact with its type, line count, and whether the distilled state cites it",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"dossier_id": map[string]any{
+						"type":        "string",
+						"description": "The dossier slug or ID to index",
+					},
+				},
+				"required": []string{"dossier_id"},
+			},
+		},
+		{
 			Name:        "dossier_save",
 			Description: "Save a dossier's distilled state and/or update its metadata and artifacts",
 			InputSchema: map[string]any{
@@ -244,6 +288,36 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			Query: params.Query,
 			Scope: core.SearchScope{DossierID: params.DossierID},
 		})
+
+	case "dossier_artifact":
+		var params struct {
+			DossierID  string `json:"dossier_id"`
+			ArtifactID string `json:"artifact_id"`
+			Fragment   string `json:"fragment"`
+			StartLine  int    `json:"start_line"`
+			EndLine    int    `json:"end_line"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil {
+			s.sendError(id, -32602, "Missing dossier_id or artifact_id", nil)
+			return
+		}
+		res, err = s.svc.ReadArtifact(ctx, core.ReadArtifactReq{
+			DossierID:  params.DossierID,
+			ArtifactID: params.ArtifactID,
+			Fragment:   params.Fragment,
+			StartLine:  params.StartLine,
+			EndLine:    params.EndLine,
+		})
+
+	case "dossier_artifacts":
+		var params struct {
+			DossierID string `json:"dossier_id"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil {
+			s.sendError(id, -32602, "Missing dossier_id", nil)
+			return
+		}
+		res, err = s.svc.ListArtifacts(ctx, core.ListArtifactsReq{DossierID: params.DossierID})
 
 	case "dossier_save":
 		var params struct {

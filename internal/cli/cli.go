@@ -504,6 +504,84 @@ func NewRootCmd() *cobra.Command {
 	searchCmd.Flags().StringVarP(&dossierSearchFlag, "dossier", "d", "", "Scope search to a specific dossier (slug or ID)")
 	searchCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
+	var artifactLinesFlag string
+	artifactCmd := &cobra.Command{
+		Use:   "artifact <slug-or-id> [<artifact-id>]",
+		Short: "Show a dossier's evidence index, or fetch one artifact's content",
+		Long: "With one argument, list every archived artifact and whether the distilled state cites it.\n" +
+			"With two, print the artifact line-numbered, so a [src:art_x#L10-L20] citation can be followed to its source.",
+		Args: cobra.RangeArgs(1, 2),
+		Run: func(cmd *cobra.Command, args []string) {
+			homeDir := resolveHomeDir()
+			svc, err := wire(homeDir)
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			if len(args) == 1 {
+				res, err := svc.ListArtifacts(context.Background(), core.ListArtifactsReq{DossierID: args[0]})
+				if err != nil {
+					fmt.Printf("Error: %v\n", err)
+					os.Exit(1)
+				}
+				if jsonFlag {
+					printJSON(res.Data)
+					return
+				}
+				index, ok := res.Data.([]core.ArtifactSummary)
+				if !ok {
+					fmt.Printf("Unexpected data type returned: %T\n", res.Data)
+					os.Exit(1)
+				}
+				if len(index) == 0 {
+					fmt.Println("No artifacts archived for this dossier.")
+					return
+				}
+				for _, a := range index {
+					cited := "uncited"
+					if a.Cited {
+						cited = "cited"
+					}
+					fmt.Printf("%-28s %-18s %6d lines  %-8s %s\n", a.ID, a.Type, a.Lines, cited, a.Title)
+				}
+				for _, w := range res.Warnings {
+					fmt.Printf("\nWarning: %s\n", w)
+				}
+				return
+			}
+
+			req := core.ReadArtifactReq{DossierID: args[0], ArtifactID: args[1]}
+			if artifactLinesFlag != "" {
+				req.Fragment = normalizeLineFlag(artifactLinesFlag)
+			}
+
+			res, err := svc.ReadArtifact(context.Background(), req)
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			if jsonFlag {
+				printJSON(res.Data)
+				return
+			}
+			content, ok := res.Data.(core.ArtifactContent)
+			if !ok {
+				fmt.Printf("Unexpected data type returned: %T\n", res.Data)
+				os.Exit(1)
+			}
+			fmt.Printf("Artifact: %s (%s)\n", content.Title, content.ID)
+			fmt.Printf("Type:     %s\n", content.Type)
+			fmt.Printf("Lines:    %d-%d of %d\n\n", content.StartLine, content.EndLine, content.Lines)
+			fmt.Print(content.Content)
+			for _, w := range res.Warnings {
+				fmt.Printf("\nWarning: %s\n", w)
+			}
+		},
+	}
+	artifactCmd.Flags().StringVarP(&artifactLinesFlag, "lines", "L", "", "Line range to fetch, e.g. 10-20 or L10-L20")
+	artifactCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
+
 	contextCmd := &cobra.Command{
 		Use:   "context",
 		Short: "Manage the generated open-work context",
@@ -1207,6 +1285,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(pathCmd)
 	rootCmd.AddCommand(archiveCmd)
 	rootCmd.AddCommand(searchCmd)
+	rootCmd.AddCommand(artifactCmd)
 	rootCmd.AddCommand(contextCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(promoteCmd)
@@ -1756,4 +1835,24 @@ func getStableBinaryPath() string {
 		return exec
 	}
 	return "dossier"
+}
+
+// normalizeLineFlag accepts the shapes a user is likely to paste for a line
+// range -- "10-20", "L10-L20", "#L10-L20" -- and returns the citation fragment
+// form the service parses.
+func normalizeLineFlag(v string) string {
+	v = strings.TrimSpace(v)
+	v = strings.TrimPrefix(v, "#")
+	if v == "" {
+		return ""
+	}
+	parts := strings.SplitN(v, "-", 2)
+	for i, p := range parts {
+		p = strings.TrimSpace(p)
+		if !strings.HasPrefix(p, "L") {
+			p = "L" + p
+		}
+		parts[i] = p
+	}
+	return strings.Join(parts, "-")
 }
