@@ -102,6 +102,7 @@ Confirm webhook signing keys with the vendor."
 dossier ls                        # open Dossiers, by priority
 dossier show payments-migration   # full distilled state + metadata
 dossier search "webhook"          # search distilled state + archives
+dossier artifact payments-migration art_a1b2c3 -L 10-20   # resolve a [src:] citation to its source
 dossier status payments-migration active
 dossier lead payments-migration "Bob"
 dossier interface payments-migration "1:1" "Pricing WBR"
