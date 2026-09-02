@@ -147,14 +147,23 @@ func validateDistilledStateProvenance(body string, dossierID string, info Artifa
 				issues = append(issues, fmt.Sprintf("Dossier %s line %d cites artifact %s but the %v", dossierID, n, artifactID, err))
 				continue
 			}
-			if ref.HasRange && ref.StartLine > lineCount {
+			if ref.HasRange && (ref.StartLine > lineCount || ref.EndLine > lineCount) {
 				issues = append(issues, fmt.Sprintf(
-					"Dossier %s line %d cites %s#L%d-L%d but the artifact has only %d line(s)",
-					dossierID, n, artifactID, ref.StartLine, ref.EndLine, lineCount))
+					"Dossier %s line %d cites %s#%s but the artifact has only %d line(s)",
+					dossierID, n, artifactID, formatLineRange(ref), lineCount))
 			}
 		}
 	}
 	return issues
+}
+
+// formatLineRange renders a cited range as L5-L10, or as the bare L5 form
+// when the citation only ever named a single line.
+func formatLineRange(ref ProvenanceRef) string {
+	if ref.StartLine == ref.EndLine {
+		return fmt.Sprintf("L%d", ref.StartLine)
+	}
+	return fmt.Sprintf("L%d-L%d", ref.StartLine, ref.EndLine)
 }
 
 // citedArtifactIDs returns the set of artifact ids the Distilled State points at.
@@ -171,10 +180,19 @@ func citedArtifactIDs(body string) map[string]bool {
 // This is the low-end counterpart to the token-target warning. A Distilled
 // State can be too thin as well as too long, and the legible symptom is
 // evidence sitting in the Archive that the curated view never points at.
+//
+// Transcript artifacts are exempt: they are captured automatically at
+// session end (not authored as evidence), routinely run thousands of lines,
+// and a Distilled State that never cites one is the common case, not a gap.
+// Citing a transcript wholesale to silence this warning is exactly the
+// anti-pattern the Distillation Guide warns against.
 func uncitedArtifacts(body string, artifacts []Artifact) []Artifact {
 	cited := citedArtifactIDs(body)
 	var out []Artifact
 	for _, art := range artifacts {
+		if art.Type == ArtifactTypeTranscript {
+			continue
+		}
 		if !cited[art.ID] {
 			out = append(out, art)
 		}

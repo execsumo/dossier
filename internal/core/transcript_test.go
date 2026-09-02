@@ -58,6 +58,28 @@ func TestCompileTranscriptPreservesUnparsableLines(t *testing.T) {
 	}
 }
 
+func TestCompileTranscriptTalliesUnrecognizedBlocksRatherThanDroppingSilently(t *testing.T) {
+	trace := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"See the attached screenshot."},{"type":"image","source":{"type":"base64","data":"..."}}]}}`
+	out, warnings := CompileTranscript(trace)
+
+	if !strings.Contains(out, "image=1") {
+		t.Errorf("compiled transcript did not tally the dropped image block:\n%s", out)
+	}
+	if !strings.Contains(out, "Unrecognized content block(s) dropped") {
+		t.Errorf("compiled transcript did not surface the elision:\n%s", out)
+	}
+
+	var found bool
+	for _, w := range warnings {
+		if strings.Contains(string(w), "image") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("warnings = %v, want one naming the dropped image block", warnings)
+	}
+}
+
 func TestCompileTranscriptPassesThroughPlainText(t *testing.T) {
 	raw := "A plain text transcript.\nSecond line."
 	out, warnings := CompileTranscript(raw)

@@ -214,7 +214,7 @@ func TestRecallReturnsEvidenceIndexAndFlagsUncited(t *testing.T) {
 	svc, store := newDossierWithArtifact(t, "## Findings\n- [observed] X. [src:art_evidence#L1-L2]", numberedBody(6))
 
 	orphan := Artifact{
-		ID: "art_orphan", Type: ArtifactTypeTranscript, Title: "Session",
+		ID: "art_orphan", Type: ArtifactTypeDecisionEvidence, Title: "Session",
 		ContentFormat: ContentFormatText, Provenance: Provenance{Origin: "session"},
 		Content: numberedBody(3), CapturedAt: time.Now(),
 	}
