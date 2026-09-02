@@ -9,17 +9,14 @@ func TestCalculateRevision(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	fm1 := Frontmatter{
-		ID:            "dos_test",
-		Name:          "Test Dossier",
-		Slug:          "test-dossier",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		LastTouchedAt: now,
-		Status:        StatusActive,
-		Importance:    ImportanceHigh,
-		Urgency:       UrgencyLow,
-		NextAction:    "Next step",
-		OpenQuestions: []string{"Q1?", "Q2?"},
+		ID:         "dos_test",
+		Name:       "Test Dossier",
+		Slug:       "test-dossier",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Status:     StatusActive,
+		Priority:   PriorityHigh,
+		NextAction: "Next step",
 	}
 
 	body1 := "This is a body.\r\nWith some trailing whitespace    \nAnd CRLF endings."

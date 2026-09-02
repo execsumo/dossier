@@ -18,7 +18,7 @@ These are settled. They are placed up front because they constrain everything do
 | **D5** | Relatedness is resolved by **merge**, producing **one converged Distilled State**; **conflicts and ambiguous targets are surfaced to the human**. | Matches D1 (no persistent links); keeps one source of truth per topic. | Auto-merge that silently reconciles; permanent dossier-to-dossier references. |
 | **D6** | Dossier **stores** artifact content provided by the agent/user; it does **not fetch from external sources itself**. The agent (assumed to have its own integrations) fetches **on request**; snapshots are **refreshed while active** and **frozen on resolution**. | Sourcing is the agent's/user's job, not this app's. Accuracy during active work; stable citation after. | The app owning source integrations; live links only (rot); a snapshot that goes stale mid-thread. |
 | **D7** | **100k-token target for Distilled State context.** Over-target recall is allowed with an explicit warning; Archive is retrieved on demand. | Predictable, bloat-aware resumes without blocking progress. | Loading whole transcripts/archives into context by default; silently truncating critical state. |
-| **D8** | Every Dossier carries **lifecycle status + next action + open questions + staleness**. | "See what's open and needs to progress" is the daily-driver surface. | Treating topics as an undifferentiated list. |
+| **D8** | Every Dossier carries **lifecycle status + next action + priority**; open questions live in the body. | "See what's open and needs to progress" is the daily-driver surface. | Treating topics as an undifferentiated list. |
 | **D9** | **One plain Markdown file is the human-readable source of truth for each Dossier's distilled state**: YAML **frontmatter** for lifecycle fields, body for the distilled critical information. Each Dossier also has an artifact folder and audit log. **No database.** | Files are inspectable in any Markdown reader (e.g. Obsidian) with no special tool; frontmatter is the natural, Obsidian-native home for status/next-action. Listing and search are file scans (frontmatter read + `ripgrep`). | A SQLite/derived index; a proprietary store; metadata locked away from the user's own tools. |
 
 **Deferred (explicitly not v1):** sharing/multi-user, web app, in-app LLM wrapper, automated ingestion integrations (Slack/email/Drive OAuth), binary attachment storage, a database/index layer, semantic/embedding search beyond fast-follow.
@@ -29,7 +29,7 @@ These are settled. They are placed up front because they constrain everything do
 
 Technically-savvy business users drive many topics through CLI coding agents. Serious topics span days and multiple sessions; `/resume` mixes durable work with throwaway chatter, bloats context with dead ends, and breaks entirely when switching agents. The `handoff.md` pattern shows the demand for durable, portable context — but hand-maintaining one file per topic across ~20 topics/day doesn't scale.
 
-**Objective:** Let a user carry a topic across Claude Code sessions, resuming with the *distilled, citable state of the work* under a clear token target, with the raw material retained and one search away.
+**Objective:** Let a user carry a topic across Claude Code sessions, resuming with the *distilled, citable state of the work* under a fixed 100k-token warning threshold, with the raw material retained and one search away.
 
 **Non-goals (v1):** collaboration, hosted UI, in-app chat, automatic content ingestion, native binary attachment management.
 
@@ -53,15 +53,16 @@ Single user (the operator). Core jobs-to-be-done:
 ### 3.1 Dossier
 A distinct topic of work. Its distilled state lives in **one Markdown file** (D9), with supporting artifacts and audit history beside it. Composed of:
 
-- **Frontmatter (YAML):** identity (`id`, `name`, `slug`, `created_at`, `updated_at`, `last_touched_at`) and lifecycle (D8):
+- **Frontmatter (YAML):** identity (`id`, `name`, `slug`, `created_at`, `updated_at`) and lifecycle (D8):
   - `status ∈ {active, blocked, waiting, resolved, archived}`
+  - `description` (short progressive-disclosure summary, optional)
   - `lead` (string)
-  - `next_action` (string), `open_questions` (list)
-  - `importance ∈ {high, low}`, `urgency ∈ {high, low}`, `due_date` (ISO date, optional)
-  - `staleness` is derived from `last_touched_at`, not stored.
+  - `next_action` (string)
+  - `priority ∈ {low, medium, high, max}`, `due_date` (ISO date, optional)
+  - Open questions belong in the Distilled State body under `## Open Questions`.
 
   These prioritization fields feed surfacing (§4.1). Frontmatter is what the open-work view scans and what Obsidian-style readers render natively.
-- **Body — Distilled State (D2):** the topic's **critical information with noise removed** (not a chat recap). Sections: Situation, Decisions, Findings, Current State, Next Steps. The agent keeps everything that informs the topic and strips niceties, small talk, and dead ends. The Distilled State has a **100k-token target** for recall ergonomics; over-target state is allowed but must warn (see §6).
+- **Body — Distilled State (D2):** the topic's **critical information with noise removed** (not a chat recap). Sections: Situation, Decisions, Findings, Open Questions, Current State, Next Steps. The agent keeps everything that informs the topic and strips niceties, small talk, and dead ends. The Distilled State has a **100k-token target** for recall ergonomics; over-target state is allowed but must warn (see §6).
 - **Archive (D2):** the Dossier's `artifacts/` directory of **Artifacts**.
 - **Audit log:** append-only `audit.log` — writes, merges, snapshot refreshes/freezes (also the provenance backbone).
 
@@ -91,7 +92,7 @@ An **active Dossier** is bound to one agent session, not globally.
 
 - `active`: work is ongoing and may need the user or agent to progress.
 - `waiting`: progress depends on an external event, person, or date; still appears in the open-work view.
-- `blocked`: progress is stuck because a specific blocker must be resolved; still appears in the open-work view and should rank above ordinary waiting work when urgency/importance are equal.
+- `blocked`: progress is stuck because a specific blocker must be resolved; still appears in the open-work view and should be made visible alongside other active work.
 - `resolved`: the topic reached its intended conclusion. It is hidden from the default open-work view, snapshots are frozen, and recall remains available.
 - `archived`: the topic is no longer operationally relevant. It is hidden from default views but remains searchable and recoverable. Archiving does not delete source material.
 
@@ -117,10 +118,10 @@ Local-first. One directory per Dossier; no index, no DB.
 ### 4.1 Surface-on-load (D3) — *must populate available Dossiers when the agent starts*
 - **Deterministic where the harness allows it.** Surfacing should not depend on the agent remembering to call a tool. A **SessionStart hook** (§5.4) injects the open-work list into context on every supported hook-capable session start — read from frontmatter across `*/dossier.md` (D9), no index. Harnesses without hooks fall back to the generated context file and MCP/manual refresh.
 - The `dossier_list` MCP tool still exists for on-demand refresh within a session, but the *guarantee* of surfacing comes from the hook, not the tool.
-- Payload per Dossier: `name`, `status`, `lead`, `next_action`, top `open_questions`, `importance`, `urgency`, `due_date`, `staleness`, `path`, and any harness capability warnings (for example: "transcript archive unavailable in this session").
+- Payload per Dossier: `name`, optional `description`, `status`, `lead`, `next_action`, `priority`, `due_date`, `path`, and any harness capability warnings (for example: "transcript archive unavailable in this session").
 - CLI/TUI `dossier ls` shows the same, sortable/filterable by any of these.
 - **Open-work view:** default filter = `status ∈ {active, blocked, waiting}`. This is the daily driver.
-- **Surfacing order:** rank by a priority signal, not raw recency — `urgency × importance` (Eisenhower-style), with `due_date` proximity *escalating* effective urgency (overdue → top), and `staleness` as the tiebreaker. So an overdue high-importance Dossier surfaces above a fresh low-priority one. Weights are configurable; the default puts overdue-or-due-soon + high-importance at the top.
+- **Surfacing order:** rank by the explicit `priority` level (`max` → `high` → `medium` → `low`), then by due date and `updated_at`. Due dates remain visible context but do not silently rewrite the user's priority.
 
 ### 4.2 Resume / recall (D7)
 - `dossier_recall(id)` returns the full Distilled State. It targets **100k tokens** for the Distilled State context. If the Distilled State is over target, recall still succeeds but returns an explicit warning and recommended next steps (split, archive resolved material, or reorganize with the agent). Archive artifacts are not loaded by default; they are retrieved on demand.
@@ -131,7 +132,7 @@ Local-first. One directory per Dossier; no index, no DB.
 - Dossier should also deterministically capture the raw session transcript into the Archive where the harness makes a transcript available. If transcript capture is unavailable, Dossier must say so explicitly during installation and again in the session-start Dossier library/loading notice.
 
 ### 4.4 Save / update (D4)
-- `dossier_save(id)` has the agent pass updated Distilled State content + any new artifacts — **no confirmation step**, but following the **Distillation Guide** and on a **deterministic cadence** (§4.11), not at the agent's whim. Updates `last_touched_at`, `status`, `next_action`. **Never deletes** source; superseded content is retained in Archive/audit, so any distillation choice is recoverable and editable after the fact.
+- `dossier_save(id)` has the agent pass updated Distilled State content + any new artifacts — **no confirmation step**, but following the **Distillation Guide** and on a **deterministic cadence** (§4.11), not at the agent's whim. Updates `updated_at`, `status`, and `next_action`. Open questions are maintained in the body under `## Open Questions`. **Never deletes** source; superseded content is retained in Archive/audit, so any distillation choice is recoverable and editable after the fact.
 
 ### 4.5 Link in hindsight (job 4)
 - `dossier_link(id?)` attaches the current session to an existing Dossier. If `id` omitted, the **suggestion engine** proposes likely matches (§4.8). Recommended v1 behavior: show the top 3 candidates with confidence and require the user/agent to choose one when confidence is not clearly high. If there is a single high-confidence match, the agent may recommend it, but should still make the target clear before attaching. Attachment runs the governed save flow (§4.4), reconciling the session into the target's Distilled State.
@@ -149,8 +150,8 @@ Local-first. One directory per Dossier; no index, no DB.
 - **Suggestion:** for `promote` vs `link`, rank existing Dossiers against the current session (term overlap from the file scan v1; embeddings later) and propose the top candidates with a confidence signal. Recommendation: `link` without an id is a single command that may open an interactive picker; `promote` should show likely existing matches before creating a duplicate, but should not auto-link silently.
 
 ### 4.9 Lifecycle management (D8)
-- Commands/tools to set `status`, edit `next_action` and `open_questions`, and set `importance`, `urgency`, `due_date`.
-- `staleness` derived and shown; surfaces stalled topics in the open-work view.
+- Commands/tools to set `status`, edit `next_action`, and set `priority`, `due_date`, and optional `description`.
+- Open questions are edited as part of the Distilled State body.
 
 ### 4.10 Zero-friction capture
 - Promote / link / switch must each be a **single command** (CLI) or tool call (MCP) — no multi-step navigation. This is a hard UX constraint given ~20 topics/day. A single command may include one inline disambiguation step when the action is ambiguous; that is preferable to silent wrong attachment.
@@ -161,7 +162,7 @@ The agent is steered up front and updates are enforced mechanically, so distilla
 **(a) Distillation Guide (the *what*).** A first-class, rigorously developed artifact shipped with Dossier — a skill/instructions file the agent loads (surfaced by the SessionStart hook, §5.4). It defines, with examples:
 - **Keep:** decisions + their rationale + attribution (who/what decided), current state, open questions, next action, experiment results and findings, hard constraints, key data/figures, and provenance links to the artifacts that justify each claim.
 - **Strip:** greetings/niceties/small talk, reasoning that led nowhere, tool-call mechanics, redundant restatement, and anything not informing the topic's current state or future moves.
-- **How:** preserve substance over brevity while respecting the 100k-token target as a warning threshold (D2/§6); write in the Dossier's section structure (Situation, Decisions, Findings, Current State, Next Steps); every material claim carries a provenance link; updating supersedes prose in-place while the superseded content remains in the Archive.
+- **How:** preserve substance over brevity while respecting the 100k-token target as a warning threshold (D2/§6); write in the Dossier's section structure (Situation, Decisions, Findings, Open Questions, Current State, Next Steps); every material claim carries a provenance link; updating supersedes prose in-place while the superseded content remains in the Archive.
 
 This guide is a prompt asset to iterate on like code — its quality is a primary driver of the product (see Risks, §9).
 
@@ -185,7 +186,7 @@ All tools are namespaced with a **`dossier_` prefix** so they're unambiguously i
 - `dossier_link(id?)` — with suggestions
 - `dossier_merge(a, b)` — conflicts surfaced
 - `dossier_session(id?)` — inspect or change the Dossier bound to the current agent session
-- `dossier_update(id, name?, status?, lead?, next_action?, open_questions?, importance?, urgency?, due_date?)` — update any metadata or frontmatter fields in one call
+- `dossier_update(id, name?, description?, status?, lead?, next_action?, priority?, due_date?)` — update frontmatter fields in one call; open questions are body content
 
 Write tools **commit without a human gate** (D4), but writes are governed by the Distillation Guide and fire on a deterministic cadence (§4.11) — not at the agent's discretion. Safety is structural: nothing is deleted, the audit log records every write, and the user can edit any Distilled State after the fact. Exceptions: ambiguous link targets and merge conflict resolution require human disambiguation; that's contradiction/target resolution, not a distillation review gate.
 
@@ -195,7 +196,7 @@ Write tools **commit without a human gate** (D4), but writes are governed by the
 - `dossier recall <slug>`, `dossier search <query>`
 - `dossier status <slug> <state>`, `dossier next <slug> "<action>"`
 - `dossier active`, `dossier switch <slug>`, `dossier path [<slug>]`, `dossier archive <slug>`
-- `dossier priority <slug> --importance <h|m|l> --urgency <h|m|l> --due <date>`
+- `dossier priority <slug> --priority <low|medium|high|max> --due <date>`
 - Generates/refreshes a **context file** per Dossier for harnesses without MCP.
 
 ### 5.3 Slash command (in-session)
@@ -222,7 +223,7 @@ Even within Claude Code, if an expected capability is unavailable in a given ses
 
 ## 6. Token target (D7)
 
-The token target governs the **Distilled State context loaded on recall**. The default target is **100k tokens**. This is a guideline and warning threshold, not a hard failure condition. The agent keeps *all critical information* and strips only noise (niceties, small talk, dead ends); it should not silently drop material merely to satisfy the target.
+The token target governs the **Distilled State context loaded on recall**. The fixed target is **100k tokens**. This is a guideline and warning threshold, not a hard failure condition. The agent keeps *all critical information* and strips only noise (niceties, small talk, dead ends); it should not silently drop material merely to satisfy the target.
 
 | Component | Budget | On overflow |
 |-----------|--------|-------------|
@@ -247,7 +248,7 @@ The token target governs the **Distilled State context loaded on recall**. The d
 ## 8. Success metrics
 
 1. **Cross-session resume:** user resumes a real topic in a *different* Claude Code session than created it and reaches productive work without re-explaining context — repeatedly, across days. Target: at least 8 of 10 dogfood attempts succeed without manual context paste beyond choosing the Dossier.
-2. **Token target visibility:** Distilled State recall reports token estimate and warns above the configured target. Target: no silent over-target recalls; no silent truncation.
+2. **Token target visibility:** Distilled State recall reports token estimate and warns above the fixed 100,000-token target. Target: no silent over-target recalls; no silent truncation.
 3. **Trust without a gate:** near-zero "it summarized away something I needed and I couldn't get it back" incidents (captured source is recoverable from Archive); after-the-fact edits to Distilled State are rare and minor. Target: every material claim in sampled Dossiers has provenance.
 4. **Capture friction:** promote/link/switch each complete in one command/tool call, allowing at most one inline disambiguation step for ambiguous targets.
 5. **Open-work clarity:** user can answer "what topic needs me next?" from one view. Target: library/open-work list renders in under 2 seconds for 500 Dossiers on a typical laptop.

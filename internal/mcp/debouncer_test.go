@@ -40,7 +40,7 @@ func TestMCPServer_Debouncer_NonBlockingAndDrain(t *testing.T) {
 	clk := &mockClock{}
 	tok := &mockTokenizer{}
 	srch := &mockSearcher{}
-	cfg := core.Config{TokenTarget: 100}
+	cfg := core.Config{}
 
 	d := &core.Dossier{
 		Frontmatter:    core.Frontmatter{ID: "dos_1", Name: "Test Dossier"},
@@ -95,7 +95,7 @@ func TestMCPServer_Debouncer_Coalesce(t *testing.T) {
 	clk := &mockClock{}
 	tok := &mockTokenizer{}
 	srch := &mockSearcher{}
-	cfg := core.Config{TokenTarget: 100}
+	cfg := core.Config{}
 
 	syncer := &blockingSyncer{}
 	svc := core.NewService(fakeStore, srch, tok, hreg, clk, cfg, syncer)

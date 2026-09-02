@@ -30,7 +30,7 @@ The prerequisite everything else stands on. Pure store/core work, fully testable
 2. **Stamp author into audit events**: add `Author string` to `core.AuditEvent` (omitempty for backward compat), populated in `Service` from config.
 3. **Per-author audit shards**: writes go to `<slug>/audit/<author>.log` (`FSStore.AppendAudit`, `internal/store/fsstore.go:487`); `ReadAuditLog` merges legacy `<slug>/audit.log` + all shards, ordered by `ts` (the ordering contract already exists in `ReadAuditEntries`). Legacy file is never rewritten or renamed — non-destructive.
 4. **Per-dossier session stash**: on `session-end`/`pre-compaction` for a *bound* session, snapshot the transcript to `<slug>/sessions/<author>/<session-id>.md` (append-mode per session id; one writer per file by construction). Verify transcript availability against `docs/harness-capabilities.md` first; if a session has no accessible transcript, warn — don't fake it. Root `sessions/*.json` bindings are untouched and stay machine-local.
-5. **Schema/migration**: bump `core.CurrentSchemaVersion`; extend `Service.Migrate` (additive only — create `audit/` dirs; no rewrites). `doctor` learns to validate shard names and the merged-ordering invariant.
+5. **Schema validation**: keep the canonical frontmatter schema strict; `doctor` validates shard names and the merged-ordering invariant.
 6. **Docs in the same PR**: SPEC §3.2 layout update, ARCHITECTURE §2/§5 update.
 
 **Tests:** table tests for merged audit ordering across legacy+shards; temp-dir integration for the stash path; migration idempotence (run twice = no-op); doctor fixtures with a foreign-author shard.

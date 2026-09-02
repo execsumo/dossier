@@ -37,9 +37,9 @@ difference.
 
 ## 1. Gap-check: read as the stalled reader
 
-Pull the Dossier's current `next_action`, `open_questions`, `lead`, `status`,
-`due_date`, and body (via `dossier_recall`). Then run one framing pass, not a
-checklist walk:
+Pull the Dossier's current `next_action`, `lead`, `status`, `due_date`, and body
+(via `dossier_recall`). Read the body's `## Open Questions` section as part of
+that context. Then run one framing pass, not a checklist walk:
 
 > **Read this as the teammate — waking up at the start of their day, with no
 > way to reach the sender until theirs ends. Where do they stall?**
@@ -126,7 +126,7 @@ other if you separate **what's committed** from **how it's presented**:
 
 - **The contract is committed state.** Once the seven blocks are resolved,
   write them into the Dossier body as a compressed, telegraphic section via
-  `dossier_save` (or `dossier_update` for `next_action`/`open_questions`),
+  `dossier_save` (or `dossier_update` for frontmatter fields),
   e.g.:
 
   ```
@@ -175,7 +175,6 @@ from what's available, say that plainly rather than guessing a pass.
 **Dossier before** (thin, organic — exactly as it should be day-to-day):
 ```
 next_action: "Get the new pricing page copy reviewed."
-open_questions: []
 lead: "Priya"
 ```
 

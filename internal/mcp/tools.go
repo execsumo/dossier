@@ -33,7 +33,7 @@ func getToolDefinitions() []ToolDefinition {
 	return []ToolDefinition{
 		{
 			Name:        "dossier_list",
-			Description: "List open dossiers sorted by priority score",
+			Description: "List open dossiers sorted by priority (max, high, medium, low)",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -144,7 +144,11 @@ func getToolDefinitions() []ToolDefinition {
 					},
 					"frontmatter_updates": map[string]any{
 						"type":        "object",
-						"description": "Key-value updates to frontmatter fields",
+						"description": "Key-value updates to frontmatter fields (description and priority: low|medium|high|max)",
+						"properties": map[string]any{
+							"description": map[string]any{"type": "string"},
+							"priority":    map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "max"}},
+						},
 					},
 					"artifacts": map[string]any{
 						"type": "array",
@@ -171,12 +175,14 @@ func getToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "dossier_promote",
-			Description: "Create a new dossier from agent-provided content or file",
+			Description: "Create a new dossier from agent-provided content or file; description is an optional progressive-disclosure summary",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"name":                     map[string]any{"type": "string"},
 					"distilled_state_markdown": map[string]any{"type": "string"},
+					"description":              map[string]any{"type": "string", "description": "Optional short progressive-disclosure summary"},
+					"priority":                 map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "max"}},
 					"from_file_path":           map[string]any{"type": "string"},
 					"lead":                     map[string]any{"type": "string"},
 					"interfaces":               map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": interfaceEnumStrings()}},
@@ -220,20 +226,19 @@ func getToolDefinitions() []ToolDefinition {
 		},
 		{
 			Name:        "dossier_update",
-			Description: "Update a dossier's metadata fields — name, status, lead assignee, next action, open questions, and/or priority (importance, urgency, due date). All fields except id are optional; only supplied fields are written.",
+			Description: "Update a dossier's metadata fields — name, description, status, lead assignee, next action, priority, due date, and interfaces. All fields except id are optional; only supplied fields are written.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"id":             map[string]any{"type": "string", "description": "The dossier slug or ID to update"},
-					"name":           map[string]any{"type": "string", "description": "Replace the display name (omit to leave unchanged). The slug/directory is the durable identifier and does NOT change on rename."},
-					"status":         map[string]any{"type": "string", "description": "Replace the current status: active|waiting|blocked|resolved|archived (omit to leave unchanged)"},
-					"lead":           map[string]any{"type": "string", "description": "Replace the lead assignee (omit to leave unchanged)"},
-					"next_action":    map[string]any{"type": "string", "description": "Replace the current next action (omit to leave unchanged)"},
-					"open_questions": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Replace the open questions list (omit to leave unchanged)"},
-					"importance":     map[string]any{"type": "string", "description": "high|low (omit to leave unchanged)"},
-					"urgency":        map[string]any{"type": "string", "description": "high|low (omit to leave unchanged)"},
-					"due_date":       map[string]any{"type": "string", "description": "ISO 8601 date or empty string to clear (omit to leave unchanged)"},
-					"interfaces":     map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": interfaceEnumStrings()}, "description": "Replace the discussion interface list (omit to leave unchanged)"},
+					"id":          map[string]any{"type": "string", "description": "The dossier slug or ID to update"},
+					"name":        map[string]any{"type": "string", "description": "Replace the display name (omit to leave unchanged). The slug/directory is the durable identifier and does NOT change on rename."},
+					"description": map[string]any{"type": "string", "description": "Replace the optional progressive-disclosure summary (omit to leave unchanged)"},
+					"status":      map[string]any{"type": "string", "description": "Replace the current status: active|waiting|blocked|resolved|archived (omit to leave unchanged)"},
+					"lead":        map[string]any{"type": "string", "description": "Replace the lead assignee (omit to leave unchanged)"},
+					"next_action": map[string]any{"type": "string", "description": "Replace the current next action (omit to leave unchanged)"},
+					"priority":    map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "max"}, "description": "low|medium|high|max (omit to leave unchanged)"},
+					"due_date":    map[string]any{"type": "string", "description": "ISO 8601 date or empty string to clear (omit to leave unchanged)"},
+					"interfaces":  map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": interfaceEnumStrings()}, "description": "Replace the discussion interface list (omit to leave unchanged)"},
 				},
 				"required": []string{"id"},
 			},
@@ -373,6 +378,8 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 	case "dossier_promote":
 		var params struct {
 			Name                   string   `json:"name"`
+			Description            string   `json:"description"`
+			Priority               string   `json:"priority"`
 			DistilledStateMarkdown string   `json:"distilled_state_markdown"`
 			FromFilePath           string   `json:"from_file_path"`
 			SessionContent         string   `json:"session_content"`
@@ -386,6 +393,8 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		}
 		res, err = s.svc.Promote(ctx, core.PromoteReq{
 			Name:                   params.Name,
+			Description:            params.Description,
+			Priority:               core.Priority(params.Priority),
 			DistilledStateMarkdown: params.DistilledStateMarkdown,
 			FromFilePath:           params.FromFilePath,
 			Content:                params.SessionContent,
@@ -457,16 +466,15 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 
 	case "dossier_update":
 		var params struct {
-			ID            string   `json:"id"`
-			Name          *string  `json:"name"`
-			Status        *string  `json:"status"`
-			Lead          *string  `json:"lead"`
-			NextAction    *string  `json:"next_action"`
-			OpenQuestions []string `json:"open_questions"`
-			Importance    string   `json:"importance"`
-			Urgency       string   `json:"urgency"`
-			DueDate       string   `json:"due_date"`
-			Interfaces    []string `json:"interfaces"`
+			ID          string   `json:"id"`
+			Name        *string  `json:"name"`
+			Description *string  `json:"description"`
+			Status      *string  `json:"status"`
+			Lead        *string  `json:"lead"`
+			NextAction  *string  `json:"next_action"`
+			Priority    string   `json:"priority"`
+			DueDate     string   `json:"due_date"`
+			Interfaces  []string `json:"interfaces"`
 		}
 		if err := json.Unmarshal(args, &params); err != nil {
 			s.sendError(id, -32602, "Invalid params", nil)
@@ -475,6 +483,9 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		updates := map[string]any{}
 		if params.Name != nil {
 			updates["name"] = *params.Name
+		}
+		if params.Description != nil {
+			updates["description"] = *params.Description
 		}
 		if params.Status != nil {
 			updates["status"] = *params.Status
@@ -485,14 +496,8 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		if params.NextAction != nil {
 			updates["next_action"] = *params.NextAction
 		}
-		if params.OpenQuestions != nil {
-			updates["open_questions"] = params.OpenQuestions
-		}
-		if params.Importance != "" {
-			updates["importance"] = params.Importance
-		}
-		if params.Urgency != "" {
-			updates["urgency"] = params.Urgency
+		if params.Priority != "" {
+			updates["priority"] = params.Priority
 		}
 		if params.DueDate != "" {
 			updates["due_date"] = params.DueDate

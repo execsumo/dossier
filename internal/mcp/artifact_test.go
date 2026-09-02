@@ -57,13 +57,13 @@ func newArtifactFixture(t *testing.T) *core.Service {
 	fakeStore := store.NewFakeStore()
 	clk := &mockClock{}
 	svc := core.NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, clk,
-		core.Config{TokenTarget: 100000}, nil)
+		core.Config{}, nil)
 
 	fakeStore.Dossiers["dos_1"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
 			ID: "dos_1", Name: "Test Dossier", Slug: "test-dossier",
-			Status: core.StatusActive, Importance: core.ImportanceHigh, Urgency: core.UrgencyHigh,
-			CreatedAt: clk.Now(), UpdatedAt: clk.Now(), LastTouchedAt: clk.Now(),
+			Status: core.StatusActive, Priority: core.PriorityMax,
+			CreatedAt: clk.Now(), UpdatedAt: clk.Now(),
 		},
 		DistilledState: core.DistilledState{
 			Body: "## Findings\n- [observed] Timeout at 200ms. [src:art_bench#L2-L3]",

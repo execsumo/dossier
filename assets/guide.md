@@ -67,6 +67,10 @@ Validated insights, metrics, constraints, or test results. Include abandoned pat
 Index of the Archive: what is stored, what is in it, and where the citable spans are. One line per artifact. Keep it current—an artifact absent from this index is one nobody will think to fetch.
 - `art_<id>` (<type>, <n> lines): <what it contains>. Key spans: L<a>-L<b> <what is there>.
 
+## Open Questions
+Unresolved questions that materially affect the topic or next move.
+- <Question that needs an answer or decision>
+
 ## Active Monitors
 Live external context streams that must be polled for updates upon resuming this Dossier.
 - [<NAMESPACE>: <ID>](<URL>): <Reason to poll>. (Last polled: <YYYY-MM-DD>)
@@ -75,7 +79,7 @@ Live external context streams that must be polled for updates upon resuming this
 Immediate execution context. Active files, blockers, or configurations.
 
 ## Next Steps
-Immediate required actions. Must align with `next_action` and `open_questions` metadata.
+Immediate required actions. Must align with `next_action` and the `## Open Questions` section in the Distilled State body.
 ```
 
 ## 5. Choosing What to Archive

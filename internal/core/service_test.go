@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-func TestNewDossierDefaultsToHighImportance(t *testing.T) {
+func TestNewDossierDefaultsToHighPriority(t *testing.T) {
 	store := newLocalFakeStore()
-	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()}, Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}, nil)
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()}, Config{DossierHome: "/tmp/dossier-test"}, nil)
 
 	_, err := svc.Save(context.Background(), SaveReq{FrontmatterUpdates: map[string]any{"name": "Default priority"}})
 	if err != nil {
@@ -19,8 +19,8 @@ func TestNewDossierDefaultsToHighImportance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
-	if d.Frontmatter.Importance != ImportanceHigh {
-		t.Fatalf("new dossier importance = %q, want %q", d.Frontmatter.Importance, ImportanceHigh)
+	if d.Frontmatter.Priority != PriorityHigh {
+		t.Fatalf("new dossier priority = %q, want %q", d.Frontmatter.Priority, PriorityHigh)
 	}
 }
 
@@ -207,14 +207,12 @@ func TestServiceListFiltersInterfaces(t *testing.T) {
 	now := time.Now()
 	store.dossiers["dos_pricing"] = &Dossier{Frontmatter: Frontmatter{
 		ID: "dos_pricing", Name: "Pricing", Slug: "pricing", CreatedAt: now,
-		UpdatedAt: now, LastTouchedAt: now, Status: StatusActive,
-		Importance: ImportanceHigh, Urgency: UrgencyLow,
+		UpdatedAt: now, Status: StatusActive, Priority: PriorityHigh,
 		Interfaces: []string{"Pricing WBR", "Steerco"},
 	}, DistilledState: DistilledState{Body: "# Topic"}}
 	store.dossiers["dos_one"] = &Dossier{Frontmatter: Frontmatter{
 		ID: "dos_one", Name: "One on one", Slug: "one-on-one", CreatedAt: now,
-		UpdatedAt: now, LastTouchedAt: now, Status: StatusActive,
-		Importance: ImportanceHigh, Urgency: UrgencyLow,
+		UpdatedAt: now, Status: StatusActive, Priority: PriorityHigh,
 		Interfaces: []string{"1:1"},
 	}, DistilledState: DistilledState{Body: "# Topic"}}
 	store.revisions["dos_pricing"] = CalculateRevision(store.dossiers["dos_pricing"].Frontmatter, "# Topic", nil)
@@ -237,7 +235,7 @@ func TestServiceListAndRecall(t *testing.T) {
 	hreg := &mockHarnessRegistry{}
 	now := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
 	clk := &mockClock{now: now}
-	cfg := Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}
+	cfg := Config{DossierHome: "/tmp/dossier-test"}
 
 	svc := NewService(fakeStore, srch, tok, hreg, clk, cfg, nil)
 
@@ -245,10 +243,9 @@ func TestServiceListAndRecall(t *testing.T) {
 	saveReq := SaveReq{
 		DistilledStateMarkdown: "# Test\n\n## Situation\nWorking fine.",
 		FrontmatterUpdates: map[string]any{
-			"name":       "Pricing model refresh",
-			"status":     "active",
-			"importance": "high",
-			"urgency":    "low",
+			"name":     "Pricing model refresh",
+			"status":   "active",
+			"priority": "high",
 		},
 	}
 
@@ -304,16 +301,15 @@ func TestServiceListAndRecall(t *testing.T) {
 
 func TestSaveReturnsRevisionIncludingArtifacts(t *testing.T) {
 	fakeStore := newLocalFakeStore()
-	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}, Config{TokenTarget: 100}, nil)
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}, Config{}, nil)
 	ctx := context.Background()
 
 	createRes, err := svc.Save(ctx, SaveReq{
 		DistilledStateMarkdown: "# Artifact Revision\n\n## Situation\nCurrent state [src:art_evidence].",
 		FrontmatterUpdates: map[string]any{
-			"name":       "Artifact Revision",
-			"status":     "active",
-			"importance": "medium",
-			"urgency":    "medium",
+			"name":     "Artifact Revision",
+			"status":   "active",
+			"priority": "medium",
 		},
 	})
 	if err != nil {
@@ -347,16 +343,15 @@ func TestSaveReturnsRevisionIncludingArtifacts(t *testing.T) {
 
 func TestSessionEndCapturesTranscriptWithoutDistilledState(t *testing.T) {
 	fakeStore := newLocalFakeStore()
-	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}, Config{TokenTarget: 100}, nil)
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}, Config{}, nil)
 	ctx := context.Background()
 
 	createRes, err := svc.Save(ctx, SaveReq{
 		DistilledStateMarkdown: "# Hook Backstop\n\n## Situation\nOriginal state.",
 		FrontmatterUpdates: map[string]any{
-			"name":       "Hook Backstop",
-			"status":     "active",
-			"importance": "medium",
-			"urgency":    "medium",
+			"name":     "Hook Backstop",
+			"status":   "active",
+			"priority": "medium",
 		},
 	})
 	if err != nil {
@@ -412,15 +407,12 @@ func TestDoctorReportsProvenanceAndConflictIssues(t *testing.T) {
 	fakeStore := newLocalFakeStore()
 	fakeStore.dossiers["dos_bad"] = &Dossier{
 		Frontmatter: Frontmatter{
-			ID:            "dos_bad",
-			Name:          "Bad Dossier",
-			Slug:          "bad-dossier",
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			LastTouchedAt: now,
-			Status:        StatusActive,
-			Importance:    ImportanceLow,
-			Urgency:       UrgencyLow,
+			ID:        "dos_bad",
+			Name:      "Bad Dossier",
+			Slug:      "bad-dossier",
+			CreatedAt: now,
+			UpdatedAt: now,
+			Status:    StatusActive, Priority: PriorityHigh,
 		},
 		DistilledState: DistilledState{Body: "# Bad Dossier\n\n## Situation\nA material claim without provenance.\nAnother claim [src:art_missing]."},
 	}
@@ -458,15 +450,13 @@ func TestDoctorHealthyWithValidProvenance(t *testing.T) {
 	fakeStore := newLocalFakeStore()
 	fakeStore.dossiers["dos_good"] = &Dossier{
 		Frontmatter: Frontmatter{
-			ID:            "dos_good",
-			Name:          "Good Dossier",
-			Slug:          "good-dossier",
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			LastTouchedAt: now,
-			Status:        StatusActive,
-			Importance:    ImportanceLow,
-			Urgency:       UrgencyLow,
+			ID:        "dos_good",
+			Name:      "Good Dossier",
+			Slug:      "good-dossier",
+			CreatedAt: now,
+			UpdatedAt: now,
+			Status:    StatusActive,
+			Priority:  PriorityLow,
 		},
 		DistilledState: DistilledState{Body: "# Good Dossier\n\n## Situation\nA supported material claim. [src:art_good]"},
 	}
@@ -516,15 +506,12 @@ func TestSessionStartUnboundIsCompactNudge(t *testing.T) {
 	now := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
 	fakeStore.dossiers["dos_a"] = &Dossier{
 		Frontmatter: Frontmatter{
-			ID:            "dos_a",
-			Name:          "Pricing model refresh",
-			Slug:          "pricing-model-refresh",
-			Status:        StatusActive,
-			Importance:    ImportanceHigh,
-			Urgency:       UrgencyLow,
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			LastTouchedAt: now,
+			ID:     "dos_a",
+			Name:   "Pricing model refresh",
+			Slug:   "pricing-model-refresh",
+			Status: StatusActive, Priority: PriorityHigh,
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 	}
 
@@ -556,66 +543,54 @@ func TestServiceListSorting(t *testing.T) {
 	hreg := &mockHarnessRegistry{}
 	now := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
 	clk := &mockClock{now: now}
-	cfg := Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}
+	cfg := Config{DossierHome: "/tmp/dossier-test"}
 
-	// Dossier A: Priority 2 (High, Low), Due 2026-07-05
+	// Dossier A: High priority, Due 2026-07-05
 	fakeStore.dossiers["dos_a"] = &Dossier{
 		Frontmatter: Frontmatter{
-			ID:            "dos_a",
-			Name:          "Dossier A",
-			Slug:          "dossier-a",
-			Status:        StatusActive,
-			Importance:    ImportanceHigh,
-			Urgency:       UrgencyLow,
-			DueDate:       "2026-07-05",
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			LastTouchedAt: now,
+			ID:     "dos_a",
+			Name:   "Dossier A",
+			Slug:   "dossier-a",
+			Status: StatusActive, Priority: PriorityHigh,
+			DueDate:   "2026-07-05",
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 	}
-	// Dossier B: Priority 1 (High, High), Due 2026-07-10
+	// Dossier B: Max priority, Due 2026-07-10
 	fakeStore.dossiers["dos_b"] = &Dossier{
 		Frontmatter: Frontmatter{
-			ID:            "dos_b",
-			Name:          "Dossier B",
-			Slug:          "dossier-b",
-			Status:        StatusActive,
-			Importance:    ImportanceHigh,
-			Urgency:       UrgencyHigh,
-			DueDate:       "2026-07-10",
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			LastTouchedAt: now,
+			ID:     "dos_b",
+			Name:   "Dossier B",
+			Slug:   "dossier-b",
+			Status: StatusActive, Priority: PriorityMax,
+			DueDate:   "2026-07-10",
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 	}
-	// Dossier C: Priority 2 (High, Low), Due 2026-07-01
+	// Dossier C: High priority, Due 2026-07-01
 	fakeStore.dossiers["dos_c"] = &Dossier{
 		Frontmatter: Frontmatter{
-			ID:            "dos_c",
-			Name:          "Dossier C",
-			Slug:          "dossier-c",
-			Status:        StatusActive,
-			Importance:    ImportanceHigh,
-			Urgency:       UrgencyLow,
-			DueDate:       "2026-07-01",
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			LastTouchedAt: now,
+			ID:     "dos_c",
+			Name:   "Dossier C",
+			Slug:   "dossier-c",
+			Status: StatusActive, Priority: PriorityHigh,
+			DueDate:   "2026-07-01",
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 	}
-	// Dossier D: Priority 2 (High, Low), No Due Date
+	// Dossier D: High priority, No Due Date
 	fakeStore.dossiers["dos_d"] = &Dossier{
 		Frontmatter: Frontmatter{
-			ID:            "dos_d",
-			Name:          "Dossier D",
-			Slug:          "dossier-d",
-			Status:        StatusActive,
-			Importance:    ImportanceHigh,
-			Urgency:       UrgencyLow,
-			DueDate:       "",
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			LastTouchedAt: now,
+			ID:     "dos_d",
+			Name:   "Dossier D",
+			Slug:   "dossier-d",
+			Status: StatusActive, Priority: PriorityHigh,
+			DueDate:   "",
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 	}
 
@@ -638,36 +613,6 @@ func TestServiceListSorting(t *testing.T) {
 		if items[i].ID != expectedID {
 			t.Errorf("at index %d: expected %s, got %s", i, expectedID, items[i].ID)
 		}
-	}
-}
-
-func TestMigrateIdempotence(t *testing.T) {
-	fakeStore := newLocalFakeStore()
-	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{}, nil)
-
-	d := &Dossier{
-		Frontmatter: Frontmatter{ID: "d1", Slug: "d1", Status: StatusActive},
-	}
-	fakeStore.dossiers["d1"] = d
-	fakeStore.revisions["d1"] = "rev1"
-
-	res1, err := svc.Migrate(context.Background())
-	if err != nil {
-		t.Fatalf("Migrate 1 failed: %v", err)
-	}
-	report1 := res1.Data.(MigrateReport)
-
-	res2, err := svc.Migrate(context.Background())
-	if err != nil {
-		t.Fatalf("Migrate 2 failed: %v", err)
-	}
-	report2 := res2.Data.(MigrateReport)
-
-	if report2.DossiersHealed > 0 || len(res2.Warnings) > 0 {
-		t.Errorf("second migration should make zero changes and produce no warnings")
-	}
-	if report1.DossiersScanned != report2.DossiersScanned {
-		t.Errorf("scanned count mismatched")
 	}
 }
 
@@ -711,7 +656,7 @@ func TestTwoAuthorSimulation(t *testing.T) {
 
 func TestSessionEndMissingTranscriptEmitsWarning(t *testing.T) {
 	fakeStore := newLocalFakeStore()
-	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}, Config{TokenTarget: 100}, nil)
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}, Config{}, nil)
 	ctx := context.Background()
 
 	fakeStore.dossiers["dos_missing"] = &Dossier{

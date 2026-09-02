@@ -198,7 +198,7 @@ func setupTestService(store core.Store) *core.Service {
 		testTokenizer{},
 		testHarnessRegistry{},
 		testClock{},
-		core.Config{DossierHome: "/tmp/dossier_home", TokenTarget: 1000},
+		core.Config{DossierHome: "/tmp/dossier_home"},
 		nil,
 	)
 }
@@ -234,11 +234,10 @@ func TestTUI_Dashboard(t *testing.T) {
 	// Seed a dossier
 	store.dossiers["dos1"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos1",
-			Name:          "Project Alpha",
-			Slug:          "project-alpha",
-			Status:        core.StatusActive,
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "dos1",
+			Name:   "Project Alpha",
+			Slug:   "project-alpha",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
 		},
 	}
 	svc := setupTestService(store)
@@ -290,11 +289,10 @@ func TestTUI_Detail(t *testing.T) {
 	store := newTestStore()
 	store.dossiers["dos1"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos1",
-			Name:          "Project Alpha",
-			Slug:          "project-alpha",
-			Status:        core.StatusActive,
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "dos1",
+			Name:   "Project Alpha",
+			Slug:   "project-alpha",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
 		},
 		DistilledState: core.DistilledState{
 			Body: "This is the distilled state of Alpha",
@@ -349,11 +347,10 @@ func TestTUI_InlineEditing(t *testing.T) {
 	store := newTestStore()
 	store.dossiers["dos1"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos1",
-			Name:          "Project Alpha",
-			Slug:          "project-alpha",
-			Status:        core.StatusActive,
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "dos1",
+			Name:   "Project Alpha",
+			Slug:   "project-alpha",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
 		},
 	}
 	svc := setupTestService(store)
@@ -417,11 +414,11 @@ func TestTUI_InlineEditing(t *testing.T) {
 	if m.currentView != ViewPriorityEditor {
 		t.Fatalf("expected view ViewPriorityEditor, got %v", m.currentView)
 	}
-	// Focus is initially 0 (Importance). Hitting enter on Importance cycles/selects it and immediately triggers save.
+	// Focus is initially 0 (Priority). Hitting enter on Priority selects it and immediately triggers save.
 	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = newM.(Model)
 	if cmd == nil {
-		t.Fatal("expected importance enter to trigger immediate save command")
+		t.Fatal("expected priority enter to trigger immediate save command")
 	}
 	mutMsg = cmd()
 	newM, cmd = m.Update(mutMsg)
@@ -461,11 +458,10 @@ func TestTUI_NoActiveBinding(t *testing.T) {
 	store := newTestStore()
 	store.dossiers["dos1"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos1",
-			Name:          "Project Alpha",
-			Slug:          "project-alpha",
-			Status:        core.StatusActive,
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "dos1",
+			Name:   "Project Alpha",
+			Slug:   "project-alpha",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
 		},
 	}
 	svc := setupTestService(store)
@@ -492,20 +488,18 @@ func TestTUI_Link(t *testing.T) {
 	// Seed two dossiers matching "Alpha"
 	store.dossiers["dos1"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos1",
-			Name:          "Alpha project",
-			Slug:          "alpha-proj",
-			Status:        core.StatusActive,
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "dos1",
+			Name:   "Alpha project",
+			Slug:   "alpha-proj",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
 		},
 	}
 	store.dossiers["dos2"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos2",
-			Name:          "Alpha team",
-			Slug:          "alpha-team",
-			Status:        core.StatusActive,
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "dos2",
+			Name:   "Alpha team",
+			Slug:   "alpha-team",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
 		},
 	}
 	svc := setupTestService(store)
@@ -567,12 +561,11 @@ func TestTUI_Merge(t *testing.T) {
 	// Seed two dossiers with incompatible statuses to force merge conflict
 	store.dossiers["dos1"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos1",
-			Name:          "Source Dossier",
-			Slug:          "source-dossier",
-			Status:        core.StatusActive,
-			NextAction:    "Action A",
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "dos1",
+			Name:   "Source Dossier",
+			Slug:   "source-dossier",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
+			NextAction: "Action A",
 		},
 		DistilledState: core.DistilledState{
 			Body: "Distilled A",
@@ -580,12 +573,11 @@ func TestTUI_Merge(t *testing.T) {
 	}
 	store.dossiers["dos2"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos2",
-			Name:          "Target Dossier",
-			Slug:          "target-dossier",
-			Status:        core.StatusBlocked,
-			NextAction:    "Action B",
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "dos2",
+			Name:   "Target Dossier",
+			Slug:   "target-dossier",
+			Status: core.StatusBlocked, Priority: core.PriorityHigh,
+			NextAction: "Action B",
 		},
 		DistilledState: core.DistilledState{
 			Body: "Distilled B",
@@ -871,24 +863,18 @@ func TestStatusTierSort(t *testing.T) {
 	store := newTestStore()
 	store.dossiers["arch"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "arch",
-			Name:          "Archived Important",
-			Slug:          "arch",
-			Status:        core.StatusArchived,
-			Importance:    core.ImportanceHigh,
-			Urgency:       core.UrgencyHigh,
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "arch",
+			Name:   "Archived Important",
+			Slug:   "arch",
+			Status: core.StatusArchived, Priority: core.PriorityHigh,
 		},
 	}
 	store.dossiers["act"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "act",
-			Name:          "Active Minor",
-			Slug:          "act",
-			Status:        core.StatusActive,
-			Importance:    core.ImportanceLow,
-			Urgency:       core.UrgencyLow,
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "act",
+			Name:   "Active Minor",
+			Slug:   "act",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
 		},
 	}
 	svc := setupTestService(store)
@@ -916,29 +902,26 @@ func TestArchivedHiddenByDefault(t *testing.T) {
 	store := newTestStore()
 	store.dossiers["arch"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "arch",
-			Name:          "Old Project",
-			Slug:          "arch",
-			Status:        core.StatusArchived,
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "arch",
+			Name:   "Old Project",
+			Slug:   "arch",
+			Status: core.StatusArchived, Priority: core.PriorityHigh,
 		},
 	}
 	store.dossiers["res"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "res",
-			Name:          "Done Project",
-			Slug:          "res",
-			Status:        core.StatusResolved,
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "res",
+			Name:   "Done Project",
+			Slug:   "res",
+			Status: core.StatusResolved, Priority: core.PriorityHigh,
 		},
 	}
 	store.dossiers["act"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "act",
-			Name:          "Live Project",
-			Slug:          "act",
-			Status:        core.StatusActive,
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "act",
+			Name:   "Live Project",
+			Slug:   "act",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
 		},
 	}
 	svc := setupTestService(store)
@@ -1015,11 +998,10 @@ func TestArchivedToggleWithNoLiveItems(t *testing.T) {
 	store := newTestStore()
 	store.dossiers["arch"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "arch",
-			Name:          "Old Project",
-			Slug:          "arch",
-			Status:        core.StatusArchived,
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "arch",
+			Name:   "Old Project",
+			Slug:   "arch",
+			Status: core.StatusArchived, Priority: core.PriorityHigh,
 		},
 	}
 	svc := setupTestService(store)
@@ -1069,22 +1051,20 @@ func TestEnterRecallsFilteredDossier(t *testing.T) {
 	store := newTestStore()
 	store.dossiers["dos1"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos1",
-			Name:          "Bob Item",
-			Slug:          "bob-item",
-			Status:        core.StatusActive,
-			Lead:          "Bob",
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "dos1",
+			Name:   "Bob Item",
+			Slug:   "bob-item",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
+			Lead: "Bob",
 		},
 	}
 	store.dossiers["dos2"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos2",
-			Name:          "Alice Item",
-			Slug:          "alice-item",
-			Status:        core.StatusActive,
-			Lead:          "Alice",
-			LastTouchedAt: testClock{}.Now(),
+			ID:     "dos2",
+			Name:   "Alice Item",
+			Slug:   "alice-item",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
+			Lead: "Alice",
 		},
 	}
 	svc := setupTestService(store)

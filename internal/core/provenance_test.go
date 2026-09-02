@@ -172,8 +172,8 @@ func TestDoctorFlagsUnresolvableLineRange(t *testing.T) {
 	fakeStore.dossiers["dos_range"] = &Dossier{
 		Frontmatter: Frontmatter{
 			ID: "dos_range", Name: "Range Dossier", Slug: "range-dossier",
-			CreatedAt: now, UpdatedAt: now, LastTouchedAt: now,
-			Status: StatusActive, Importance: ImportanceLow, Urgency: UrgencyLow,
+			CreatedAt: now, UpdatedAt: now,
+			Status: StatusActive, Priority: PriorityLow,
 		},
 		DistilledState: DistilledState{
 			Body: "# Range Dossier\n\n## Findings\n- [observed] A claim. [src:art_short#L40-L60]",
@@ -210,8 +210,8 @@ func TestDoctorAdvisesOnUncitedEvidenceWithoutFailing(t *testing.T) {
 	fakeStore.dossiers["dos_thin"] = &Dossier{
 		Frontmatter: Frontmatter{
 			ID: "dos_thin", Name: "Thin Dossier", Slug: "thin-dossier",
-			CreatedAt: now, UpdatedAt: now, LastTouchedAt: now,
-			Status: StatusActive, Importance: ImportanceLow, Urgency: UrgencyLow,
+			CreatedAt: now, UpdatedAt: now,
+			Status: StatusActive, Priority: PriorityLow,
 		},
 		DistilledState: DistilledState{
 			Body: "# Thin Dossier\n\n## Findings\n- [observed] A claim. [src:art_cited]",

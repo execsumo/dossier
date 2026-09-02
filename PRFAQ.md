@@ -39,7 +39,7 @@ material that supports it. Its distilled state is plain Markdown you can open in
 any reader, with artifacts and audit history beside it. When you start an agent
 session, your open Dossiers are surfaced automatically, ordered by priority. You
 pick one up and the agent resumes with exactly the distilled context it needs —
-with a clear token target and a warning if a topic is sprawling — with the full
+with a fixed 100k-token warning threshold if a topic is sprawling — with the full
 archive one search away.
 
 **What shipped beyond the core.** Each Dossier carries a **lead** — the person
@@ -97,7 +97,7 @@ Dossiers; they are all artifacts under the one topic they support.
 **How is this different from `/resume`?**
 `/resume` replays a whole session, mixing durable work with throwaway chatter
 and carrying every false path forward. Dossier carries only the curated state of
-a *topic*, warns against a clear token target, and is not tied to the session or
+a *topic*, warns when it exceeds the fixed 100k-token threshold, and is not tied to the session or
 the agent that created it.
 
 **Does it work with agents other than Claude Code?**
@@ -124,12 +124,9 @@ specific meeting forum. There is no `/dossier` slash command; the agent surfaces
 your library at session start and answers in conversation.
 
 **How is the list ordered?**
-By a 2×2 of importance and urgency (the Eisenhower quadrants), then by due date,
-then by how long a topic has gone untouched. **An overdue item does not
-currently escalate above its quadrant** — this is a known limitation, and
-changing it is one of the first things in v02: importance becomes the primary
-ordering with time pressure computed inside it, plus a tier above everything for
-work that is blocking another person.
+By explicit priority (`max`, `high`, `medium`, `low`), then by due date and
+`updated_at`. Due dates provide context but do not silently change the user's
+chosen priority.
 
 **Who owns a topic?**
 Each Dossier has a `lead`. It is set when you promote a topic or changed at any
@@ -224,7 +221,7 @@ One document can't be both. Splitting them lets the Distilled State carry the
 full substance of the topic while the Archive stays citable. The provenance links
 across the two layers are what make citation a *property of the model* rather
 than a feature to add later. Note: "distilled" means *noise removed*, not *made
-short* — but there is still a token target so the product can warn when a topic
+short* — but there is still a fixed 100k-token threshold so the product can warn when a topic
 is sprawling.
 
 **Why no review step — isn't "the agent decides" too loose?**

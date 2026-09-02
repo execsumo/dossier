@@ -8,9 +8,9 @@ Warnings:
 
 The following dossiers are available to resume work on:
 {{if .OpenDossiers}}
-{{range .OpenDossiers}}- **{{.Name}}** (status: {{.Status}}, slug: {{.Slug}})
-  Next Action: {{.NextAction}}
-  Priority Score: {{.PriorityScore}}
+{{range .OpenDossiers}}- **{{.Name}}** (status: {{.Status}}, priority: {{.Priority}}, slug: {{.Slug}})
+  {{if .Description}}Description: {{.Description}}
+  {{end}}Next Action: {{.NextAction}}
 {{end}}
 {{else}}
 (No open dossiers found)

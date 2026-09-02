@@ -14,7 +14,7 @@ func newDossierWithArtifact(t *testing.T, body string, artifactContent string) (
 	t.Helper()
 	store := newLocalFakeStore()
 	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()},
-		Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100000}, nil)
+		Config{DossierHome: "/tmp/dossier-test"}, nil)
 
 	if _, err := svc.Save(context.Background(), SaveReq{
 		FrontmatterUpdates:     map[string]any{"name": "Billing lock"},
@@ -281,7 +281,7 @@ func TestSaveWarnsOnUncitedEvidence(t *testing.T) {
 func TestSessionEndArchivesCompiledTranscript(t *testing.T) {
 	store := newLocalFakeStore()
 	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()},
-		Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100000}, nil)
+		Config{DossierHome: "/tmp/dossier-test"}, nil)
 
 	if _, err := svc.Save(context.Background(), SaveReq{FrontmatterUpdates: map[string]any{"name": "Billing lock"}}); err != nil {
 		t.Fatalf("Save() error = %v", err)

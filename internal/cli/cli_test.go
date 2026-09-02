@@ -28,17 +28,13 @@ func TestCLICommands(t *testing.T) {
 	}
 
 	fm := core.Frontmatter{
-		ID:            "dos_test123",
-		Name:          "Pricing model refresh",
-		Slug:          "pricing-model-refresh",
-		CreatedAt:     time.Now().Truncate(time.Second),
-		UpdatedAt:     time.Now().Truncate(time.Second),
-		LastTouchedAt: time.Now().Truncate(time.Second),
-		Status:        core.StatusActive,
-		Importance:    core.ImportanceHigh,
-		Urgency:       core.UrgencyLow,
-		NextAction:    "Compare revised scenarios",
-		OpenQuestions: []string{"Sales feedback?"},
+		ID:        "dos_test123",
+		Name:      "Pricing model refresh",
+		Slug:      "pricing-model-refresh",
+		CreatedAt: time.Now().Truncate(time.Second),
+		UpdatedAt: time.Now().Truncate(time.Second),
+		Status:    core.StatusActive, Priority: core.PriorityHigh,
+		NextAction: "Compare revised scenarios",
 	}
 	body := "# Pricing model refresh\n\n## Situation\nWorking draft."
 
@@ -162,8 +158,7 @@ func TestCLIMilestone3(t *testing.T) {
 		FrontmatterUpdates: map[string]any{
 			"name":        "Chainlink core engine",
 			"status":      "active",
-			"importance":  "high",
-			"urgency":     "high",
+			"priority":    "high",
 			"next_action": "Implement the MCP server",
 		},
 	}
@@ -507,16 +502,9 @@ func TestCLIMilestone7(t *testing.T) {
 
 	// 4. Test priority subcommand via Cobra
 	cmd = NewRootCmd()
-	cmd.SetArgs([]string{"priority", dossierID, "--importance", "h", "--urgency", "l", "--due", "2026-07-01", "--home", tempHome})
+	cmd.SetArgs([]string{"priority", dossierID, "--priority", "high", "--due", "2026-07-01", "--home", tempHome})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("priority cmd execution failed: %v", err)
-	}
-
-	// 5. Test questions subcommand via Cobra
-	cmd = NewRootCmd()
-	cmd.SetArgs([]string{"questions", dossierID, "set", "Question A", "Question B", "--home", tempHome})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("questions cmd execution failed: %v", err)
 	}
 
 	// Verify all updates are reflected in the store
@@ -532,16 +520,12 @@ func TestCLIMilestone7(t *testing.T) {
 	if recall.Frontmatter.NextAction != "Do something next" {
 		t.Errorf("expected next_action 'Do something next', got %q", recall.Frontmatter.NextAction)
 	}
-	if recall.Frontmatter.Importance != core.ImportanceHigh || recall.Frontmatter.Urgency != core.UrgencyLow {
-		t.Errorf("expected importance high, urgency low; got %s/%s", recall.Frontmatter.Importance, recall.Frontmatter.Urgency)
+	if recall.Frontmatter.Priority != core.PriorityHigh {
+		t.Errorf("expected priority high, got %s", recall.Frontmatter.Priority)
 	}
 	if recall.Frontmatter.DueDate != "2026-07-01" {
 		t.Errorf("expected due date '2026-07-01', got %q", recall.Frontmatter.DueDate)
 	}
-	if len(recall.Frontmatter.OpenQuestions) != 2 || recall.Frontmatter.OpenQuestions[0] != "Question A" {
-		t.Errorf("expected open questions [Question A, Question B], got %v", recall.Frontmatter.OpenQuestions)
-	}
-
 	// 6. Create a source dossier to test merge
 	_, err = svc.Save(context.Background(), core.SaveReq{
 		DistilledStateMarkdown: "Source distilled content",

@@ -60,17 +60,14 @@ func TestFSStoreDossierLifecycle(t *testing.T) {
 
 	now := time.Now().Truncate(time.Second)
 	fm := core.Frontmatter{
-		ID:            "dos_test123",
-		Name:          "Pricing model refresh",
-		Slug:          "pricing-model-refresh",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		LastTouchedAt: now,
-		Status:        core.StatusActive,
-		Importance:    core.ImportanceHigh,
-		Urgency:       core.UrgencyLow,
-		NextAction:    "Compare revised pricing scenarios",
-		OpenQuestions: []string{"Does Sales prefer usage-tier?"},
+		ID:          "dos_test123",
+		Name:        "Pricing model refresh",
+		Description: "Pricing strategy summary",
+		Slug:        "pricing-model-refresh",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		Status:      core.StatusActive, Priority: core.PriorityHigh,
+		NextAction: "Compare revised pricing scenarios",
 	}
 	body := "# Pricing model refresh\n\n## Situation\nInitial alignment."
 
@@ -100,6 +97,12 @@ func TestFSStoreDossierLifecycle(t *testing.T) {
 	}
 	if readDossier.Frontmatter.Name != fm.Name {
 		t.Errorf("expected name %q, got %q", fm.Name, readDossier.Frontmatter.Name)
+	}
+	if readDossier.Frontmatter.Description != fm.Description {
+		t.Errorf("expected description %q, got %q", fm.Description, readDossier.Frontmatter.Description)
+	}
+	if readDossier.Frontmatter.Priority != core.PriorityHigh {
+		t.Errorf("expected migrated priority %q, got %q", core.PriorityHigh, readDossier.Frontmatter.Priority)
 	}
 	if strings.TrimSpace(readDossier.DistilledState.Body) != strings.TrimSpace(body) {
 		t.Errorf("expected body %q, got %q", body, readDossier.DistilledState.Body)
@@ -147,15 +150,12 @@ func TestFSStoreArtifacts(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	dossier := &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos_art_test",
-			Name:          "Artifact Testing",
-			Slug:          "artifact-testing",
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			LastTouchedAt: now,
-			Status:        core.StatusActive,
-			Importance:    core.ImportanceLow,
-			Urgency:       core.UrgencyLow,
+			ID:        "dos_art_test",
+			Name:      "Artifact Testing",
+			Slug:      "artifact-testing",
+			CreatedAt: now,
+			UpdatedAt: now,
+			Status:    core.StatusActive, Priority: core.PriorityHigh,
 		},
 		DistilledState: core.DistilledState{Body: "# Artifact testing"},
 	}
@@ -218,15 +218,12 @@ func TestFSStoreListArtifactsDoesNotLoadBodies(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	dossier := &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos_list_no_body",
-			Name:          "List No Body",
-			Slug:          "list-no-body",
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			LastTouchedAt: now,
-			Status:        core.StatusActive,
-			Importance:    core.ImportanceLow,
-			Urgency:       core.UrgencyLow,
+			ID:        "dos_list_no_body",
+			Name:      "List No Body",
+			Slug:      "list-no-body",
+			CreatedAt: now,
+			UpdatedAt: now,
+			Status:    core.StatusActive, Priority: core.PriorityHigh,
 		},
 		DistilledState: core.DistilledState{Body: "# List no body"},
 	}
@@ -275,15 +272,12 @@ func TestFSStoreArtifactWriteAdvancesRevisionAndPreservesHistory(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	dossier := &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos_art_rev",
-			Name:          "Artifact Revision",
-			Slug:          "artifact-revision",
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			LastTouchedAt: now,
-			Status:        core.StatusActive,
-			Importance:    core.ImportanceLow,
-			Urgency:       core.UrgencyLow,
+			ID:        "dos_art_rev",
+			Name:      "Artifact Revision",
+			Slug:      "artifact-revision",
+			CreatedAt: now,
+			UpdatedAt: now,
+			Status:    core.StatusActive, Priority: core.PriorityHigh,
 		},
 		DistilledState: core.DistilledState{Body: "# Artifact Revision\n\n## Situation\nBody before artifact."},
 	}
@@ -335,15 +329,12 @@ func TestFSStoreAuditLog(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	dossier := &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos_audit_test",
-			Name:          "Audit Testing",
-			Slug:          "audit-testing",
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			LastTouchedAt: now,
-			Status:        core.StatusActive,
-			Importance:    core.ImportanceLow,
-			Urgency:       core.UrgencyLow,
+			ID:        "dos_audit_test",
+			Name:      "Audit Testing",
+			Slug:      "audit-testing",
+			CreatedAt: now,
+			UpdatedAt: now,
+			Status:    core.StatusActive, Priority: core.PriorityHigh,
 		},
 		DistilledState: core.DistilledState{Body: "# Audit testing"},
 	}
@@ -415,15 +406,12 @@ func TestFSStoreAuditLogShardsAndLegacy(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	dossier := &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos_audit_shards",
-			Name:          "Audit Shards",
-			Slug:          "audit-shards",
-			Status:        core.StatusActive,
-			Importance:    core.ImportanceLow,
-			Urgency:       core.UrgencyLow,
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			LastTouchedAt: now,
+			ID:     "dos_audit_shards",
+			Name:   "Audit Shards",
+			Slug:   "audit-shards",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 		DistilledState: core.DistilledState{Body: "# Body"},
 	}
@@ -480,15 +468,12 @@ func TestFSStoreSessionStash(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	dossier := &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos_stash",
-			Name:          "Stash",
-			Slug:          "dos-stash",
-			Status:        core.StatusActive,
-			Importance:    core.ImportanceLow,
-			Urgency:       core.UrgencyLow,
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			LastTouchedAt: now,
+			ID:     "dos_stash",
+			Name:   "Stash",
+			Slug:   "dos-stash",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 		DistilledState: core.DistilledState{Body: "# Body"},
 	}
@@ -544,15 +529,12 @@ func TestTwoAuthorSimulation(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	dossier := &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos_sim",
-			Name:          "Sim",
-			Slug:          "dos-sim",
-			Status:        core.StatusActive,
-			Importance:    core.ImportanceLow,
-			Urgency:       core.UrgencyLow,
-			CreatedAt:     now,
-			UpdatedAt:     now,
-			LastTouchedAt: now,
+			ID:     "dos_sim",
+			Name:   "Sim",
+			Slug:   "dos-sim",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
+			CreatedAt: now,
+			UpdatedAt: now,
 		},
 		DistilledState: core.DistilledState{Body: "# Start"},
 	}

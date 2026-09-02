@@ -13,7 +13,7 @@ import (
 func TestSaveLeadUpdateRecordsAudit(t *testing.T) {
 	fakeStore := newLocalFakeStore()
 	clk := &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}
-	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, clk, Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}, nil)
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, clk, Config{DossierHome: "/tmp/dossier-test"}, nil)
 
 	ctx := context.Background()
 	// Seed a dossier.
@@ -62,7 +62,7 @@ func TestSaveLeadUpdateRecordsAudit(t *testing.T) {
 func TestSaveStatusChangeAuditsStatusChanged(t *testing.T) {
 	fakeStore := newLocalFakeStore()
 	clk := &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}
-	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, clk, Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}, nil)
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, clk, Config{DossierHome: "/tmp/dossier-test"}, nil)
 
 	ctx := context.Background()
 	if _, err := svc.Save(ctx, SaveReq{
@@ -93,8 +93,8 @@ func TestSaveStatusChangeAuditsStatusChanged(t *testing.T) {
 // TestDescribeFrontmatterChanges checks the audit summary covers multiple fields and
 // returns empty when nothing material changed.
 func TestDescribeFrontmatterChanges(t *testing.T) {
-	before := Frontmatter{Name: "A", Status: StatusActive, Lead: ""}
-	after := Frontmatter{Name: "A", Status: StatusWaiting, Lead: "Bob"}
+	before := Frontmatter{Name: "A", Status: StatusActive, Lead: "", Priority: PriorityHigh}
+	after := Frontmatter{Name: "A", Status: StatusWaiting, Lead: "Bob", Priority: PriorityHigh}
 
 	msg := describeFrontmatterChanges(before, after)
 	if !strings.Contains(msg, "status") || !strings.Contains(msg, "lead") {

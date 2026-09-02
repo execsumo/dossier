@@ -27,6 +27,6 @@ Options considered:
 
 - The "local, single-user" premise in PRD §0 / CLAUDE.md is amended to **"local-first; optionally team-synced."** Files remain truth; the git repo is transport + history, not a database — the no-database rule stands.
 - New port `core.Syncer` + adapter `internal/sync/gitsync.go`; core stays pure.
-- Store layout changes (per-author audit shards, per-dossier session stash) require a `schema_version` bump and a `Migrate` extension; all migrations are additive/non-destructive.
+- Store layout changes (per-author audit shards, per-dossier session stash) require coordinated deployment; obsolete frontmatter is rejected rather than rewritten by compatibility migrations.
 - GitHub rejects files >100 MB (warns >50 MB); Dossier's artifact cap is 1 GB. Oversized artifacts stay local and are excluded from sync **with a visible warning** (degrade visibly, never silently).
 - Auth: fine-grained PAT (contents read/write on the team repo) entered once, stored `0600` outside the repo; if the `gh` CLI is present its token is offered as a convenience. OAuth device flow is a possible later upgrade.

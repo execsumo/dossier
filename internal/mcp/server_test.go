@@ -41,22 +41,19 @@ func TestMCPServer(t *testing.T) {
 	clk := &mockClock{}
 	tok := &mockTokenizer{}
 	srch := &mockSearcher{}
-	cfg := core.Config{TokenTarget: 100}
+	cfg := core.Config{}
 
 	svc := core.NewService(fakeStore, srch, tok, hreg, clk, cfg, nil)
 
 	// Pre-populate a dossier
 	d := &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos_1",
-			Name:          "Test Dossier",
-			Slug:          "test-dossier",
-			Status:        core.StatusActive,
-			Importance:    core.ImportanceHigh,
-			Urgency:       core.UrgencyHigh,
-			CreatedAt:     clk.Now(),
-			UpdatedAt:     clk.Now(),
-			LastTouchedAt: clk.Now(),
+			ID:     "dos_1",
+			Name:   "Test Dossier",
+			Slug:   "test-dossier",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
+			CreatedAt: clk.Now(),
+			UpdatedAt: clk.Now(),
 		},
 		DistilledState: core.DistilledState{
 			Body: "# Test Dossier Distilled State",

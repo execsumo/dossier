@@ -13,7 +13,7 @@ func TestOptimisticConcurrencyAutoMerge(t *testing.T) {
 	srch := &mockSearcher{}
 	hreg := &mockHarnessRegistry{}
 	clk := &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}
-	cfg := Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}
+	cfg := Config{DossierHome: "/tmp/dossier-test"}
 
 	svc := NewService(fakeStore, srch, tok, hreg, clk, cfg, nil)
 	ctx := context.Background()
@@ -85,7 +85,7 @@ func TestOptimisticConcurrencyConflict(t *testing.T) {
 	srch := &mockSearcher{}
 	hreg := &mockHarnessRegistry{}
 	clk := &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}
-	cfg := Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}
+	cfg := Config{DossierHome: "/tmp/dossier-test"}
 
 	svc := NewService(fakeStore, srch, tok, hreg, clk, cfg, nil)
 	ctx := context.Background()
@@ -137,18 +137,17 @@ func TestDossierMergeHappyPath(t *testing.T) {
 	srch := &mockSearcher{}
 	hreg := &mockHarnessRegistry{}
 	clk := &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}
-	cfg := Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}
+	cfg := Config{DossierHome: "/tmp/dossier-test"}
 
 	svc := NewService(fakeStore, srch, tok, hreg, clk, cfg, nil)
 	ctx := context.Background()
 
 	// Create source dossier
 	sourceFM := Frontmatter{
-		ID:            "dos_source",
-		Slug:          "source-slug",
-		Name:          "Source Dossier",
-		Status:        StatusActive,
-		OpenQuestions: []string{"Question 1?"},
+		ID:     "dos_source",
+		Slug:   "source-slug",
+		Name:   "Source Dossier",
+		Status: StatusActive, Priority: PriorityHigh,
 	}
 	sourceD := &Dossier{
 		Frontmatter:    sourceFM,
@@ -158,11 +157,10 @@ func TestDossierMergeHappyPath(t *testing.T) {
 
 	// Create target dossier
 	targetFM := Frontmatter{
-		ID:            "dos_target",
-		Slug:          "target-slug",
-		Name:          "Target Dossier",
-		Status:        StatusActive,
-		OpenQuestions: []string{"Question 2?"},
+		ID:     "dos_target",
+		Slug:   "target-slug",
+		Name:   "Target Dossier",
+		Status: StatusActive, Priority: PriorityHigh,
 	}
 	targetD := &Dossier{
 		Frontmatter:    targetFM,
@@ -188,10 +186,6 @@ func TestDossierMergeHappyPath(t *testing.T) {
 		t.Fatalf("failed to read target: %v", err)
 	}
 
-	if len(mergedTarget.Frontmatter.OpenQuestions) != 2 {
-		t.Errorf("expected 2 open questions, got %d", len(mergedTarget.Frontmatter.OpenQuestions))
-	}
-
 	if !strings.Contains(mergedTarget.DistilledState.Body, "Source body content") {
 		t.Errorf("expected merged body to contain source body")
 	}
@@ -212,7 +206,7 @@ func TestDossierMergeConflictAndResolution(t *testing.T) {
 	srch := &mockSearcher{}
 	hreg := &mockHarnessRegistry{}
 	clk := &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}
-	cfg := Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100}
+	cfg := Config{DossierHome: "/tmp/dossier-test"}
 
 	svc := NewService(fakeStore, srch, tok, hreg, clk, cfg, nil)
 	ctx := context.Background()
@@ -222,7 +216,7 @@ func TestDossierMergeConflictAndResolution(t *testing.T) {
 		ID:     "dos_source",
 		Slug:   "source",
 		Name:   "Source",
-		Status: StatusWaiting,
+		Status: StatusWaiting, Priority: PriorityHigh,
 	}
 	_, _ = fakeStore.Write(&Dossier{Frontmatter: sourceFM, DistilledState: DistilledState{Body: "Body A"}}, "")
 
@@ -231,7 +225,7 @@ func TestDossierMergeConflictAndResolution(t *testing.T) {
 		ID:     "dos_target",
 		Slug:   "target",
 		Name:   "Target",
-		Status: StatusActive,
+		Status: StatusActive, Priority: PriorityHigh,
 	}
 	_, _ = fakeStore.Write(&Dossier{Frontmatter: targetFM, DistilledState: DistilledState{Body: "Body B"}}, "")
 

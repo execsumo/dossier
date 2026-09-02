@@ -1,11 +1,10 @@
 # PLAN v02 — Dossier for a distributed team
 
-> Drafted: 2026-08-05 · Status: proposal, not yet settled
-> Scope: the next major pass after v1 (all milestones complete, see `HANDOFF.md`)
-> Precedence note: this plan **reverses two settled decisions** (the Eisenhower
-> priority model, and `urgency` as a human-set field). Those reversals need ADRs
-> before implementation — see §11. Everything else extends v1 rather than
-> replacing it.
+> Drafted: 2026-08-05 · Status: **superseded historical proposal**
+> Scope: retained for design history only.
+> Precedence note: this document is not an implementation contract. The current
+> breaking schema is defined by `SPEC.md`: canonical `priority` only, no legacy
+> frontmatter migration, and open questions in the Markdown body.
 
 ---
 

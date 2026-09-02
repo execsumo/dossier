@@ -1,56 +1,17 @@
 package core
 
-import (
-	"testing"
-	"time"
-)
+import "testing"
 
-func TestCalculatePriorityScore(t *testing.T) {
-	now := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
-
-	tests := []struct {
-		name          string
-		fm            Frontmatter
-		expectedScore int
-	}{
-		{
-			name: "High Importance, High Urgency",
-			fm: Frontmatter{
-				Importance: ImportanceHigh,
-				Urgency:    UrgencyHigh,
-			},
-			expectedScore: 1,
-		},
-		{
-			name: "High Importance, Low Urgency",
-			fm: Frontmatter{
-				Importance: ImportanceHigh,
-				Urgency:    UrgencyLow,
-			},
-			expectedScore: 2,
-		},
-		{
-			name: "Low Importance, High Urgency",
-			fm: Frontmatter{
-				Importance: ImportanceLow,
-				Urgency:    UrgencyHigh,
-			},
-			expectedScore: 3,
-		},
-		{
-			name: "Low Importance, Low Urgency",
-			fm: Frontmatter{
-				Importance: ImportanceLow,
-				Urgency:    UrgencyLow,
-			},
-			expectedScore: 4,
-		},
-	}
-
-	for _, tc := range tests {
-		actual := CalculatePriorityScore(tc.fm, now)
-		if actual != tc.expectedScore {
-			t.Errorf("%s: expected score %d, but got %d", tc.name, tc.expectedScore, actual)
+func TestPriorityOrdering(t *testing.T) {
+	ordered := []Priority{PriorityMax, PriorityHigh, PriorityMedium, PriorityLow}
+	for i, higher := range ordered {
+		for j, lower := range ordered {
+			if i < j && !priorityBefore(higher, lower) {
+				t.Errorf("expected %q before %q", higher, lower)
+			}
+			if i > j && priorityBefore(higher, lower) {
+				t.Errorf("expected %q after %q", higher, lower)
+			}
 		}
 	}
 }

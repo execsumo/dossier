@@ -40,11 +40,12 @@ type Store interface {
 
 // LibraryDossier represents a dossier summarized in the context library.
 type LibraryDossier struct {
-	Name          string `json:"name"`
-	Status        string `json:"status"`
-	Slug          string `json:"slug"`
-	NextAction    string `json:"next_action"`
-	PriorityScore int    `json:"priority_score"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Status      string `json:"status"`
+	Slug        string `json:"slug"`
+	NextAction  string `json:"next_action"`
+	Priority    string `json:"priority"`
 }
 
 // LibraryData is the input data used to render the context library.md template.

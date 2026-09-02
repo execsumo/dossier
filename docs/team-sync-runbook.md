@@ -102,7 +102,7 @@ Nothing is lost; there are **never merge markers** in the store.
 
 **What happened:** Dossier auto-generates an ignore list that keeps machine-specific files out of the shared store. These never sync, by design:
 
-- `config.yaml` — your machine's install settings, detected capabilities, token target.
+- `config.yaml` — your machine's install settings and detected capabilities.
 - root `sessions/` — your machine's session-to-dossier bindings.
 - `context/` — Dossier's locally generated context (library, guide).
 - `.lock` files — local coordination locks.

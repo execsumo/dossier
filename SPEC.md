@@ -87,7 +87,7 @@ Store layout:
     audit.log
 ```
 
-`config.yaml` records install settings, detected harness capabilities, default token target, and optional custom priority weights.
+`config.yaml` records install settings, detected harness capabilities, and optional team-sync settings.
 
 `context/library.md` is the generated open-work context file for harnesses without deterministic hooks.
 
@@ -106,23 +106,18 @@ Each `dossier.md` begins with YAML frontmatter:
 ```yaml
 id: dos_01jz8example000000000000000
 name: Pricing model refresh
+description: Pricing strategy and packaging decisions for the next planning cycle.
 slug: pricing-model-refresh
 created_at: 2026-06-14T15:40:00-07:00
 updated_at: 2026-06-14T16:10:00-07:00
-last_touched_at: 2026-06-14T16:10:00-07:00
 status: active
 lead: "Alice"
 interfaces:
   - "Pricing WBR"
   - "Steerco"
 next_action: "Compare revised pricing scenarios with sales feedback."
-open_questions:
-  - "Does Sales prefer account-tier or usage-tier packaging?"
-importance: high
-urgency: low
+priority: high
 due_date: 2026-06-21
-token_target: 100000
-base_revision: rev_01jz8example000000000000000
 ```
 
 Required fields:
@@ -132,35 +127,35 @@ Required fields:
 - `slug`
 - `created_at`
 - `updated_at`
-- `last_touched_at`
 - `status`
 - `next_action`
-- `open_questions`
-- `importance`
-- `urgency`
+- `priority`
 
 Optional fields:
 
+- `description`
 - `lead`
 - `interfaces`
 - `due_date`
-- `token_target`
-- `base_revision`
 
 Valid enums:
 
 - `status`: `active`, `waiting`, `blocked`, `resolved`, `archived`
-- `importance`: `high`, `low`
-- `urgency`: `high`, `low`
+- `priority`: `low`, `medium`, `high`, `max`
 - `interfaces`: `Pricing WBR`, `1:1`, `OLG Standup`, `Growth Standup`, `Steerco`, `Solutioning`, `OpsRev` (multi-select)
 
-Derived, not stored:
+`description` is a short progressive-disclosure summary shown in library/list
+surfaces before loading the full Distilled State.
 
-- `staleness`
-- priority score
-- token estimate
+Recall uses a fixed 100,000-token warning ceiling for the estimated token count
+of the Distilled State loaded during recall—not the current token count and not
+a hard limit. Dossier never truncates the state to satisfy it. The current token
+estimate is returned by recall but is not stored in the Dossier.
 
 ### 4.2 Distilled State Body
+
+Open questions are ordinary Markdown, not frontmatter. When present, record
+them under `## Open Questions` in the Distilled State body.
 
 Required section order:
 
@@ -172,6 +167,8 @@ Required section order:
 ## Decisions
 
 ## Findings
+
+## Open Questions
 
 ## Current State
 
@@ -376,10 +373,10 @@ dossier team create <url> [--json]
 dossier team join <url> [--json]
 dossier status <slug-or-id> <active|waiting|blocked|resolved|archived>
 dossier lead <slug-or-id> "<lead-name>"
+dossier description <slug-or-id> "<summary>"
 dossier interface <slug-or-id> "<interface>"...
 dossier next <slug-or-id> "<next action>"
-dossier questions <slug-or-id> add|set|clear [...]
-dossier priority <slug-or-id> --importance <h|l> --urgency <h|l> [--due <date>]
+dossier priority <slug-or-id> --priority <low|medium|high|max> [--due <date>]
 dossier active [--session <session-id>] [--json]
 dossier switch <slug-or-id> [--session <session-id>] [--json]
 dossier path [<slug-or-id>] [--json]
@@ -406,12 +403,13 @@ dossier doctor
 
 - Reads frontmatter across `*/dossier.md`.
 - Default status filter: `active`, `waiting`, `blocked`.
-- Sorts by priority score.
+- Sorts by priority (`max` first, then `high`, `medium`, `low`).
 - Includes capability warning column if invoked inside a known harness/session.
 
 `dossier promote`
 
 - Creates a new Dossier from agent-provided content or `--from-file`.
+- Accepts optional `--description` and `--priority low|medium|high|max`.
 - If likely existing matches are found, returns top candidates and requires disambiguation unless `--name` and explicit create intent are provided.
 - Captures transcript artifact if available.
 - Warns if transcript capture is unavailable.
@@ -434,7 +432,7 @@ dossier doctor
 
 - Returns full Distilled State.
 - Estimates tokens.
-- Warns if above `token_target`.
+- Warns if above the fixed 100,000-token target.
 - Does not load Archive artifacts by default.
 
 `dossier archive`
@@ -499,7 +497,7 @@ Required tools:
 
 > **Note on `dossier_artifact`:** it takes `dossier_id` + `artifact_id`, and optionally either a `fragment` (a citation fragment such as `"L42-L68"`) or `start_line`/`end_line`. Content is returned with absolute 1-indexed line numbers, so the span read is the span cited. An unranged fetch returns the whole artifact and warns past 500 lines rather than truncating. `dossier_artifacts` returns the same evidence index that `dossier_recall` now carries in `artifacts[]`: one entry per archived artifact with its type, line count, and whether the Distilled State cites it.
 
-> **Note on `dossier_update`:** it accepts `name`, `status`, `lead`, `interfaces`, `next_action`, `open_questions`, and priority fields, and routes them all through the single `Save` write path (so CLI/MCP/TUI behave identically and edits get optimistic-concurrency handling). Changing `name` updates the **display name only** — the `slug` (and the on-disk directory) is the durable identifier and never changes on rename.
+> **Note on `dossier_update`:** it accepts `name`, `description`, `status`, `lead`, `interfaces`, `next_action`, and priority fields, and routes them all through the single `Save` write path (so CLI/MCP/TUI behave identically and edits get optimistic-concurrency handling). Open questions are edited by replacing the Markdown body. Changing `name` updates the **display name only** — the `slug` (and the on-disk directory) is the durable identifier and never changes on rename.
 
 ### 8.2 Tool Contracts
 
@@ -563,13 +561,10 @@ Output Dossier item:
   "slug": "pricing-model-refresh",
   "status": "active",
   "lead": "Alice",
+  "description": "Pricing strategy and packaging decisions for the next planning cycle.",
   "next_action": "Compare revised pricing scenarios with sales feedback.",
-  "open_questions": ["Does Sales prefer account-tier or usage-tier packaging?"],
-  "importance": "high",
-  "urgency": "low",
+  "priority": "high",
   "due_date": "2026-06-21",
-  "staleness_days": 2,
-  "priority_score": 2,
   "path": "/Users/me/.dossier/pricing-model-refresh",
   "warnings": ["Transcript archive unavailable in this session."]
 }
@@ -583,12 +578,12 @@ Input:
 {
   "id": "dos_...",
   "base_revision": "rev_...",
-  "distilled_state_markdown": "...",
   "frontmatter_updates": {
     "status": "active",
     "next_action": "...",
-    "open_questions": []
+    "priority": "high"
   },
+  "distilled_state_markdown": "...\n\n## Open Questions\n- ...",
   "artifacts": [
     {
       "type": "source_snapshot",
@@ -770,17 +765,11 @@ The guide should include examples of good and bad distillation.
 ### 11.1 Priority Sort
 
 Default scoring:
-The importance and urgency dimensions map to a 1-4 Eisenhower matrix scale (where 1 is highest priority):
-- 1: High Importance, High Urgency ("1. Do")
-- 2: High Importance, Low Urgency ("2. Plan")
-- 3: Low Importance, High Urgency ("3. Delegate")
-- 4: Low Importance, Low Urgency ("4. Delete")
+Priority is a single human-set attention level. It is ordered from highest to lowest as `max`, `high`, `medium`, `low`.
 
-Priority score is strictly the Eisenhower matrix scale value (1-4).
+Sort by priority, then earliest due date when present, then oldest `updated_at`.
 
-Sort ascending by score, then oldest `last_touched_at`, then `updated_at`.
-
-Weights are configurable in `config.yaml`.
+The priority order is fixed; it is not configurable.
 
 ### 11.2 Suggestion Ranking
 
@@ -800,8 +789,9 @@ Scoring:
 - Remove stop words.
 - Tokenize words.
 - Weight exact name/slug matches highest.
-- Weight `next_action` and `open_questions` above body text.
-- Weight recent Dossiers slightly above stale ones, but do not use recency as primary ranking.
+- Weight `next_action` above ordinary body text.
+- Search the full Distilled State body, including its `## Open Questions` section.
+- Weight recently updated Dossiers slightly above older ones, but do not use recency as primary ranking.
 
 Return top 3 candidates with confidence:
 

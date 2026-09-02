@@ -15,7 +15,6 @@ import (
 // Config holds the service-level configurations used by the core logic.
 type Config struct {
 	DossierHome string
-	TokenTarget int
 	Author      string
 }
 
@@ -61,20 +60,17 @@ type ArtifactSummary struct {
 
 // ListItem represents a single summary item for dossier listings.
 type ListItem struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	Slug          string   `json:"slug"`
-	Status        string   `json:"status"`
-	Lead          string   `json:"lead,omitempty"`
-	Interfaces    []string `json:"interfaces,omitempty"`
-	NextAction    string   `json:"next_action"`
-	OpenQuestions []string `json:"open_questions"`
-	Importance    string   `json:"importance"`
-	Urgency       string   `json:"urgency"`
-	DueDate       string   `json:"due_date,omitempty"`
-	StalenessDays int      `json:"staleness_days"`
-	PriorityScore int      `json:"priority_score"`
-	Path          string   `json:"path"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Slug        string   `json:"slug"`
+	Status      string   `json:"status"`
+	Lead        string   `json:"lead,omitempty"`
+	Interfaces  []string `json:"interfaces,omitempty"`
+	NextAction  string   `json:"next_action"`
+	Description string   `json:"description,omitempty"`
+	Priority    string   `json:"priority"`
+	DueDate     string   `json:"due_date,omitempty"`
+	Path        string   `json:"path"`
 }
 
 type SyncStatusData struct {
@@ -374,14 +370,7 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 
 	for _, fm := range fms {
 		report.DossiersChecked++
-		// Report legacy/invalid enum values as healable rather than fatal: they
-		// are coerced toward attention on the next write. Anything still invalid
-		// after normalization (e.g. a missing id or name) is a real problem.
-		normalized := fm
-		for _, fix := range normalized.Normalize() {
-			addIssue("Dossier %s has legacy %s %q; it will heal to %q on next edit.", fm.ID, fix.Field, fix.From, fix.To)
-		}
-		if err := normalized.Validate(); err != nil {
+		if err := fm.Validate(); err != nil {
 			addIssue("Dossier %s has invalid frontmatter: %v", fm.ID, err)
 		}
 
@@ -482,75 +471,6 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 	}, nil
 }
 
-// CurrentSchemaVersion is the frontmatter schema version this build expects.
-// Bump it whenever Frontmatter.Normalize gains a rule that should be applied
-// eagerly to existing stores; the startup sweep runs once when the store's
-// recorded version is older than this.
-const CurrentSchemaVersion = 2
-
-// MigrateReport summarizes a one-time frontmatter migration sweep.
-type MigrateReport struct {
-	DossiersScanned int `json:"dossiers_scanned"`
-	DossiersHealed  int `json:"dossiers_healed"`
-}
-
-// Migrate normalizes every Dossier's frontmatter to the current schema and
-// rewrites the ones that changed. It is the eager, store-wide counterpart to the
-// lazy heal that Save performs on a single Dossier: idempotent (re-running over
-// an already-canonical store is a no-op), non-destructive (rewrites go through
-// the audited Write path), and safe to run on an empty store. Each coercion is
-// reported as a Warning so the migration is never silent.
-func (s *Service) Migrate(ctx context.Context) (Result, error) {
-	if s.store == nil {
-		return Result{OK: false}, NewError(ErrInternal, "store not configured")
-	}
-
-	report := MigrateReport{}
-	var warnings []Warning
-
-	fms, err := s.store.List("all")
-	if err != nil {
-		return Result{OK: false}, err
-	}
-
-	for _, fm := range fms {
-		report.DossiersScanned++
-
-		if err := s.store.EnsureAuditDir(fm.ID); err != nil {
-			warnings = append(warnings, Warning(fmt.Sprintf("Dossier %s: failed to create audit/ dir: %v", fm.ID, err)))
-		}
-
-		d, rev, err := s.store.Read(fm.ID)
-		if err != nil {
-			warnings = append(warnings, Warning(fmt.Sprintf("Dossier %s could not be read during migration: %v", fm.ID, err)))
-			continue
-		}
-
-		fixes := d.Frontmatter.Normalize()
-		if len(fixes) == 0 {
-			continue
-		}
-
-		if _, err := s.store.Write(d, rev); err != nil {
-			warnings = append(warnings, Warning(fmt.Sprintf("Dossier %s could not be healed during migration: %v", fm.ID, err)))
-			continue
-		}
-
-		report.DossiersHealed++
-		for _, fix := range fixes {
-			warnings = append(warnings, Warning(fmt.Sprintf(
-				"Dossier %s: coerced %s %q -> %q for backward compatibility (mapping toward attention).",
-				fm.ID, fix.Field, fix.From, fix.To)))
-		}
-	}
-
-	return Result{
-		OK:       true,
-		Data:     report,
-		Warnings: warnings,
-	}, nil
-}
-
 // TeamCreateReq specifies parameters for creating a new team store.
 type TeamCreateReq struct {
 	RemoteURL string
@@ -618,6 +538,8 @@ func (s *Service) TeamJoin(ctx context.Context, req TeamJoinReq) (Result, error)
 
 type PromoteReq struct {
 	Name                   string
+	Description            string
+	Priority               Priority
 	DistilledStateMarkdown string
 	FromFilePath           string
 	Content                string
@@ -696,13 +618,18 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 		}
 	}
 
+	updates := map[string]any{
+		"name":        req.Name,
+		"description": req.Description,
+		"lead":        req.Lead,
+		"interfaces":  req.Interfaces,
+	}
+	if req.Priority != "" {
+		updates["priority"] = string(req.Priority)
+	}
 	saveRes, err := s.Save(ctx, SaveReq{
 		DistilledStateMarkdown: req.DistilledStateMarkdown,
-		FrontmatterUpdates: map[string]any{
-			"name":       req.Name,
-			"lead":       req.Lead,
-			"interfaces": req.Interfaces,
-		},
+		FrontmatterUpdates:     updates,
 	})
 	if err != nil {
 		return Result{}, err
@@ -839,6 +766,8 @@ func getFMField(fm Frontmatter, field string) any {
 	switch field {
 	case "name":
 		return fm.Name
+	case "description":
+		return fm.Description
 	case "status":
 		return string(fm.Status)
 	case "lead":
@@ -847,16 +776,10 @@ func getFMField(fm Frontmatter, field string) any {
 		return strings.Join(fm.Interfaces, "|||")
 	case "next_action":
 		return fm.NextAction
-	case "importance":
-		return string(fm.Importance)
-	case "urgency":
-		return string(fm.Urgency)
+	case "priority":
+		return string(fm.Priority)
 	case "due_date":
 		return fm.DueDate
-	case "token_target":
-		return fm.TokenTarget
-	case "open_questions":
-		return strings.Join(fm.OpenQuestions, "|||")
 	default:
 		return nil
 	}
@@ -866,6 +789,11 @@ func applyFrontmatterUpdates(d *Dossier, updates map[string]any) {
 	if val, ok := updates["name"]; ok {
 		if strVal, ok := val.(string); ok {
 			d.Frontmatter.Name = strVal
+		}
+	}
+	if val, ok := updates["description"]; ok {
+		if strVal, ok := val.(string); ok {
+			d.Frontmatter.Description = strVal
 		}
 	}
 	if val, ok := updates["status"]; ok {
@@ -886,39 +814,14 @@ func applyFrontmatterUpdates(d *Dossier, updates map[string]any) {
 			d.Frontmatter.NextAction = strVal
 		}
 	}
-	if val, ok := updates["importance"]; ok {
+	if val, ok := updates["priority"]; ok {
 		if strVal, ok := val.(string); ok {
-			d.Frontmatter.Importance = Importance(strVal)
-		}
-	}
-	if val, ok := updates["urgency"]; ok {
-		if strVal, ok := val.(string); ok {
-			d.Frontmatter.Urgency = Urgency(strVal)
+			d.Frontmatter.Priority = Priority(strVal)
 		}
 	}
 	if val, ok := updates["due_date"]; ok {
 		if strVal, ok := val.(string); ok {
 			d.Frontmatter.DueDate = strVal
-		}
-	}
-	if val, ok := updates["token_target"]; ok {
-		if intVal, ok := val.(int); ok {
-			d.Frontmatter.TokenTarget = intVal
-		} else if floatVal, ok := val.(float64); ok {
-			d.Frontmatter.TokenTarget = int(floatVal)
-		}
-	}
-	if val, ok := updates["open_questions"]; ok {
-		if listVal, ok := val.([]string); ok {
-			d.Frontmatter.OpenQuestions = listVal
-		} else if anyListVal, ok := val.([]any); ok {
-			var questions []string
-			for _, q := range anyListVal {
-				if qStr, ok := q.(string); ok {
-					questions = append(questions, qStr)
-				}
-			}
-			d.Frontmatter.OpenQuestions = questions
 		}
 	}
 }
@@ -948,22 +851,27 @@ func describeFrontmatterChanges(before, after Frontmatter) string {
 		}
 	}
 	add("name", before.Name, after.Name)
+	add("description", before.Description, after.Description)
 	add("status", string(before.Status), string(after.Status))
 	add("lead", before.Lead, after.Lead)
 	if strings.Join(before.Interfaces, "|||") != strings.Join(after.Interfaces, "|||") {
 		parts = append(parts, fmt.Sprintf("interfaces %q→%q", strings.Join(before.Interfaces, ", "), strings.Join(after.Interfaces, ", ")))
 	}
 	add("next_action", before.NextAction, after.NextAction)
-	add("importance", string(before.Importance), string(after.Importance))
-	add("urgency", string(before.Urgency), string(after.Urgency))
+	add("priority", string(before.Priority), string(after.Priority))
 	add("due_date", before.DueDate, after.DueDate)
-	if strings.Join(before.OpenQuestions, "|||") != strings.Join(after.OpenQuestions, "|||") {
-		parts = append(parts, fmt.Sprintf("open_questions (%d→%d)", len(before.OpenQuestions), len(after.OpenQuestions)))
-	}
 	return strings.Join(parts, "; ")
 }
 
 func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
+	// An explicit priority is user input and must be one of the canonical values.
+	if value, ok := req.FrontmatterUpdates["priority"]; ok {
+		priority, validType := value.(string)
+		if !validType || !Priority(priority).IsValid() {
+			return Result{}, NewError(ErrInvalidFrontmatter, fmt.Sprintf("invalid priority: %q", priority))
+		}
+	}
+
 	var d *Dossier
 	var baseRev Revision
 	var beforeFM Frontmatter
@@ -978,9 +886,8 @@ func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 	if isNew {
 		d = &Dossier{
 			Frontmatter: Frontmatter{
-				Status:     StatusActive,
-				Importance: ImportanceHigh,
-				Urgency:    UrgencyLow,
+				Status:   StatusActive,
+				Priority: PriorityHigh,
 			},
 		}
 	} else {
@@ -1017,21 +924,9 @@ func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 
 						if storeVal != baseVal {
 							var normProposedVal any = proposedVal
-							if f == "status" || f == "importance" || f == "urgency" || f == "lead" {
+							if f == "status" || f == "priority" || f == "lead" || f == "description" {
 								if sVal, ok := proposedVal.(string); ok {
 									normProposedVal = sVal
-								}
-							} else if f == "open_questions" {
-								if list, ok := proposedVal.([]string); ok {
-									normProposedVal = strings.Join(list, "|||")
-								} else if list, ok := proposedVal.([]any); ok {
-									var qList []string
-									for _, qi := range list {
-										if qs, ok := qi.(string); ok {
-											qList = append(qList, qs)
-										}
-									}
-									normProposedVal = strings.Join(qList, "|||")
 								}
 							}
 
@@ -1104,19 +999,7 @@ func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 		d.DistilledState.Body = req.DistilledStateMarkdown
 	}
 
-	d.Frontmatter.LastTouchedAt = s.clock.Now()
-
-	// Backward compatibility: heal any legacy/invalid frontmatter (e.g. a value
-	// from a removed enum, or a field absent in an older build) before the write
-	// path validates it. The coercion is persisted (the file self-heals) and
-	// surfaced as a warning so it is never silent.
 	var warnings []Warning
-	for _, fix := range d.Frontmatter.Normalize() {
-		warnings = append(warnings, Warning(fmt.Sprintf(
-			"Coerced %s %q -> %q for backward compatibility (mapping toward attention).",
-			fix.Field, fix.From, fix.To)))
-	}
-
 	newRev, err := s.store.Write(d, baseRev)
 	if err != nil {
 		return Result{}, err
@@ -1227,7 +1110,6 @@ func (s *Service) Link(ctx context.Context, req LinkReq) (Result, error) {
 		return Result{}, err
 	}
 
-	d.Frontmatter.LastTouchedAt = now.UTC().Truncate(time.Second)
 	newRev, err := s.store.Write(d, baseRev)
 	if err != nil {
 		return Result{}, err
@@ -1351,19 +1233,6 @@ func (s *Service) Merge(ctx context.Context, req MergeReq) (Result, error) {
 	if targetD.Frontmatter.NextAction == "" {
 		targetD.Frontmatter.NextAction = sourceD.Frontmatter.NextAction
 	}
-	for _, q := range sourceD.Frontmatter.OpenQuestions {
-		found := false
-		for _, tq := range targetD.Frontmatter.OpenQuestions {
-			if tq == q {
-				found = true
-				break
-			}
-		}
-		if !found {
-			targetD.Frontmatter.OpenQuestions = append(targetD.Frontmatter.OpenQuestions, q)
-		}
-	}
-
 	if sourceD.DistilledState.Body != targetD.DistilledState.Body {
 		targetD.DistilledState.Body += "\n\n## Merged Distilled State (" + sourceD.Frontmatter.Name + ")\n" + sourceD.DistilledState.Body
 	}
@@ -1415,13 +1284,7 @@ func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
 	tokens := s.tok.Estimate(d.DistilledState.Body)
 
 	var warnings []Warning
-	target := d.Frontmatter.TokenTarget
-	if target == 0 {
-		target = s.cfg.TokenTarget
-	}
-	if target == 0 {
-		target = 100000
-	}
+	const target = 100000
 	if tokens > target {
 		warnings = append(warnings, Warning(fmt.Sprintf("Distilled State exceeds token target (%d > %d tokens). Consider condensing.", tokens, target)))
 	}
@@ -1673,6 +1536,41 @@ func matchesInterfaces(have, want []string) bool {
 	return false
 }
 
+func priorityBefore(a, b Priority) bool {
+	if a == b {
+		return false
+	}
+	switch a {
+	case PriorityMax:
+		return true
+	case PriorityHigh:
+		return b != PriorityMax
+	case PriorityMedium:
+		return b == PriorityLow
+	default:
+		return false
+	}
+}
+
+func sortFrontmatters(items []Frontmatter) {
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := items[i], items[j]
+		if a.Priority != b.Priority {
+			return priorityBefore(a.Priority, b.Priority)
+		}
+		if a.DueDate != b.DueDate {
+			if a.DueDate == "" {
+				return false
+			}
+			if b.DueDate == "" {
+				return true
+			}
+			return a.DueDate < b.DueDate
+		}
+		return a.UpdatedAt.Before(b.UpdatedAt)
+	})
+}
+
 func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 	fms, err := s.store.List("all")
 	if err != nil {
@@ -1693,62 +1591,23 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 		}
 	}
 
-	type scoredMeta struct {
-		fm    Frontmatter
-		score int
-	}
-
-	now := s.clock.Now()
-	var scored []scoredMeta
-	for _, fm := range filtered {
-		score := CalculatePriorityScore(fm, now)
-		scored = append(scored, scoredMeta{fm: fm, score: score})
-	}
-
-	sort.Slice(scored, func(i, j int) bool {
-		if scored[i].score != scored[j].score {
-			return scored[i].score < scored[j].score
-		}
-		d1 := scored[i].fm.DueDate
-		d2 := scored[j].fm.DueDate
-		if d1 != d2 {
-			if d1 == "" {
-				return false
-			}
-			if d2 == "" {
-				return true
-			}
-			return d1 < d2
-		}
-		if !scored[i].fm.LastTouchedAt.Equal(scored[j].fm.LastTouchedAt) {
-			return scored[i].fm.LastTouchedAt.Before(scored[j].fm.LastTouchedAt)
-		}
-		return scored[i].fm.UpdatedAt.Before(scored[j].fm.UpdatedAt)
-	})
+	sortFrontmatters(filtered)
 
 	var items []ListItem
-	for _, sItem := range scored {
-		daysSinceTouched := int(now.Sub(sItem.fm.LastTouchedAt).Hours() / 24)
-		if daysSinceTouched < 0 {
-			daysSinceTouched = 0
-		}
-
-		dossierPath := filepath.Join(s.cfg.DossierHome, sItem.fm.Slug)
+	for _, fm := range filtered {
+		dossierPath := filepath.Join(s.cfg.DossierHome, fm.Slug)
 		items = append(items, ListItem{
-			ID:            sItem.fm.ID,
-			Name:          sItem.fm.Name,
-			Slug:          sItem.fm.Slug,
-			Status:        string(sItem.fm.Status),
-			Lead:          sItem.fm.Lead,
-			Interfaces:    append([]string(nil), sItem.fm.Interfaces...),
-			NextAction:    sItem.fm.NextAction,
-			OpenQuestions: sItem.fm.OpenQuestions,
-			Importance:    string(sItem.fm.Importance),
-			Urgency:       string(sItem.fm.Urgency),
-			DueDate:       sItem.fm.DueDate,
-			StalenessDays: daysSinceTouched,
-			PriorityScore: sItem.score,
-			Path:          dossierPath,
+			ID:          fm.ID,
+			Name:        fm.Name,
+			Slug:        fm.Slug,
+			Status:      string(fm.Status),
+			Description: fm.Description,
+			Lead:        fm.Lead,
+			Interfaces:  append([]string(nil), fm.Interfaces...),
+			NextAction:  fm.NextAction,
+			Priority:    string(fm.Priority),
+			DueDate:     fm.DueDate,
+			Path:        dossierPath,
 		})
 	}
 
@@ -1789,51 +1648,24 @@ func (s *Service) ContextRefresh(ctx context.Context) (Result, error) {
 		return Result{OK: false}, WrapError(ErrInternal, "failed to list dossiers for context refresh", err)
 	}
 
-	// Filter and score open dossiers (non-archived)
-	type scoredMeta struct {
-		fm    Frontmatter
-		score int
-	}
-
-	now := s.clock.Now()
-	var scored []scoredMeta
+	// Filter and sort open dossiers (non-archived) by canonical priority.
+	var openDossierFrontmatter []Frontmatter
 	for _, fm := range fms {
 		if fm.Status != StatusArchived {
-			score := CalculatePriorityScore(fm, now)
-			scored = append(scored, scoredMeta{fm: fm, score: score})
+			openDossierFrontmatter = append(openDossierFrontmatter, fm)
 		}
 	}
-
-	// Sort open dossiers by priority score ascending
-	sort.Slice(scored, func(i, j int) bool {
-		if scored[i].score != scored[j].score {
-			return scored[i].score < scored[j].score
-		}
-		d1 := scored[i].fm.DueDate
-		d2 := scored[j].fm.DueDate
-		if d1 != d2 {
-			if d1 == "" {
-				return false
-			}
-			if d2 == "" {
-				return true
-			}
-			return d1 < d2
-		}
-		if !scored[i].fm.LastTouchedAt.Equal(scored[j].fm.LastTouchedAt) {
-			return scored[i].fm.LastTouchedAt.Before(scored[j].fm.LastTouchedAt)
-		}
-		return scored[i].fm.UpdatedAt.Before(scored[j].fm.UpdatedAt)
-	})
+	sortFrontmatters(openDossierFrontmatter)
 
 	var openDossiers []LibraryDossier
-	for _, sItem := range scored {
+	for _, fm := range openDossierFrontmatter {
 		openDossiers = append(openDossiers, LibraryDossier{
-			Name:          sItem.fm.Name,
-			Status:        string(sItem.fm.Status),
-			Slug:          sItem.fm.Slug,
-			NextAction:    sItem.fm.NextAction,
-			PriorityScore: sItem.score,
+			Name:        fm.Name,
+			Description: fm.Description,
+			Status:      string(fm.Status),
+			Slug:        fm.Slug,
+			NextAction:  fm.NextAction,
+			Priority:    string(fm.Priority),
 		})
 	}
 
@@ -1909,11 +1741,6 @@ func (s *Service) Switch(ctx context.Context, req SwitchReq) (Result, error) {
 
 	oldBinding, err := s.store.GetSessionBinding(req.SessionID)
 	if err == nil && oldBinding != nil && oldBinding.DossierID != "" {
-		oldD, oldRev, err := s.store.Read(oldBinding.DossierID)
-		if err == nil {
-			oldD.Frontmatter.LastTouchedAt = s.clock.Now()
-			_, _ = s.store.Write(oldD, oldRev)
-		}
 		_ = s.store.ClearSessionBinding(req.SessionID)
 	}
 
@@ -1978,7 +1805,6 @@ func (s *Service) Archive(ctx context.Context, req ArchiveReq) (Result, error) {
 	}
 
 	d.Frontmatter.Status = StatusArchived
-	d.Frontmatter.LastTouchedAt = s.clock.Now()
 
 	newRev, err := s.store.Write(d, rev)
 	if err != nil {
@@ -2037,42 +1863,12 @@ func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, e
 		return "", err
 	}
 
-	now := s.clock.Now()
-	type scoredMeta struct {
-		fm    Frontmatter
-		score int
-	}
-	var scored []scoredMeta
+	sortFrontmatters(fms)
+	var names []string
 	for _, fm := range fms {
 		if fm.Status != StatusArchived {
-			score := CalculatePriorityScore(fm, now)
-			scored = append(scored, scoredMeta{fm: fm, score: score})
+			names = append(names, fm.Name)
 		}
-	}
-	sort.Slice(scored, func(i, j int) bool {
-		if scored[i].score != scored[j].score {
-			return scored[i].score < scored[j].score
-		}
-		d1 := scored[i].fm.DueDate
-		d2 := scored[j].fm.DueDate
-		if d1 != d2 {
-			if d1 == "" {
-				return false
-			}
-			if d2 == "" {
-				return true
-			}
-			return d1 < d2
-		}
-		if !scored[i].fm.LastTouchedAt.Equal(scored[j].fm.LastTouchedAt) {
-			return scored[i].fm.LastTouchedAt.Before(scored[j].fm.LastTouchedAt)
-		}
-		return scored[i].fm.UpdatedAt.Before(scored[j].fm.UpdatedAt)
-	})
-
-	var names []string
-	for _, sItem := range scored {
-		names = append(names, sItem.fm.Name)
 	}
 	namesStr := "(none)"
 	if len(names) > 0 {
@@ -2107,7 +1903,7 @@ func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, e
 	// dossier's context, not passively here.
 	sb.WriteString(fmt.Sprintf(
 		"%d open dossier(s): %s. Use dossier_list for details, dossier_session to resume one, or dossier_promote for a new thread (it flags likely duplicates automatically). Guide: ~/.dossier/context/guide.md\n",
-		len(scored), namesStr,
+		len(names), namesStr,
 	))
 
 	if activeDossierID != "" {

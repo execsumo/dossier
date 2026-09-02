@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -221,8 +220,7 @@ type targetDossier struct {
 	id           string
 	name         string
 	status       core.Status
-	importance   core.Importance
-	urgency      core.Urgency
+	priority     core.Priority
 	dueDate      string
 	nextAction   string
 	lead         string
@@ -287,10 +285,9 @@ type Model struct {
 	leadSuggestionText string
 
 	// Priority Editor view state
-	priorityFocus  int // 0 = Importance, 1 = Urgency, 2 = Due Date
-	editImportance core.Importance
-	editUrgency    core.Urgency
-	dueDateInput   textinput.Model
+	priorityFocus int // 0 = Priority, 1 = Due Date
+	editPriority  core.Priority
+	dueDateInput  textinput.Model
 
 	// Link view state
 	linkTextInput   textinput.Model
@@ -542,15 +539,14 @@ func (m Model) saveLeadCmd(id string, baseRev core.Revision, lead string) tea.Cm
 	}
 }
 
-func (m Model) savePriorityCmd(id string, baseRev core.Revision, importance core.Importance, urgency core.Urgency, dueDate string) tea.Cmd {
+func (m Model) savePriorityCmd(id string, baseRev core.Revision, priority core.Priority, dueDate string) tea.Cmd {
 	return func() tea.Msg {
 		_, err := m.svc.Save(context.Background(), core.SaveReq{
 			ID:           id,
 			BaseRevision: baseRev,
 			FrontmatterUpdates: map[string]any{
-				"importance": string(importance),
-				"urgency":    string(urgency),
-				"due_date":   dueDate,
+				"priority": string(priority),
+				"due_date": dueDate,
 			},
 		})
 		return mutationResultMsg{err: err, prevView: m.previousView, targetID: id}
@@ -564,8 +560,7 @@ func (m Model) getTargetDossier() (targetDossier, bool) {
 			id:           fm.ID,
 			name:         fm.Name,
 			status:       fm.Status,
-			importance:   fm.Importance,
-			urgency:      fm.Urgency,
+			priority:     fm.Priority,
 			dueDate:      fm.DueDate,
 			nextAction:   fm.NextAction,
 			lead:         fm.Lead,
@@ -581,8 +576,7 @@ func (m Model) getTargetDossier() (targetDossier, bool) {
 			id:           item.ID,
 			name:         item.Name,
 			status:       core.Status(item.Status),
-			importance:   core.Importance(item.Importance),
-			urgency:      core.Urgency(item.Urgency),
+			priority:     core.Priority(item.Priority),
 			dueDate:      item.DueDate,
 			nextAction:   item.NextAction,
 			lead:         item.Lead,
@@ -837,8 +831,10 @@ func (m *Model) startEditPriority(t targetDossier) {
 	m.targetName = t.name
 	m.targetBaseRevision = t.baseRevision
 
-	m.editImportance = t.importance
-	m.editUrgency = t.urgency
+	m.editPriority = t.priority
+	if !m.editPriority.IsValid() {
+		m.editPriority = core.PriorityHigh
+	}
 
 	m.dueDateInput = textinput.New()
 	m.dueDateInput.Placeholder = "YYYY-MM-DD"
@@ -871,17 +867,17 @@ func (m *Model) startMergeSelector(sourceID, sourceName string) {
 	m.mergeCursor = 0
 }
 
-func cycleImportance(curr core.Importance, forward bool) core.Importance {
-	opts := []core.Importance{core.ImportanceHigh, core.ImportanceLow}
+func cyclePriority(curr core.Priority, forward bool) core.Priority {
+	opts := []core.Priority{core.PriorityLow, core.PriorityMedium, core.PriorityHigh, core.PriorityMax}
 	idx := -1
-	for i, o := range opts {
-		if o == curr {
+	for i, option := range opts {
+		if option == curr {
 			idx = i
 			break
 		}
 	}
-	if idx == -1 {
-		return core.ImportanceLow
+	if idx < 0 {
+		return core.PriorityHigh
 	}
 	if forward {
 		return opts[(idx+1)%len(opts)]
@@ -889,22 +885,20 @@ func cycleImportance(curr core.Importance, forward bool) core.Importance {
 	return opts[(idx-1+len(opts))%len(opts)]
 }
 
-func cycleUrgency(curr core.Urgency, forward bool) core.Urgency {
-	opts := []core.Urgency{core.UrgencyHigh, core.UrgencyLow}
-	idx := -1
-	for i, o := range opts {
-		if o == curr {
-			idx = i
-			break
-		}
+func priorityBefore(a, b core.Priority) bool {
+	if a == b {
+		return false
 	}
-	if idx == -1 {
-		return core.UrgencyLow
+	switch a {
+	case core.PriorityMax:
+		return true
+	case core.PriorityHigh:
+		return b != core.PriorityMax
+	case core.PriorityMedium:
+		return b == core.PriorityLow
+	default:
+		return false
 	}
-	if forward {
-		return opts[(idx+1)%len(opts)]
-	}
-	return opts[(idx-1+len(opts))%len(opts)]
 }
 
 func (m *Model) renderMarkdown(content string) string {
@@ -1159,45 +1153,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentView = m.previousView
 				return m, nil
 			case "up", "k":
-				m.priorityFocus = (m.priorityFocus - 1 + 3) % 3
-				if m.priorityFocus == 2 {
+				m.priorityFocus = (m.priorityFocus - 1 + 2) % 2
+				if m.priorityFocus == 1 {
 					m.dueDateInput.Focus()
 				} else {
 					m.dueDateInput.Blur()
 				}
 			case "down", "j", "tab":
-				m.priorityFocus = (m.priorityFocus + 1) % 3
-				if m.priorityFocus == 2 {
+				m.priorityFocus = (m.priorityFocus + 1) % 2
+				if m.priorityFocus == 1 {
 					m.dueDateInput.Focus()
 				} else {
 					m.dueDateInput.Blur()
 				}
 			case "shift+tab":
-				m.priorityFocus = (m.priorityFocus - 1 + 3) % 3
-				if m.priorityFocus == 2 {
+				m.priorityFocus = (m.priorityFocus - 1 + 2) % 2
+				if m.priorityFocus == 1 {
 					m.dueDateInput.Focus()
 				} else {
 					m.dueDateInput.Blur()
 				}
 			case "left", "h":
 				if m.priorityFocus == 0 {
-					m.editImportance = cycleImportance(m.editImportance, false)
-				} else if m.priorityFocus == 1 {
-					m.editUrgency = cycleUrgency(m.editUrgency, false)
+					m.editPriority = cyclePriority(m.editPriority, false)
 				}
 			case "right", "l":
 				if m.priorityFocus == 0 {
-					m.editImportance = cycleImportance(m.editImportance, true)
-				} else if m.priorityFocus == 1 {
-					m.editUrgency = cycleUrgency(m.editUrgency, true)
+					m.editPriority = cyclePriority(m.editPriority, true)
 				}
 			case "enter":
 				m.loading = true
 				m.err = nil
-				return m, m.savePriorityCmd(m.targetID, m.targetBaseRevision, m.editImportance, m.editUrgency, m.dueDateInput.Value())
+				return m, m.savePriorityCmd(m.targetID, m.targetBaseRevision, m.editPriority, m.dueDateInput.Value())
 			}
 
-			if m.priorityFocus == 2 {
+			if m.priorityFocus == 1 {
 				m.dueDateInput, cmd = m.dueDateInput.Update(msg)
 				return m, cmd
 			}
@@ -1341,8 +1331,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if ti, tj := statusTier(msg[i].Status), statusTier(msg[j].Status); ti != tj {
 				return ti < tj
 			}
-			if msg[i].PriorityScore != msg[j].PriorityScore {
-				return msg[i].PriorityScore < msg[j].PriorityScore
+			if msg[i].Priority != msg[j].Priority {
+				return priorityBefore(core.Priority(msg[i].Priority), core.Priority(msg[j].Priority))
 			}
 			d1 := msg[i].DueDate
 			d2 := msg[j].DueDate
@@ -1558,19 +1548,7 @@ func itemTableRow(item core.ListItem, showPriority, showDue bool) table.Row {
 		}
 	}
 
-	var priorityStr string
-	switch item.PriorityScore {
-	case 1:
-		priorityStr = "1. Do"
-	case 2:
-		priorityStr = "2. Plan"
-	case 3:
-		priorityStr = "3. Delegate"
-	case 4:
-		priorityStr = "4. Delete"
-	default:
-		priorityStr = strconv.Itoa(item.PriorityScore)
-	}
+	priorityStr := item.Priority
 
 	dueStr := ""
 	if item.DueDate != "" {
@@ -1769,53 +1747,29 @@ func (m Model) renderPriorityEditor() string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Edit Priority & Due Date for %s:\n\n", m.targetName))
 
-	// Importance
-	sb.WriteString(" Importance: ")
-	impOpts := []core.Importance{core.ImportanceHigh, core.ImportanceLow}
-	var impStr []string
-	for _, o := range impOpts {
-		val := string(o)
-		if o == m.editImportance {
-			val = fmt.Sprintf("[%s]", val)
-			val = activeOptionStyle.Render(val)
+	// Priority
+	sb.WriteString(" Priority: ")
+	var priorityOptions []string
+	for _, option := range []core.Priority{core.PriorityLow, core.PriorityMedium, core.PriorityHigh, core.PriorityMax} {
+		value := string(option)
+		if option == m.editPriority {
+			value = activeOptionStyle.Render("[" + value + "]")
 		} else {
-			val = fmt.Sprintf(" %s ", val)
+			value = " " + value + " "
 		}
-		impStr = append(impStr, val)
+		priorityOptions = append(priorityOptions, value)
 	}
-	importanceRow := strings.Join(impStr, " ")
+	priorityRow := strings.Join(priorityOptions, " ")
 	if m.priorityFocus == 0 {
-		sb.WriteString(focusedItemStyle.Render(importanceRow))
+		sb.WriteString(focusedItemStyle.Render(priorityRow))
 	} else {
-		sb.WriteString(importanceRow)
-	}
-	sb.WriteString("\n\n")
-
-	// Urgency
-	sb.WriteString(" Urgency:    ")
-	urgOpts := []core.Urgency{core.UrgencyHigh, core.UrgencyLow}
-	var urgStr []string
-	for _, o := range urgOpts {
-		val := string(o)
-		if o == m.editUrgency {
-			val = fmt.Sprintf("[%s]", val)
-			val = activeOptionStyle.Render(val)
-		} else {
-			val = fmt.Sprintf(" %s ", val)
-		}
-		urgStr = append(urgStr, val)
-	}
-	urgencyRow := strings.Join(urgStr, " ")
-	if m.priorityFocus == 1 {
-		sb.WriteString(focusedItemStyle.Render(urgencyRow))
-	} else {
-		sb.WriteString(urgencyRow)
+		sb.WriteString(priorityRow)
 	}
 	sb.WriteString("\n\n")
 
 	// Due Date
 	sb.WriteString(" Due Date:   ")
-	if m.priorityFocus == 2 {
+	if m.priorityFocus == 1 {
 		sb.WriteString(m.dueDateInput.View())
 	} else {
 		val := m.dueDateInput.Value()
@@ -2067,12 +2021,6 @@ func (m Model) View() string {
 		sb.WriteString("\n\n")
 
 		fm := m.recallResult.Frontmatter
-		score := core.CalculatePriorityScore(fm, time.Now())
-
-		targetTokens := fm.TokenTarget
-		if targetTokens == 0 {
-			targetTokens = 100000
-		}
 
 		lblStyle := metaLabelStyle.Copy().
 			Width(10).
@@ -2123,13 +2071,16 @@ func (m Model) View() string {
 		}
 
 		sb.WriteString(renderRow("Dossier:", fm.Name))
+		if fm.Description != "" {
+			sb.WriteString(renderRow("Summary:", fm.Description))
+		}
 		sb.WriteString(renderTwoCols(
 			"Status:", string(fm.Status),
 			"Lead:", leadLabel,
 		))
-		sb.WriteString(renderRow("Priority:", fmt.Sprintf("Score %d (Importance: %s, Urgency: %s)", score, fm.Importance, fm.Urgency)))
+		sb.WriteString(renderRow("Priority:", string(fm.Priority)))
 		sb.WriteString(renderRow("Interfaces:", strings.Join(fm.Interfaces, ", ")))
-		sb.WriteString(renderRow("Tokens:", fmt.Sprintf("%d / %d", m.recallResult.TokenEstimate, targetTokens)))
+		sb.WriteString(renderRow("Tokens:", fmt.Sprintf("%d", m.recallResult.TokenEstimate)))
 		sb.WriteString(renderRow("Next:", fm.NextAction))
 
 		sb.WriteString(lipgloss.NewStyle().Foreground(darkGray).Render(strings.Repeat("─", m.width)))

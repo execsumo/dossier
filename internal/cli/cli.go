@@ -31,17 +31,19 @@ import (
 var Version = "dev"
 
 var (
-	dossierHomeFlag   string
-	yesFlag           bool
-	statusFlag        string
-	jsonFlag          bool
-	dossierSearchFlag string
-	distilledFlag     string
-	fromFileFlag      string
-	forceFlag         bool
-	sessionFlag       string
-	leadFlag          string
-	interfacesFlag    []string
+	dossierHomeFlag     string
+	yesFlag             bool
+	statusFlag          string
+	jsonFlag            bool
+	dossierSearchFlag   string
+	distilledFlag       string
+	descriptionFlag     string
+	promotePriorityFlag string
+	fromFileFlag        string
+	forceFlag           bool
+	sessionFlag         string
+	leadFlag            string
+	interfacesFlag      []string
 )
 
 // NewRootCmd constructs the root cobra command hierarchy.
@@ -264,7 +266,7 @@ func NewRootCmd() *cobra.Command {
 
 	lsCmd := &cobra.Command{
 		Use:   "ls",
-		Short: "List open dossiers sorted by priority score",
+		Short: "List open dossiers sorted by priority",
 		Run: func(cmd *cobra.Command, args []string) {
 			homeDir := resolveHomeDir()
 			svc, err := wire(homeDir)
@@ -295,7 +297,7 @@ func NewRootCmd() *cobra.Command {
 				return
 			}
 
-			fmt.Printf("%-30s %-15s %-8s %-8s %-5s %s\n", "NAME/SLUG", "LEAD", "STATUS", "PRIORITY", "STALE", "NEXT ACTION")
+			fmt.Printf("%-30s %-15s %-10s %-8s %-5s %s\n", "NAME/SLUG", "LEAD", "STATUS", "PRIORITY", "DUE", "NEXT ACTION")
 			fmt.Println(strings.Repeat("-", 95))
 			for _, item := range items {
 				nameOrSlug := item.Name
@@ -318,7 +320,7 @@ func NewRootCmd() *cobra.Command {
 					nextAction = nextAction[:25] + "..."
 				}
 
-				fmt.Printf("%-30s %-15s %-8s %-8d %-5d %s\n", nameOrSlug, lead, item.Status, item.PriorityScore, item.StalenessDays, nextAction)
+				fmt.Printf("%-30s %-15s %-10s %-8s %-5s %s\n", nameOrSlug, lead, item.Status, item.Priority, item.DueDate, nextAction)
 			}
 		},
 	}
@@ -356,24 +358,20 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			fmt.Printf("Name:           %s\n", recall.Frontmatter.Name)
+			if recall.Frontmatter.Description != "" {
+				fmt.Printf("Description:    %s\n", recall.Frontmatter.Description)
+			}
 			fmt.Printf("ID:             %s\n", recall.Frontmatter.ID)
 			fmt.Printf("Slug:           %s\n", recall.Frontmatter.Slug)
 			fmt.Printf("Lead:           %s\n", recall.Frontmatter.Lead)
 			fmt.Printf("Interfaces:      %s\n", strings.Join(recall.Frontmatter.Interfaces, ", "))
 			fmt.Printf("Status:         %s\n", recall.Frontmatter.Status)
-			fmt.Printf("Importance:     %s\n", recall.Frontmatter.Importance)
-			fmt.Printf("Urgency:        %s\n", recall.Frontmatter.Urgency)
+			fmt.Printf("Priority:       %s\n", recall.Frontmatter.Priority)
 			if recall.Frontmatter.DueDate != "" {
 				fmt.Printf("Due Date:       %s\n", recall.Frontmatter.DueDate)
 			}
 			fmt.Printf("Token Estimate: %d\n", recall.TokenEstimate)
 			fmt.Printf("Next Action:    %s\n", recall.Frontmatter.NextAction)
-			if len(recall.Frontmatter.OpenQuestions) > 0 {
-				fmt.Println("Open Questions:")
-				for _, q := range recall.Frontmatter.OpenQuestions {
-					fmt.Printf("  - %s\n", q)
-				}
-			}
 			fmt.Println(strings.Repeat("-", 80))
 			fmt.Println(recall.DistilledState)
 		},
@@ -663,6 +661,8 @@ func NewRootCmd() *cobra.Command {
 
 			req := core.PromoteReq{
 				Name:                   args[0],
+				Description:            descriptionFlag,
+				Priority:               core.Priority(promotePriorityFlag),
 				DistilledStateMarkdown: distilledFlag,
 				Content:                content,
 				Lead:                   leadFlag,
@@ -699,6 +699,8 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 	promoteCmd.Flags().StringVar(&distilledFlag, "distilled", "", "Distilled state markdown body")
+	promoteCmd.Flags().StringVar(&descriptionFlag, "description", "", "Optional progressive-disclosure summary")
+	promoteCmd.Flags().StringVar(&promotePriorityFlag, "priority", "", "Priority: low|medium|high|max")
 	promoteCmd.Flags().StringVar(&fromFileFlag, "from-file", "", "Path to session content file")
 	promoteCmd.Flags().StringVar(&leadFlag, "lead", "", "Lead assignee for the dossier")
 	promoteCmd.Flags().StringSliceVar(&interfacesFlag, "interface", nil, "Discussion interface(s) for the dossier")
@@ -930,6 +932,28 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
+	descriptionCmd := &cobra.Command{
+		Use:   "description <slug-or-id> <description>",
+		Short: "Update the progressive-disclosure description of a dossier",
+		Args:  cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			res, err := svc.Save(context.Background(), core.SaveReq{
+				ID:                 args[0],
+				FrontmatterUpdates: map[string]any{"description": args[1]},
+			})
+			if err != nil {
+				fmt.Printf("Description update failed: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Description updated successfully. New revision: %s\n", res.Data.(core.Revision))
+		},
+	}
+
 	interfaceCmd := &cobra.Command{
 		Use:   "interface <slug-or-id> <interface>...",
 		Short: "Set the discussion interface(s) of a dossier",
@@ -975,58 +999,11 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
-	questionsCmd := &cobra.Command{
-		Use:   "questions <slug-or-id> <add|set|clear> [question...]",
-		Short: "Manage open questions of a dossier",
-		Args:  cobra.MinimumNArgs(2),
-		Run: func(cmd *cobra.Command, args []string) {
-			homeDir := resolveHomeDir()
-			svc, err := wire(homeDir)
-			if err != nil {
-				fmt.Printf("Error: %v\n", err)
-				os.Exit(1)
-			}
-
-			recallRes, err := svc.Recall(context.Background(), core.RecallReq{ID: args[0]})
-			if err != nil {
-				fmt.Printf("Failed to read dossier: %v\n", err)
-				os.Exit(1)
-			}
-			recall := recallRes.Data.(core.RecallResult)
-			questions := recall.Frontmatter.OpenQuestions
-
-			op := args[1]
-			switch op {
-			case "set":
-				questions = args[2:]
-			case "add":
-				questions = append(questions, args[2:]...)
-			case "clear":
-				questions = nil
-			default:
-				fmt.Printf("Unknown operation %q. Must be add, set, or clear.\n", op)
-				os.Exit(1)
-			}
-
-			res, err := svc.Save(context.Background(), core.SaveReq{
-				ID:                 args[0],
-				BaseRevision:       recall.Revision,
-				FrontmatterUpdates: map[string]any{"open_questions": questions},
-			})
-			if err != nil {
-				fmt.Printf("Questions update failed: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Printf("Open questions updated successfully. New revision: %s\n", res.Data.(core.Revision))
-		},
-	}
-
-	var importanceFlag string
-	var urgencyFlag string
+	var priorityFlag string
 	var dueFlag string
 	priorityCmd := &cobra.Command{
 		Use:   "priority <slug-or-id>",
-		Short: "Update importance, urgency, and due date of a dossier",
+		Short: "Update priority and due date of a dossier",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			homeDir := resolveHomeDir()
@@ -1044,28 +1021,13 @@ func NewRootCmd() *cobra.Command {
 			recall := recallRes.Data.(core.RecallResult)
 
 			updates := make(map[string]any)
-			if importanceFlag != "" {
-				switch importanceFlag {
-				case "h", "high", "m", "medium":
-					// importance/urgency are binary (high|low); "medium" and other
-					// non-low values map toward attention rather than being written
-					// as an invalid value the store would later reject.
-					updates["importance"] = "high"
-				case "l", "low":
-					updates["importance"] = "low"
-				default:
-					updates["importance"] = "high"
+			if priorityFlag != "" {
+				priority := core.Priority(strings.ToLower(priorityFlag))
+				if !priority.IsValid() {
+					fmt.Printf("Invalid priority %q. Choose low, medium, high, or max.\n", priorityFlag)
+					return
 				}
-			}
-			if urgencyFlag != "" {
-				switch urgencyFlag {
-				case "h", "high", "m", "medium":
-					updates["urgency"] = "high"
-				case "l", "low":
-					updates["urgency"] = "low"
-				default:
-					updates["urgency"] = "high"
-				}
+				updates["priority"] = string(priority)
 			}
 			if dueFlag != "" {
 				updates["due_date"] = dueFlag
@@ -1083,8 +1045,7 @@ func NewRootCmd() *cobra.Command {
 			fmt.Printf("Priority updated successfully. New revision: %s\n", res.Data.(core.Revision))
 		},
 	}
-	priorityCmd.Flags().StringVar(&importanceFlag, "importance", "", "Importance: h|l")
-	priorityCmd.Flags().StringVar(&urgencyFlag, "urgency", "", "Urgency: h|l")
+	priorityCmd.Flags().StringVar(&priorityFlag, "priority", "", "Priority: low|medium|high|max")
 	priorityCmd.Flags().StringVar(&dueFlag, "due", "", "Due date (YYYY-MM-DD or relative)")
 
 	updateCmd := &cobra.Command{
@@ -1295,9 +1256,9 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(mergeCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(leadCmd)
+	rootCmd.AddCommand(descriptionCmd)
 	rootCmd.AddCommand(interfaceCmd)
 	rootCmd.AddCommand(nextCmd)
-	rootCmd.AddCommand(questionsCmd)
 	rootCmd.AddCommand(priorityCmd)
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(hookCmd)
@@ -1634,25 +1595,6 @@ func wire(dossierHome string) (*core.Service, error) {
 	}
 
 	svc := core.NewService(storeAdapter, searchAdapter, tokAdapter, hregAdapter, clockAdapter, cfg.ToCoreConfig(), syncerAdapter)
-
-	// One-time, version-gated migration: when the store was last touched by an
-	// older build, eagerly heal any frontmatter the current schema no longer
-	// accepts (e.g. a removed enum value, or a newly required field). The version
-	// gate makes this a cheap no-op on every subsequent launch. Output goes to
-	// stderr so it never corrupts the MCP stdio protocol on `mcp serve`.
-	if cfg.SchemaVersion < core.CurrentSchemaVersion {
-		if res, err := svc.Migrate(context.Background()); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: frontmatter migration skipped: %v\n", err)
-		} else {
-			for _, w := range res.Warnings {
-				fmt.Fprintf(os.Stderr, "%s\n", w)
-			}
-			cfg.SchemaVersion = core.CurrentSchemaVersion
-			if err := cfg.Save(cfgPath); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: could not record schema version (migration will re-run next launch): %v\n", err)
-			}
-		}
-	}
 
 	return svc, nil
 }

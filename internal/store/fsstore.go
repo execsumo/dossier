@@ -285,10 +285,6 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 	if d.Frontmatter.CreatedAt.IsZero() {
 		d.Frontmatter.CreatedAt = d.Frontmatter.UpdatedAt
 	}
-	if d.Frontmatter.LastTouchedAt.IsZero() {
-		d.Frontmatter.LastTouchedAt = d.Frontmatter.UpdatedAt
-	}
-
 	if err := d.Frontmatter.Validate(); err != nil {
 		return "", core.WrapError(core.ErrInvalidFrontmatter, "invalid frontmatter details", err)
 	}
@@ -832,7 +828,9 @@ func ParseDossierFile(content string) (*core.Frontmatter, string, error) {
 	body := content[endIdx+3:]
 
 	var fm core.Frontmatter
-	if err := yaml.Unmarshal([]byte(yamlContent), &fm); err != nil {
+	decoder := yaml.NewDecoder(strings.NewReader(yamlContent))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&fm); err != nil {
 		return nil, "", err
 	}
 	return &fm, strings.TrimPrefix(body, "\n"), nil

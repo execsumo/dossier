@@ -108,7 +108,7 @@ dossier lead payments-migration "Bob"
 dossier interface payments-migration "1:1" "Pricing WBR"
 dossier ls --interface "1:1" --json   # topics to discuss in a 1:1
 dossier next payments-migration "Write the cutover runbook"
-dossier priority payments-migration --importance h --urgency h
+dossier priority payments-migration --priority high
 dossier link payments-migration --from-file ./notes.md   # attach a source to the archive
 dossier merge old-slug payments-migration                # fold one Dossier into another
 dossier archive payments-migration                       # archive (never deletes)
@@ -128,7 +128,7 @@ It opens a priority-sorted dashboard of your Dossiers, with Lead and discussion-
 
 - **open** a Dossier to read its distilled state (with a live token estimate and over-target warning). The distilled state is rendered natively as rich, syntax-highlighted Markdown. The view automatically live-refreshes when Claude Code updates the dossier in the background.
 - **filter** by Lead with `f`, then cycle through `All` and the seven discussion interfaces with `i` (for example, Marcus + `1:1`),
-- **edit** the Lead, status, priority (importance/urgency/due date), and next action inline without leaving the dashboard,
+- **edit** the Lead, status, priority (`low`/`medium`/`high`/`max`), due date, and next action inline without leaving the dashboard,
 - **link** a source, resolving ambiguous matches by picking from ranked candidates, and
 - **merge** one Dossier into another, resolving any conflicts in a syntax-highlighted side-by-side view (sources are archived, never deleted).
 

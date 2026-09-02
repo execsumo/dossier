@@ -17,31 +17,21 @@ func CanonicalFrontmatter(fm Frontmatter) string {
 	if fm.DueDate != "" {
 		sb.WriteString(fmt.Sprintf("due_date: %s\n", fm.DueDate))
 	}
+	sb.WriteString(fmt.Sprintf("description: %s\n", fm.Description))
 	sb.WriteString(fmt.Sprintf("id: %s\n", fm.ID))
-	sb.WriteString(fmt.Sprintf("importance: %s\n", fm.Importance))
+	sb.WriteString(fmt.Sprintf("priority: %s\n", fm.Priority))
 	if len(fm.Interfaces) > 0 {
 		sb.WriteString("interfaces:\n")
 		for _, interfaceName := range fm.Interfaces {
 			sb.WriteString(fmt.Sprintf("  - %s\n", interfaceName))
 		}
 	}
-	sb.WriteString(fmt.Sprintf("last_touched_at: %s\n", fm.LastTouchedAt.UTC().Format(time.RFC3339)))
 	sb.WriteString(fmt.Sprintf("name: %s\n", fm.Name))
 	sb.WriteString(fmt.Sprintf("next_action: %s\n", fm.NextAction))
 
-	sb.WriteString("open_questions:\n")
-	// Questions are kept in declared order
-	for _, q := range fm.OpenQuestions {
-		sb.WriteString(fmt.Sprintf("  - %s\n", q))
-	}
-
 	sb.WriteString(fmt.Sprintf("slug: %s\n", fm.Slug))
 	sb.WriteString(fmt.Sprintf("status: %s\n", fm.Status))
-	if fm.TokenTarget > 0 {
-		sb.WriteString(fmt.Sprintf("token_target: %d\n", fm.TokenTarget))
-	}
 	sb.WriteString(fmt.Sprintf("updated_at: %s\n", fm.UpdatedAt.UTC().Format(time.RFC3339)))
-	sb.WriteString(fmt.Sprintf("urgency: %s\n", fm.Urgency))
 	return sb.String()
 }
 

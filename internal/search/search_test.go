@@ -27,15 +27,12 @@ func TestSearch(t *testing.T) {
 	}
 
 	fm := core.Frontmatter{
-		ID:            "dos_search_1",
-		Name:          "Pricing model refresh",
-		Slug:          "pricing-refresh",
-		CreatedAt:     time.Now().Truncate(time.Second),
-		UpdatedAt:     time.Now().Truncate(time.Second),
-		LastTouchedAt: time.Now().Truncate(time.Second),
-		Status:        core.StatusActive,
-		Importance:    core.ImportanceHigh,
-		Urgency:       core.UrgencyHigh,
+		ID:        "dos_search_1",
+		Name:      "Pricing model refresh",
+		Slug:      "pricing-refresh",
+		CreatedAt: time.Now().Truncate(time.Second),
+		UpdatedAt: time.Now().Truncate(time.Second),
+		Status:    core.StatusActive, Priority: core.PriorityHigh,
 	}
 	body := "# Pricing model refresh\n\n## Situation\nWe are looking into concurrent locking problems."
 

@@ -15,13 +15,13 @@ import (
 func newSessionTestService(t *testing.T) *core.Service {
 	t.Helper()
 	fakeStore := store.NewFakeStore()
-	svc := core.NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, core.Config{TokenTarget: 100}, nil)
+	svc := core.NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, core.Config{}, nil)
 
 	clk := &mockClock{}
 	fakeStore.Dossiers["dos_1"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID: "dos_1", Name: "Test", Slug: "test-dossier", Status: core.StatusActive,
-			CreatedAt: clk.Now(), UpdatedAt: clk.Now(), LastTouchedAt: clk.Now(),
+			ID: "dos_1", Name: "Test", Slug: "test-dossier", Status: core.StatusActive, Priority: core.PriorityHigh,
+			CreatedAt: clk.Now(), UpdatedAt: clk.Now(),
 		},
 		DistilledState: core.DistilledState{Body: "# Test"},
 	}

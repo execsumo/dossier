@@ -41,7 +41,7 @@ A full-screen Bubble Tea app. Build in this order so the tree always compiles an
 ### Step 1 — Skeleton + dashboard (open-work list)
 - `internal/tui/tui.go`: `Run(ctx, svc *core.Service, sessionID string) error` — sets up the program, root model, alt-screen.
 - Root model holds: the Service, sessionID, current view, window size, a shared footer (warnings + key help).
-- **Dashboard view:** priority-sorted open-work list from `svc.List`. Columns: name, status, lead, priority score, next action, last touched. (Columns conditionally drop on smaller terminal widths). Use `bubbles/table`.
+- **Dashboard view:** priority-sorted open-work list from `svc.List`. Columns: name, status, lead, priority, due date, next action. (Columns conditionally drop on smaller terminal widths). Use `bubbles/table`.
 - Keys: `↑/↓` move, `q` quit, `?` toggle help, `enter` open detail.
 - Footer surfaces `Result.Warnings`.
 
