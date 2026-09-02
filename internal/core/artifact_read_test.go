@@ -140,6 +140,42 @@ func TestReadArtifactWarnsRatherThanTruncatingOverlongRange(t *testing.T) {
 	}
 }
 
+func TestReadArtifactExplicitRangeValidation(t *testing.T) {
+	tests := []struct {
+		name      string
+		startLine int
+		endLine   int
+		wantErr   string
+	}{
+		{name: "reversed", startLine: 8, endLine: 3, wantErr: "ends before it starts"},
+		{name: "zero start with positive end is a full-length clamp, not an error", startLine: 0, endLine: 3, wantErr: ""},
+		{name: "start past end of artifact", startLine: 20, endLine: 25, wantErr: "has 10 line(s); requested range starts at line 20"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _ := newDossierWithArtifact(t, "## Findings\n- [observed] X. [src:art_evidence]", numberedBody(10))
+
+			res, err := svc.ReadArtifact(context.Background(), ReadArtifactReq{
+				DossierID: "dos_fake_id", ArtifactID: "art_evidence",
+				StartLine: tt.startLine, EndLine: tt.endLine,
+			})
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ReadArtifact() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				content := res.Data.(ArtifactContent)
+				t.Fatalf("ReadArtifact() = %+v, want error containing %q", content, tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("ReadArtifact() error = %v, want containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestReadArtifactFullFetchReturnsWholeArtifact(t *testing.T) {
 	svc, _ := newDossierWithArtifact(t, "## Findings\n- [observed] X. [src:art_evidence]", numberedBody(4))
 

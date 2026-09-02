@@ -201,6 +201,65 @@ func TestFSStoreArtifacts(t *testing.T) {
 	}
 }
 
+// TestFSStoreListArtifactsDoesNotLoadBodies guards the evidence-index path
+// used by Recall: it must be able to report each artifact's line count
+// without reading the artifact body off disk. The Lines field persisted at
+// write time is what makes that possible.
+func TestFSStoreListArtifactsDoesNotLoadBodies(t *testing.T) {
+	tempHome, err := os.MkdirTemp("", "dossier-test-list-no-body-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+	defer os.RemoveAll(tempHome)
+
+	store := NewFSStore(tempHome)
+	_ = store.Init()
+
+	now := time.Now().Truncate(time.Second)
+	dossier := &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:            "dos_list_no_body",
+			Name:          "List No Body",
+			Slug:          "list-no-body",
+			CreatedAt:     now,
+			UpdatedAt:     now,
+			LastTouchedAt: now,
+			Status:        core.StatusActive,
+			Importance:    core.ImportanceLow,
+			Urgency:       core.UrgencyLow,
+		},
+		DistilledState: core.DistilledState{Body: "# List no body"},
+	}
+	if _, err := store.Write(dossier, ""); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	art := &core.Artifact{
+		ID:            "art_list_no_body",
+		Type:          core.ArtifactTypeTranscript,
+		Title:         "Sample transcript",
+		ContentFormat: core.ContentFormatText,
+		Content:       "line one\nline two\nline three",
+	}
+	if err := store.WriteArtifact(dossier.Frontmatter.ID, art); err != nil {
+		t.Fatalf("WriteArtifact failed: %v", err)
+	}
+
+	list, err := store.ListArtifacts(dossier.Frontmatter.ID)
+	if err != nil {
+		t.Fatalf("ListArtifacts failed: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 artifact, got %d", len(list))
+	}
+	if list[0].Content != "" {
+		t.Errorf("ListArtifacts loaded the artifact body; recall must stay metadata-only. Content = %q", list[0].Content)
+	}
+	if list[0].Lines != 3 {
+		t.Errorf("Lines = %d, want 3 (from persisted frontmatter, not a body read)", list[0].Lines)
+	}
+}
+
 func TestFSStoreArtifactWriteAdvancesRevisionAndPreservesHistory(t *testing.T) {
 	tempHome, err := os.MkdirTemp("", "dossier-test-artifact-revision-*")
 	if err != nil {
