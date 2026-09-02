@@ -1455,6 +1455,13 @@ func artifactLineCount(content string) int {
 	return len(splitContentLines(content))
 }
 
+// ArtifactLineCount is the exported form of artifactLineCount, for adapters
+// (e.g. the filesystem store) that need to persist the same line count the
+// core uses to bound citations.
+func ArtifactLineCount(content string) int {
+	return artifactLineCount(content)
+}
+
 // numberLines renders lines with absolute 1-indexed numbers, so the span a
 // caller reads is the span they can cite back without counting by hand.
 func numberLines(lines []string, startLine int) string {
@@ -1479,13 +1486,13 @@ func (s *Service) evidenceIndex(dossierID string, body string) ([]ArtifactSummar
 		warnings []Warning
 	)
 	for _, art := range artifacts {
-		lines := artifactLineCount(art.Content)
-		if lines == 0 {
-			// ListArtifacts may return metadata without bodies; fall back to a
-			// full read so the line count that bounds citations is accurate.
-			if full, readErr := s.store.ReadArtifact(dossierID, art.ID); readErr == nil {
-				lines = artifactLineCount(full.Content)
-			}
+		// The store persists the line count in frontmatter so listing an
+		// evidence index never has to load an artifact's body. When Content
+		// is populated (e.g. a store that returns full bodies from list),
+		// prefer counting it directly so it can't disagree with Lines.
+		lines := art.Lines
+		if art.Content != "" {
+			lines = artifactLineCount(art.Content)
 		}
 		index = append(index, ArtifactSummary{
 			ID:            art.ID,
@@ -1574,6 +1581,11 @@ func (s *Service) ReadArtifact(ctx context.Context, req ReadArtifactReq) (Result
 		Origin:        art.Provenance.Origin,
 		URL:           art.Provenance.URL,
 		Cited:         citedArtifactIDs(d.DistilledState.Body)[art.ID],
+	}
+
+	if start > 0 && end > 0 && start > end {
+		return Result{}, NewError(ErrInvalidFrontmatter, fmt.Sprintf(
+			"requested range start_line=%d ends before it starts (end_line=%d)", start, end))
 	}
 
 	var warnings []Warning

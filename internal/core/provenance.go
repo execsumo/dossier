@@ -67,24 +67,48 @@ type ArtifactInfo func(artifactID string) (lineCount int, ok bool)
 // bodyContentLines walks the Distilled State body and yields the 1-indexed
 // lines that are expected to carry provenance: prose and list items, but not
 // headings, fences, fenced content, blockquotes, or separators.
+//
+// Two structural exemptions apply, both because a citation on these lines
+// would be either meaningless or self-contradictory:
+//   - The "## Evidence" section describes the Archive's own artifacts (an
+//     `art_<id>` is already the pointer; asking it to also carry a [src:] to
+//     itself is circular), so its lines are excluded.
+//   - A [assumed] line is by definition "believed but unverified" (guide
+//     §3) — it has nothing to cite by design.
 func bodyContentLines(body string) map[int]string {
 	out := map[int]string{}
 	inFence := false
+	inEvidenceSection := false
 	for i, line := range strings.Split(body, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") {
 			inFence = !inFence
 			continue
 		}
-		if inFence || trimmed == "" ||
-			strings.HasPrefix(trimmed, "#") ||
+		if inFence {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			inEvidenceSection = isEvidenceHeading(trimmed)
+			continue
+		}
+		if trimmed == "" ||
 			strings.HasPrefix(trimmed, "---") ||
-			strings.HasPrefix(trimmed, ">") {
+			strings.HasPrefix(trimmed, ">") ||
+			inEvidenceSection ||
+			strings.Contains(trimmed, "[assumed]") {
 			continue
 		}
 		out[i+1] = trimmed
 	}
 	return out
+}
+
+// isEvidenceHeading reports whether a trimmed heading line is the "Evidence"
+// section header (of any level), matched by name so the exemption doesn't
+// depend on the heading's exact depth.
+func isEvidenceHeading(trimmed string) bool {
+	return strings.EqualFold(strings.TrimSpace(strings.TrimLeft(trimmed, "#")), "Evidence")
 }
 
 // validateDistilledStateProvenance checks that every content line carries a

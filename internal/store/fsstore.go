@@ -374,6 +374,7 @@ func (s *FSStore) WriteArtifact(dossierID string, a *core.Artifact) error {
 		a.RefreshedAt = a.CapturedAt
 	}
 	a.SourceSizeBytes = int64(len(a.Content))
+	a.Lines = core.ArtifactLineCount(a.Content)
 
 	if err := a.Validate(); err != nil {
 		return core.WrapError(core.ErrInvalidFrontmatter, "invalid artifact details", err)

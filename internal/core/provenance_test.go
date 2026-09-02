@@ -86,6 +86,19 @@ func TestValidateDistilledStateProvenanceChecksLineRanges(t *testing.T) {
 			name: "headings and fences are exempt",
 			body: "# Title\n\n## Findings\n\n```\nraw block with no citation\n```\n",
 		},
+		{
+			name: "Evidence section lines are exempt (they describe the archive, not a claim)",
+			body: "## Evidence\n- `art_ok` (transcript, 100 lines): full session capture; background only.",
+		},
+		{
+			name: "an assumed line is exempt (unverified by definition, nothing to cite)",
+			body: "## Findings\n- [assumed] Production concurrency resembles the load-test profile; unverified against telemetry.",
+		},
+		{
+			name:    "a claim still needs provenance outside the Evidence section",
+			body:    "## Findings\n- [observed] Lock contention.\n## Evidence\n- `art_ok` (transcript, 100 lines): full session capture.",
+			wantSub: "is missing provenance",
+		},
 	}
 
 	for _, tt := range tests {

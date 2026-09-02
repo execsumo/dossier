@@ -65,6 +65,7 @@ type Artifact struct {
 	Provenance      Provenance    `yaml:"provenance"`
 	ContentFormat   ContentFormat `yaml:"content_format"`
 	SourceSizeBytes int64         `yaml:"source_size_bytes"`
+	Lines           int           `yaml:"lines"`
 	Content         string        `yaml:"-"` // Not marshaled into frontmatter metadata
 }
 
