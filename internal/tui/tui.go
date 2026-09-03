@@ -119,6 +119,9 @@ type leadOption struct {
 	count  int
 }
 
+// Subheadline banner
+const subheadline = "Durable episodic memory and delegation layer"
+
 // Styling tokens
 var (
 	purple       = lipgloss.Color("99")
@@ -339,10 +342,6 @@ type Model struct {
 	artifactCursor  int
 	artifactContent core.ArtifactContent
 
-	watcher      *fsnotify.Watcher
-	updateChan   chan string
-	watchedPaths map[string]bool
-
 	// Cached markdown renderer, rebuilt only when the wrap width changes.
 	mdRenderer      *glamour.TermRenderer
 	mdRendererWidth int
@@ -352,13 +351,16 @@ type Model struct {
 	// spawning a process.
 	claudeBin   func() (string, error)
 	execProcess func(*exec.Cmd, tea.ExecCallback) tea.Cmd
+
+	watcher      *fsnotify.Watcher
+	updateChan   chan string
+	watchedPaths map[string]bool
 }
 
 // NewModel instantiates the root TUI model.
 func NewModel(svc *core.Service) Model {
-	// Initialize default empty table
 	columns := []table.Column{
-		{Title: "Name", Width: 30},
+		{Title: "Dossier", Width: 30},
 		{Title: "Priority", Width: 12},
 		{Title: "Lead", Width: 8},
 		{Title: "Status", Width: 10},
@@ -1899,7 +1901,7 @@ func (m *Model) recalculateTableLayout() {
 
 	// Tally the fixed-width columns first so Name can take whatever remains.
 	fixedUsed := widthLead + widthStatus
-	numCols := 3 // Name + Lead + Status
+	numCols := 3 // Dossier + Lead + Status
 	if showPriority {
 		fixedUsed += widthPriority
 		numCols++
@@ -1917,7 +1919,7 @@ func (m *Model) recalculateTableLayout() {
 	}
 
 	cols := []table.Column{
-		table.Column{Title: "Name", Width: nameWidth},
+		table.Column{Title: "Dossier", Width: nameWidth},
 	}
 	if showPriority {
 		cols = append(cols, table.Column{Title: "Priority", Width: widthPriority})
@@ -2458,7 +2460,7 @@ func (m Model) View() string {
 
 	switch m.currentView {
 	case ViewLeadSelector:
-		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Select Lead"))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Select Lead", subheadline)))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderLeadSelector())
 		sb.WriteString("\n")
@@ -2468,7 +2470,7 @@ func (m Model) View() string {
 		if m.extrasCount > 0 && !m.extrasExpanded {
 			archivedNote = " · resolved/archived hidden"
 		}
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" Durable memory layer for agentic workflows — Dashboard · Lead: %s · Interface: %s%s", m.leadFilter.label(), m.interfaceFilter.label(), archivedNote)))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Dashboard · Lead: %s · Interface: %s%s", subheadline, m.leadFilter.label(), m.interfaceFilter.label(), archivedNote)))
 		sb.WriteString("\n\n")
 
 		if m.loading && len(m.items) == 0 {
@@ -2481,7 +2483,7 @@ func (m Model) View() string {
 		}
 
 	case ViewDetail:
-		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Recall Detail"))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Recall Detail", subheadline)))
 		sb.WriteString("\n\n")
 
 		sb.WriteString(m.renderDetailMetadata())
@@ -2492,7 +2494,7 @@ func (m Model) View() string {
 		sb.WriteString("\n")
 
 	case ViewArtifactIndex:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" Durable memory layer for agentic workflows — Evidence Index: %s", m.recallResult.Frontmatter.Name)))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Evidence Index: %s", subheadline, m.recallResult.Frontmatter.Name)))
 		sb.WriteString("\n\n")
 		if len(m.artifactIndex) == 0 {
 			sb.WriteString(" No artifacts archived for this dossier.\n")
@@ -2521,55 +2523,55 @@ func (m Model) View() string {
 		}
 
 	case ViewArtifactContent:
-		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Artifact"))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Artifact", subheadline)))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.artifactViewport.View())
 		sb.WriteString("\n")
 
 	case ViewStatusPicker:
-		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Update Status"))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Update Status", subheadline)))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderStatusPicker())
 		sb.WriteString("\n")
 
 	case ViewNextActionEditor:
-		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Update Next Action"))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Update Next Action", subheadline)))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderNextActionEditor())
 		sb.WriteString("\n")
 
 	case ViewLeadEditor:
-		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Update Lead"))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Update Lead", subheadline)))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderLeadEditor())
 		sb.WriteString("\n")
 
 	case ViewPriorityEditor:
-		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Update Priority"))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Update Priority", subheadline)))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderPriorityEditor())
 		sb.WriteString("\n")
 
 	case ViewLinkInput:
-		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Link Content"))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Link Content", subheadline)))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderLinkInput())
 		sb.WriteString("\n")
 
 	case ViewLinkSelector:
-		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Resolve Ambiguous Link"))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Resolve Ambiguous Link", subheadline)))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderLinkSelector())
 		sb.WriteString("\n")
 
 	case ViewMergeSelector:
-		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Merge Dossier"))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Merge Dossier", subheadline)))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderMergeSelector())
 		sb.WriteString("\n")
 
 	case ViewMergeConflictResolver:
-		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Resolve Merge Conflict"))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Resolve Merge Conflict", subheadline)))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderMergeConflictResolver())
 		sb.WriteString("\n")

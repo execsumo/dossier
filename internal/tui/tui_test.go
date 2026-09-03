@@ -1746,6 +1746,9 @@ func TestTUI_DashboardWidthDynamicAdaptation(t *testing.T) {
 		m = newM.(Model)
 
 		cols := m.table.Columns()
+		if len(cols) > 0 && cols[0].Title != "Dossier" {
+			t.Errorf("expected first column title to be 'Dossier', got %q", cols[0].Title)
+		}
 		totalColWidth := 0
 		for _, col := range cols {
 			// Each column has 2 chars padding (1 left, 1 right)
@@ -1981,12 +1984,16 @@ func TestTUI_TableHeaderColorMatchesDetailLabels(t *testing.T) {
 	m.recalculateTableLayout()
 
 	viewStr := m.View()
+	if !strings.Contains(viewStr, "Durable episodic memory and delegation layer") {
+		t.Errorf("expected view to contain new subheadline, got:\n%s", viewStr)
+	}
+
 	// Check that color 99 (purple) is used for rendering the table header row
 	// lipgloss emits \x1b[...38;5;99...m for Foreground(purple)
 	lines := strings.Split(viewStr, "\n")
 	foundHeaderWithPurple := false
 	for _, l := range lines {
-		if strings.Contains(stripANSI(l), "Name") && strings.Contains(stripANSI(l), "Lead") {
+		if strings.Contains(stripANSI(l), "Dossier") && strings.Contains(stripANSI(l), "Lead") {
 			if strings.Contains(l, "38;5;99") {
 				foundHeaderWithPurple = true
 				break
@@ -1994,6 +2001,6 @@ func TestTUI_TableHeaderColorMatchesDetailLabels(t *testing.T) {
 		}
 	}
 	if !foundHeaderWithPurple {
-		t.Errorf("expected table header row to be styled with purple foreground (color 99), view:\n%s", viewStr)
+		t.Errorf("expected table header row with 'Dossier' column to be styled with purple foreground (color 99), view:\n%s", viewStr)
 	}
 }
