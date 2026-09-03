@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -1176,5 +1177,238 @@ func TestLeadSelectorWindowing(t *testing.T) {
 	mid := stripANSI(m.renderLeadSelector())
 	if !strings.Contains(mid, "Lead25") {
 		t.Errorf("cursor row Lead25 not visible:\n%s", mid)
+	}
+}
+
+// --- "open in Claude" handoff (ADR 0006) ---------------------------------
+
+// claudeSpy replaces the Model's launch seams so pressing 'c' resolves a fake
+// binary and captures the command instead of ever spawning a real process.
+type claudeSpy struct {
+	bin     string
+	binErr  error
+	calls   int
+	lastCmd *exec.Cmd
+}
+
+func (s *claudeSpy) install(m Model) Model {
+	m.claudeBin = func() (string, error) {
+		if s.binErr != nil {
+			return "", s.binErr
+		}
+		return s.bin, nil
+	}
+	m.execProcess = func(cmd *exec.Cmd, fn tea.ExecCallback) tea.Cmd {
+		s.calls++
+		s.lastCmd = cmd
+		return func() tea.Msg { return fn(nil) }
+	}
+	return m
+}
+
+// claudeTestModel seeds one dossier and returns a dashboard model focused on it.
+func claudeTestModel(t *testing.T, store *testStore) Model {
+	t.Helper()
+	store.dossiers["dos1"] = &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:       "dos1",
+			Name:     "Project Alpha",
+			Slug:     "project-alpha",
+			Status:   core.StatusActive,
+			Priority: core.PriorityHigh,
+		},
+		DistilledState: core.DistilledState{Body: "Distilled state of Alpha"},
+	}
+	m := NewModel(setupTestService(store))
+	m.width = 100
+	m.height = 40
+	m.recalculateTableLayout()
+
+	newM, _ := m.Update(m.listDossiersCmd()())
+	m = newM.(Model)
+	m = enterDashboard(t, m)
+	m.table.MoveDown(1)
+	return m
+}
+
+// assertHandoff checks the captured command is a bound Claude Code launch for
+// dos1 and that exactly one matching session binding was written.
+func assertHandoff(t *testing.T, store *testStore, spy *claudeSpy) {
+	t.Helper()
+	if spy.calls != 1 {
+		t.Fatalf("expected exactly one exec, got %d", spy.calls)
+	}
+	cmd := spy.lastCmd
+	if cmd.Path != spy.bin && cmd.Args[0] != spy.bin {
+		t.Errorf("expected launch of %q, got %v", spy.bin, cmd.Args)
+	}
+	if cmd.Dir != "/tmp/dossier_home/project-alpha" {
+		t.Errorf("cmd.Dir = %q, want the dossier directory", cmd.Dir)
+	}
+
+	args := cmd.Args[1:]
+	if len(args) != 3 || args[0] != "--session-id" {
+		t.Fatalf("expected --session-id <uuid> <prompt>, got %v", args)
+	}
+	sessionID := args[1]
+	if !strings.Contains(args[2], "project-alpha") {
+		t.Errorf("prompt should name the dossier slug, got %q", args[2])
+	}
+
+	if len(store.bindings) != 1 {
+		t.Fatalf("expected exactly one session binding, got %d", len(store.bindings))
+	}
+	b, ok := store.bindings[sessionID]
+	if !ok {
+		t.Fatalf("no binding written for the launched session id %q (have %v)", sessionID, store.bindings)
+	}
+	if b.DossierID != "dos1" {
+		t.Errorf("binding DossierID = %q, want dos1", b.DossierID)
+	}
+}
+
+func TestOpenInClaudeFromDashboard(t *testing.T) {
+	store := newTestStore()
+	m := claudeTestModel(t, store)
+	spy := &claudeSpy{bin: "/usr/bin/claude"}
+	m = spy.install(m)
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = newM.(Model)
+	if cmd == nil {
+		t.Fatal("expected 'c' to return an exec command")
+	}
+	if m.err != nil {
+		t.Fatalf("unexpected error: %v", m.err)
+	}
+	assertHandoff(t, store, spy)
+}
+
+func TestOpenInClaudeFromDetail(t *testing.T) {
+	store := newTestStore()
+	m := claudeTestModel(t, store)
+
+	// Enter the detail view first.
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(Model)
+	if cmd == nil {
+		t.Fatal("expected enter to return a recall command")
+	}
+	newM, _ = m.Update(cmd())
+	m = newM.(Model)
+	if m.currentView != ViewDetail {
+		t.Fatalf("expected ViewDetail, got %v", m.currentView)
+	}
+
+	spy := &claudeSpy{bin: "/usr/bin/claude"}
+	m = spy.install(m)
+
+	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = newM.(Model)
+	if cmd == nil {
+		t.Fatal("expected 'c' to return an exec command from the detail view")
+	}
+	if m.err != nil {
+		t.Fatalf("unexpected error: %v", m.err)
+	}
+	assertHandoff(t, store, spy)
+
+	// The callback must route the refresh back to the detail view.
+	msg, ok := cmd().(claudeFinishedMsg)
+	if !ok {
+		t.Fatalf("expected claudeFinishedMsg, got %T", cmd())
+	}
+	if msg.fromView != ViewDetail || msg.id != "dos1" {
+		t.Errorf("claudeFinishedMsg = %+v, want dos1 from ViewDetail", msg)
+	}
+}
+
+// A missing claude binary must surface an error and, critically, must not leave
+// a binding behind for a session that never starts.
+func TestOpenInClaudeMissingBinary(t *testing.T) {
+	store := newTestStore()
+	m := claudeTestModel(t, store)
+	spy := &claudeSpy{binErr: fmt.Errorf("claude was not found on PATH")}
+	m = spy.install(m)
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = newM.(Model)
+
+	if cmd != nil {
+		t.Error("expected no command when the binary is missing")
+	}
+	if m.err == nil {
+		t.Fatal("expected the missing binary to be surfaced as an error")
+	}
+	if spy.calls != 0 {
+		t.Errorf("expected no exec, got %d", spy.calls)
+	}
+	if len(store.bindings) != 0 {
+		t.Errorf("expected no orphan binding, got %v", store.bindings)
+	}
+}
+
+func TestClaudeFinishedRefreshes(t *testing.T) {
+	store := newTestStore()
+	m := claudeTestModel(t, store)
+
+	newM, cmd := m.Update(claudeFinishedMsg{id: "dos1", fromView: ViewDashboard})
+	m = newM.(Model)
+	if cmd == nil {
+		t.Fatal("expected a refresh command after returning from Claude")
+	}
+	if m.err != nil {
+		t.Fatalf("unexpected error: %v", m.err)
+	}
+
+	// An exec failure is surfaced, not swallowed.
+	newM, cmd = m.Update(claudeFinishedMsg{err: fmt.Errorf("exec failed"), id: "dos1"})
+	m = newM.(Model)
+	if cmd != nil {
+		t.Error("expected no refresh command when the launch failed")
+	}
+	if m.err == nil {
+		t.Error("expected the launch failure to be surfaced")
+	}
+}
+
+func TestFooterMentionsClaudeKey(t *testing.T) {
+	store := newTestStore()
+	m := claudeTestModel(t, store)
+
+	if got := stripANSI(m.View()); !strings.Contains(got, "c: claude") {
+		t.Errorf("dashboard footer should advertise 'c: claude', got:\n%s", got)
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(Model)
+	newM, _ = m.Update(cmd())
+	m = newM.(Model)
+	if got := stripANSI(m.View()); !strings.Contains(got, "c: claude") {
+		t.Errorf("detail footer should advertise 'c: claude', got:\n%s", got)
+	}
+}
+
+// 'c' is a top-level dashboard/detail key only — text inputs must still receive
+// it as an ordinary character.
+func TestClaudeKeyDoesNotHijackTextInput(t *testing.T) {
+	store := newTestStore()
+	m := claudeTestModel(t, store)
+	spy := &claudeSpy{bin: "/usr/bin/claude"}
+	m = spy.install(m)
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	m = newM.(Model)
+	if m.currentView != ViewLeadEditor {
+		t.Fatalf("expected ViewLeadEditor, got %v", m.currentView)
+	}
+
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = newM.(Model)
+	if got := m.leadInput.Value(); got != "c" {
+		t.Errorf("lead input = %q, want the typed character %q", got, "c")
+	}
+	if spy.calls != 0 {
+		t.Errorf("typing in an editor must not launch claude, got %d execs", spy.calls)
 	}
 }

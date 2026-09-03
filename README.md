@@ -130,7 +130,8 @@ It opens a priority-sorted dashboard of your Dossiers, with Lead and discussion-
 - **filter** by Lead with `f`, then cycle through `All` and the seven discussion interfaces with `i` (for example, Marcus + `1:1`),
 - **edit** the Lead, status, priority (`low`/`medium`/`high`/`max`), due date, and next action (up to 140 characters) inline without leaving the dashboard,
 - **link** a source, resolving ambiguous matches by picking from ranked candidates, and
-- **merge** one Dossier into another, resolving any conflicts in a syntax-highlighted side-by-side view (sources are archived, never deleted).
+- **merge** one Dossier into another, resolving any conflicts in a syntax-highlighted side-by-side view (sources are archived, never deleted), and
+- **open in Claude** with `c` — launches a fresh Claude Code session already bound to the selected Dossier, with its distilled state loaded. The TUI suspends until you exit the session, then refreshes. (`dossier open <slug-or-id>` does the same from the shell. Set `DOSSIER_CLAUDE_BIN` if `claude` is not on your PATH.)
 
 The TUI is a thin layer over the same core as the CLI and MCP, so it behaves identically — `q` quits, `?` toggles help.
 

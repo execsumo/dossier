@@ -18,6 +18,7 @@ Other harnesses (Codex, Antigravity) remain out of scope for v1. The `Harness` i
 | **Raw Transcript Access** | Yes (via session UUID matching) |
 | **Stable Session ID** | Yes (UUID string in payload) |
 | **MCP Session Env Var** | Yes (`CLAUDE_CODE_SESSION_ID`, verified) |
+| **Caller-chosen Session ID** | Yes (`claude --session-id <uuid>`, verified 2026-09-02) |
 | **Context Injection** | Yes (Stdout from `SessionStart` hook) |
 | **Install/Notice Surfacing** | Yes (During init & session start) |
 
@@ -111,6 +112,20 @@ The stdio MCP server (`dossier mcp serve`) is launched per session with `CLAUDE_
 - The `~/.claude/session-env/<uuid>` entry.
 
 Therefore, an MCP tool can resolve the active session ID directly from the environment without the agent supplying it.
+
+### Caller-chosen session ids (`--session-id`)
+
+`claude --session-id <uuid>` makes the **caller**, not Claude, choose the session id
+("Use a specific session ID for the conversation", verified against the installed CLI on
+2026-09-02). This is what makes the "open in Claude" handoff deterministic (ADR 0006):
+Dossier mints a UUIDv4, writes the session binding for it, and then launches Claude with
+that id, so the `SessionStart` hook fires already bound and injects the Distilled State.
+
+**Assumption, not a guarantee.** It is an external CLI contract that could change. If the
+flag is rejected, the launch fails and the error surfaces (`m.err` in the TUI, a non-zero
+exit from `dossier open`) — a visible failure, never a silent no-op. The documented fallback
+is prompt-only (no `--session-id`, no pre-binding), which depends on the model calling
+`dossier_session` itself.
 
 #### Observed Quirks
 A single Claude Code session may spawn two concurrent `dossier mcp serve` processes. Both processes carry the identical `CLAUDE_CODE_SESSION_ID` in their environment, so reading the environment variable remains unambiguous and safe.

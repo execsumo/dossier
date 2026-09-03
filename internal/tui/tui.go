@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dossier/internal/core"
+	"dossier/internal/harness"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -218,6 +219,7 @@ func waitForUpdate(updateChan <-chan string) tea.Cmd {
 type targetDossier struct {
 	id           string
 	name         string
+	slug         string
 	status       core.Status
 	priority     core.Priority
 	dueDate      string
@@ -310,6 +312,12 @@ type Model struct {
 	// Cached markdown renderer, rebuilt only when the wrap width changes.
 	mdRenderer      *glamour.TermRenderer
 	mdRendererWidth int
+
+	// Seams for the "open in Claude" handoff, defaulted in NewModel. They exist
+	// so tests can press 'c' without a claude binary on PATH and without ever
+	// spawning a process.
+	claudeBin   func() (string, error)
+	execProcess func(*exec.Cmd, tea.ExecCallback) tea.Cmd
 }
 
 // NewModel instantiates the root TUI model.
@@ -387,6 +395,8 @@ func NewModel(svc *core.Service) Model {
 		watcher:          watcher,
 		updateChan:       updateChan,
 		watchedPaths:     map[string]bool{},
+		claudeBin:        harness.ClaudeBin,
+		execProcess:      tea.ExecProcess,
 	}
 }
 
@@ -558,6 +568,7 @@ func (m Model) getTargetDossier() (targetDossier, bool) {
 		return targetDossier{
 			id:           fm.ID,
 			name:         fm.Name,
+			slug:         fm.Slug,
 			status:       fm.Status,
 			priority:     fm.Priority,
 			dueDate:      fm.DueDate,
@@ -574,6 +585,7 @@ func (m Model) getTargetDossier() (targetDossier, bool) {
 		return targetDossier{
 			id:           item.ID,
 			name:         item.Name,
+			slug:         item.Slug,
 			status:       core.Status(item.Status),
 			priority:     core.Priority(item.Priority),
 			dueDate:      item.DueDate,
@@ -583,6 +595,65 @@ func (m Model) getTargetDossier() (targetDossier, bool) {
 		}, true
 	}
 	return targetDossier{}, false
+}
+
+// openInClaude hands the focused Dossier off to a fresh Claude Code session.
+//
+// The TUI still resolves no session identity of its own (ADR 0004) — it *mints*
+// one for a session that does not exist yet, binds the Dossier to that id, and
+// then launches Claude with the same id via --session-id. Claude's session-start
+// hook therefore fires already bound and injects the Distilled State. See
+// ADR 0006.
+//
+// The binary is looked up first, before anything is written, so a missing claude
+// cannot leave a binding behind for a session that never starts. Every failure
+// sets m.err rather than silently doing nothing.
+func (m Model) openInClaude(t targetDossier) (tea.Model, tea.Cmd) {
+	bin, err := m.claudeBin()
+	if err != nil {
+		m.err = err
+		return m, nil
+	}
+
+	ctx := context.Background()
+	res, err := m.svc.Path(ctx, core.PathReq{ID: t.id})
+	if err != nil {
+		m.err = err
+		return m, nil
+	}
+	dir, _ := res.Data.(string)
+	if dir == "" {
+		// Launching with an empty Dir would silently run Claude in the TUI's own
+		// working directory against the wrong (or no) Dossier. Fail visibly.
+		m.err = fmt.Errorf("could not resolve the directory for dossier %s", t.id)
+		return m, nil
+	}
+
+	sessionID, err := harness.NewClaudeSessionID()
+	if err != nil {
+		m.err = err
+		return m, nil
+	}
+
+	if _, err := m.svc.Switch(ctx, core.SwitchReq{
+		ID:          t.id,
+		SessionID:   sessionID,
+		HarnessName: "claude-code",
+	}); err != nil {
+		m.err = err
+		return m, nil
+	}
+
+	slug := t.slug
+	if slug == "" {
+		slug = filepath.Base(dir)
+	}
+	plan := harness.PlanClaudeHandoff(bin, sessionID, dir, t.name, slug)
+
+	id, fromView := t.id, m.currentView
+	return m, m.execProcess(plan.Command(), func(err error) tea.Msg {
+		return claudeFinishedMsg{err: err, id: id, fromView: fromView}
+	})
 }
 
 // deriveLeadOptions builds the lead selector's rows from the full dossier
@@ -1279,6 +1350,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return editorFinishedMsg{err: err, id: m.recallResult.Frontmatter.ID}
 				})
 			}
+		case "c":
+			if m.currentView == ViewDashboard || m.currentView == ViewDetail {
+				if t, ok := m.getTargetDossier(); ok && t.id != "" {
+					return m.openInClaude(t)
+				}
+			}
 		case "f":
 			if m.currentView == ViewDashboard {
 				m.openLeadSelector()
@@ -1484,6 +1561,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = true
 		return m, m.recallDossierCmd(msg.id)
 
+	case claudeFinishedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		// Claude almost certainly wrote to the Dossier while the TUI was
+		// suspended; refresh whichever view we came back to.
+		m.loading = true
+		if msg.fromView == ViewDetail && msg.id != "" {
+			return m, m.recallDossierCmd(msg.id)
+		}
+		return m, m.listDossiersCmd()
+
 	case errMsg:
 		m.loading = false
 		m.err = msg
@@ -1513,6 +1603,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 type editorFinishedMsg struct {
 	err error
 	id  string
+}
+
+// claudeFinishedMsg reports that a handed-off Claude Code session has exited and
+// the TUI has the terminal back. fromView records where 'c' was pressed so the
+// right view is refreshed.
+type claudeFinishedMsg struct {
+	err      error
+	id       string
+	fromView View
 }
 
 // tableColumnsConfig reports which width-sensitive columns the dashboard shows.
@@ -2150,12 +2249,12 @@ func (m Model) View() string {
 		}
 	}
 
-	keyHelp := "↑/↓: select • f: filters • s: status • l: lead • p: priority • n: next action • k: link • m: merge • esc: leads"
+	keyHelp := "↑/↓: select • f: filters • s: status • l: lead • p: priority • n: next action • k: link • m: merge • c: claude • esc: leads"
 	switch m.currentView {
 	case ViewLeadSelector:
 		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
 	case ViewDetail:
-		keyHelp = "↑/↓/pgup/pgdn: scroll • s: status • l: lead • p: priority • n: next action • esc: back"
+		keyHelp = "↑/↓/pgup/pgdn: scroll • s: status • l: lead • p: priority • n: next action • c: claude • esc: back"
 	case ViewStatusPicker:
 		keyHelp = "↑/↓: select status • esc: cancel"
 	case ViewNextActionEditor:

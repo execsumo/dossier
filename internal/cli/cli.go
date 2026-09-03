@@ -1227,6 +1227,63 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
+	openCmd := &cobra.Command{
+		Use:   "open <slug-or-id>",
+		Short: "Open a dossier in a fresh Claude Code session bound to it",
+		Long: "Mint a new Claude Code session id, bind the dossier to it, and launch\n" +
+			"claude in the dossier's directory with that id. The session-start hook\n" +
+			"fires already bound, so the session opens with the distilled state loaded.\n" +
+			"This is the same handoff the TUI's 'c' key performs (ADR 0006).",
+		Args: cobra.ExactArgs(1),
+		// Nothing this command can fail on is a usage error — a missing binary or
+		// a non-zero exit from claude should not bury the message under a help
+		// dump.
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			homeDir := resolveHomeDir()
+			svc, err := wire(homeDir)
+			if err != nil {
+				return err
+			}
+
+			// Resolve the binary before writing anything: a missing claude must
+			// not leave a binding for a session that never starts.
+			bin, err := harness.ClaudeBin()
+			if err != nil {
+				return err
+			}
+
+			ctx := context.Background()
+			res, err := svc.Path(ctx, core.PathReq{ID: args[0]})
+			if err != nil {
+				return err
+			}
+			dir := res.Data.(string)
+
+			sessionID, err := harness.NewClaudeSessionID()
+			if err != nil {
+				return err
+			}
+
+			switchRes, err := svc.Switch(ctx, core.SwitchReq{
+				ID:          args[0],
+				SessionID:   sessionID,
+				HarnessName: "claude-code",
+			})
+			if err != nil {
+				return err
+			}
+			recall := switchRes.Data.(core.RecallResult)
+
+			plan := harness.PlanClaudeHandoff(bin, sessionID, dir, recall.Frontmatter.Name, recall.Frontmatter.Slug)
+			claude := plan.Command()
+			claude.Stdin = os.Stdin
+			claude.Stdout = cmd.OutOrStdout()
+			claude.Stderr = cmd.ErrOrStderr()
+			return claude.Run()
+		},
+	}
+
 	versionCmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print the Dossier version",
@@ -1264,6 +1321,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(hookCmd)
 
 	rootCmd.AddCommand(tuiCmd)
+	rootCmd.AddCommand(openCmd)
 
 	// Match `dossier version` output for the built-in `--version` flag.
 	rootCmd.SetVersionTemplate("dossier {{.Version}}\n")

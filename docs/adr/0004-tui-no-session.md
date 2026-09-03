@@ -2,6 +2,9 @@
 
 ## Status
 Accepted (2026-06-17). Supersedes [ADR 0002](0002-tui-session-id.md).
+Amended (not superseded) by [ADR 0006](0006-tui-open-in-claude.md): the TUI still resolves
+no session identity of its own, but may mint one for a Claude Code session it is about to
+launch and bind a Dossier to it first. Everything below stands.
 
 ## Context
 The "active" Dossier is bound **per session**, not globally (a hard rule: "No global
