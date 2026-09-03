@@ -117,6 +117,15 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
+			// Preconfigure the sync exclusion set at init rather than at first
+			// sync, so a store that later joins a team already excludes the
+			// machine-local set and the raw session stash before its first commit.
+			// Git history is append-only across every clone, so an exclusion added
+			// after the first push never retracts what was already published.
+			if giErr := sync.EnsureGitignore(homeDir); giErr != nil {
+				fmt.Printf("Warning: could not write store .gitignore: %v\n", giErr)
+			}
+
 			fmt.Printf("Dossier initialized at %s\n\n", homeDir)
 
 			if dataMap, ok := res.Data.(map[string]any); ok {

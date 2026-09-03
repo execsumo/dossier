@@ -365,7 +365,7 @@ func TestSessionEndArchivesCompiledTranscript(t *testing.T) {
 	if len(arts) != 1 {
 		t.Fatalf("archived %d artifacts, want 1", len(arts))
 	}
-	if !strings.Contains(arts[0].Content, "## [3] tool_call Bash") {
+	if !strings.Contains(arts[0].Content, "## [2] tool_call Bash") {
 		t.Errorf("archived transcript was not compiled into role-tagged nodes:\n%s", arts[0].Content)
 	}
 	if strings.Contains(arts[0].Content, `"parentUuid"`) {

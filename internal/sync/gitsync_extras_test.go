@@ -69,6 +69,59 @@ func TestSync_GitignoreMachineLocal(t *testing.T) {
 	assertFileInTree(t, storeA, "pricing/dossier.md")
 }
 
+// TestEnsureGitignore_PreconfiguresFreshStore: `dossier init` writes the
+// exclusion set into a plain (non-git) store, so a store that later joins a team
+// already excludes the machine-local set and the raw session stash before its
+// first commit — git history is append-only across clones, so a later exclusion
+// cannot retract what a first push already published.
+func TestEnsureGitignore_PreconfiguresFreshStore(t *testing.T) {
+	dir := t.TempDir()
+	if err := EnsureGitignore(dir); err != nil {
+		t.Fatalf("EnsureGitignore: %v", err)
+	}
+	first, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	for _, want := range []string{"/config.yaml", "/credentials", "/sessions/", "*/sessions/", "/context/"} {
+		if !strings.Contains(string(first), want) {
+			t.Errorf("fresh .gitignore missing %q:\n%s", want, string(first))
+		}
+	}
+
+	// Idempotent: a second call must not duplicate or reorder entries.
+	if err := EnsureGitignore(dir); err != nil {
+		t.Fatalf("EnsureGitignore (second): %v", err)
+	}
+	second, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if string(second) != string(first) {
+		t.Errorf("EnsureGitignore not idempotent:\nfirst:\n%s\nsecond:\n%s", string(first), string(second))
+	}
+}
+
+// TestSync_SessionStashNeverSyncs: the per-slug raw session stash
+// (<slug>/sessions/<author>/) stays machine-local. It is a byte-for-byte harness
+// trace with no reader in the codebase, and a [src:] range into raw JSONL cites
+// nothing — so it is pure exposure with no reachable depth. The compiled
+// transcript artifact is the shared depth layer and must still sync, as must the
+// per-author audit log (attribution of recorded events is wanted provenance).
+func TestSync_SessionStashNeverSyncs(t *testing.T) {
+	bare, storeA, _ := setupPair(t)
+	syncA := newSyncer(storeA, bare, "alice")
+
+	writeFile(t, storeA, "pricing/dossier.md", "v1")
+	writeFile(t, storeA, "pricing/sessions/alice/sess_01.md",
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"private"}]}}`)
+	writeFile(t, storeA, "pricing/artifacts/art_7f3.md", "# Compiled Session Transcript\n## [1] user\nhi\n")
+	writeFile(t, storeA, "pricing/audit/alice.log", "{}\n")
+	mustSync(t, syncA)
+
+	assertNotInGitHistory(t, storeA, "pricing/sessions/alice/sess_01.md")
+	assertFileInTree(t, storeA, "pricing/artifacts/art_7f3.md")
+	assertFileInTree(t, storeA, "pricing/audit/alice.log")
+	assertFileInTree(t, storeA, "pricing/dossier.md")
+}
+
 // TestSync_GitignoreMergePreservesUserEntries: a pre-existing .gitignore is
 // merged, not overwritten — user entries survive and missing defaults are added.
 func TestSync_GitignoreMergePreservesUserEntries(t *testing.T) {

@@ -19,10 +19,9 @@ func TestCompileTranscriptTagsRolesAndKeepsValues(t *testing.T) {
 
 	for _, want := range []string{
 		"## [1] user",
-		"## [2] thinking",
-		"## [3] tool_call Bash (toolu_01)",
-		"## [4] tool_result (toolu_01)",
-		"## [5] assistant",
+		"## [2] tool_call Bash (toolu_01)",
+		"## [3] tool_result (toolu_01)",
+		"## [4] assistant",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("compiled transcript missing role header %q\n%s", want, out)
@@ -35,6 +34,31 @@ func TestCompileTranscriptTagsRolesAndKeepsValues(t *testing.T) {
 	}
 	if !strings.Contains(out, "FAIL TestConcurrentBilling") {
 		t.Errorf("compiled transcript dropped the tool result:\n%s", out)
+	}
+}
+
+// Assistant thinking is the model's unedited private reasoning: it is excluded
+// from the compiled view a teammate reads, but counted in the header so the
+// elision is visible rather than silent.
+func TestCompileTranscriptExcludesThinkingButTalliesIt(t *testing.T) {
+	out, _, _ := CompileTranscript(sampleTrace)
+
+	if strings.Contains(out, "Check the lock first.") {
+		t.Errorf("thinking content leaked into the compiled view:\n%s", out)
+	}
+	if strings.Contains(out, "## [2] thinking") || strings.Contains(out, "] thinking") {
+		t.Errorf("compiled view still carries a thinking role header:\n%s", out)
+	}
+	if !strings.Contains(out, "Assistant thinking turns excluded from this view: 1") {
+		t.Errorf("thinking elision was not surfaced in the header:\n%s", out)
+	}
+}
+
+// A trace with no thinking blocks must not gain a spurious tally line.
+func TestCompileTranscriptOmitsThinkingTallyWhenNonePresent(t *testing.T) {
+	out, _, _ := CompileTranscript(`{"type":"user","message":{"role":"user","content":"hi"}}`)
+	if strings.Contains(out, "Assistant thinking turns excluded") {
+		t.Errorf("tally line emitted for a trace with no thinking:\n%s", out)
 	}
 }
 

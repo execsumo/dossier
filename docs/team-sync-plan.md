@@ -12,13 +12,13 @@ Multiple colleagues' Claude Code sessions contribute to one shared Dossier store
 - **Local-first:** every save commits locally whether or not the network is up. Push/pull failure = visible warning + retry, never a blocked save.
 - **No last-write-wins across machines:** concurrent `dossier.md` edits become `conflicts/*.md` (`kind: sync_concurrent_edit`), exactly like local concurrent edits. Reuse `core`'s non-overlapping-frontmatter auto-merge before declaring conflict.
 - **Single-writer layout:** any file that can be per-author namespaced must be. Only `dossier.md` is allowed to be multi-writer.
-- **Machine-local stays local:** `config.yaml`, root `sessions/` (bindings), `context/`, `.lock` files never sync.
+- **Machine-local stays local:** `config.yaml`, root `sessions/` (bindings), per-slug `sessions/` (the raw stash), `context/`, `.lock` files never sync.
 - **Degrade visibly:** offline, auth-expired, oversized-artifact (>100 MB GitHub limit) are all surfaced warnings, never silent no-ops.
 - **Core stays pure:** git lives behind a `Syncer` port in `internal/sync/`; `internal/core` never imports it.
 
 ## Repo/store shape
 
-`DOSSIER_HOME` itself becomes the git working tree (one store, no parallel trees). A generated `.gitignore` excludes the machine-local set above. Slug folders, `history/`, `conflicts/`, per-author `audit/` and `sessions/` all sync. `history/` files are revision-content-addressed (`rev_*.md`) so identical writes are idempotent and conflict-free.
+`DOSSIER_HOME` itself becomes the git working tree (one store, no parallel trees). A generated `.gitignore` excludes the machine-local set above. Slug folders, `history/`, `conflicts/`, `artifacts/` and per-author `audit/` sync. Per-author `<slug>/sessions/` does **not**: the stash is a byte-for-byte harness trace with no reader in the codebase, and a `[src:]` range into raw JSONL lands mid-record and cites nothing — syncing it would ship the rawest content (unedited prompts, thinking, every tool result) while adding no depth a teammate can reach. The compiled transcript artifact is the shared depth layer. `history/` files are revision-content-addressed (`rev_*.md`) so identical writes are idempotent and conflict-free.
 
 ---
 
@@ -29,7 +29,7 @@ The prerequisite everything else stands on. Pure store/core work, fully testable
 1. **`author` config field** (`internal/config/config.go`): default `os/user.Current()` username; `dossier init` keeps working with zero prompts (default applies silently); `dossier team join` (Phase 3) will confirm it interactively.
 2. **Stamp author into audit events**: add `Author string` to `core.AuditEvent` (omitempty for backward compat), populated in `Service` from config.
 3. **Per-author audit shards**: writes go to `<slug>/audit/<author>.log` (`FSStore.AppendAudit`, `internal/store/fsstore.go:487`); `ReadAuditLog` merges legacy `<slug>/audit.log` + all shards, ordered by `ts` (the ordering contract already exists in `ReadAuditEntries`). Legacy file is never rewritten or renamed — non-destructive.
-4. **Per-dossier session stash**: on `session-end`/`pre-compaction` for a *bound* session, snapshot the transcript to `<slug>/sessions/<author>/<session-id>.md` (append-mode per session id; one writer per file by construction). Verify transcript availability against `docs/harness-capabilities.md` first; if a session has no accessible transcript, warn — don't fake it. Root `sessions/*.json` bindings are untouched and stay machine-local.
+4. **Per-dossier session stash**: on `session-end`/`pre-compaction` for a *bound* session, snapshot the transcript to `<slug>/sessions/<author>/<session-id>.md` (append-mode per session id; one writer per file by construction). Verify transcript availability against `docs/harness-capabilities.md` first; if a session has no accessible transcript, warn — don't fake it. Root `sessions/*.json` bindings are untouched and stay machine-local, as does the stash itself (gitignored via `*/sessions/`).
 5. **Schema validation**: keep the canonical frontmatter schema strict; `doctor` validates shard names and the merged-ordering invariant.
 6. **Docs in the same PR**: SPEC §3.2 layout update, ARCHITECTURE §2/§5 update.
 

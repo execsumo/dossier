@@ -76,9 +76,12 @@ var nonContentRecordTypes = map[string]bool{
 // CompileTranscript lowers a raw harness JSONL trace into a role-tagged plain
 // text view with stable physical line numbers.
 //
-// The compiled text is the Dossier "full view": every conversational node is
-// preserved verbatim, so a [src:art_x#L10-L20] range resolves to a meaningful
-// span (an assistant turn, a tool result) instead of landing mid-JSON. Line
+// The compiled text is the Dossier "full view": every conversational node it
+// renders is preserved verbatim, so a [src:art_x#L10-L20] range resolves to a
+// meaningful span (an assistant turn, a tool result) instead of landing
+// mid-JSON. Assistant thinking turns are the one deliberate exclusion, tallied
+// into the header rather than dropped silently; the machine-local session stash
+// still holds the trace byte-for-byte. Line
 // numbers are the artifact file's own physical lines, assigned once at capture
 // and frozen by the read-only artifact file, which is what lets search hits
 // and artifact fetches share one coordinate system.
@@ -133,6 +136,28 @@ func CompileTranscript(raw string) (string, ContentFormat, []Warning) {
 		return raw, ContentFormatText, nil
 	}
 
+	// Assistant thinking is excluded from the compiled view. It is the model's
+	// unedited private reasoning: the least citable role in the trace, and in a
+	// team store the content a colleague has least reason to read. The count is
+	// tallied into the header so the elision is visible and countable rather
+	// than silent, matching how non-content bookkeeping records are handled.
+	//
+	// The filter keys on the node role, not the block type, so a harness that
+	// reports thinking as a message role is caught by the same rule. It applies
+	// at capture only: re-filtering an already-stored artifact would shift its
+	// physical line numbers and silently break every [src:art_x#L..-L..]
+	// citation already pointing into it.
+	elidedThinking := 0
+	kept := nodes[:0]
+	for _, n := range nodes {
+		if n.Role == TranscriptRoleThinking {
+			elidedThinking++
+			continue
+		}
+		kept = append(kept, n)
+	}
+	nodes = kept
+
 	var warnings []Warning
 	if unparsed > 0 {
 		warnings = append(warnings, Warning(fmt.Sprintf(
@@ -150,7 +175,7 @@ func CompileTranscript(raw string) (string, ContentFormat, []Warning) {
 			"Transcript compile: %d content block(s) of unrecognized type were preserved as raw JSON [%s].", total, strings.Join(types, " "))))
 	}
 
-	return renderTranscript(nodes, recordCount, nonContent, unknownBlock), ContentFormatMarkdown, warnings
+	return renderTranscript(nodes, recordCount, nonContent, unknownBlock, elidedThinking), ContentFormatMarkdown, warnings
 }
 
 // recordNodes lowers one JSONL record into zero or more IR nodes, plus a
@@ -352,7 +377,7 @@ func splitLines(s string) []string {
 // renderTranscript lowers the IR to the final full view. Each node gets a
 // role-tagged header so a citation can name what it is citing, and the header
 // block states exactly what was elided.
-func renderTranscript(nodes []TranscriptNode, recordCount int, nonContent, unknownBlock map[string]int) string {
+func renderTranscript(nodes []TranscriptNode, recordCount int, nonContent, unknownBlock map[string]int, elidedThinking int) string {
 	var sb strings.Builder
 	sb.WriteString("# Compiled Session Transcript\n")
 	sb.WriteString(fmt.Sprintf("Records read: %d. Content nodes: %d.\n", recordCount, len(nodes)))
@@ -380,6 +405,11 @@ func renderTranscript(nodes []TranscriptNode, recordCount int, nonContent, unkno
 		sb.WriteString(fmt.Sprintf(
 			"Unrecognized content block(s) preserved as raw JSON: %d [%s]. The raw trace is retained separately.\n",
 			total, strings.Join(types, " ")))
+	}
+	if elidedThinking > 0 {
+		sb.WriteString(fmt.Sprintf(
+			"Assistant thinking turns excluded from this view: %d. The verbatim trace is retained in the machine-local session stash.\n",
+			elidedThinking))
 	}
 	sb.WriteString("Cite spans from this file as [src:<artifact_id>#L<start>-L<end>].\n")
 

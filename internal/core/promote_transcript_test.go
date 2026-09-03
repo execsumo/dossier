@@ -62,7 +62,7 @@ func TestPromoteArchivesRawJSONLBeforeCompiledView(t *testing.T) {
 		t.Errorf("raw artifact metadata is not explicit: %+v", raw)
 	}
 	if compiled.Content == sampleTrace || compiled.ContentFormat != ContentFormatMarkdown ||
-		!strings.Contains(compiled.Content, "## [3] tool_call Bash") {
+		!strings.Contains(compiled.Content, "## [2] tool_call Bash") {
 		t.Errorf("compiled artifact is not the citable view: %+v", compiled)
 	}
 	if !strings.Contains(compiled.Provenance.Origin, raw.ID) {

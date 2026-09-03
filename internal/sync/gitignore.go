@@ -10,17 +10,27 @@ import (
 )
 
 // defaultGitignoreEntries is the machine-local exclusion set from the Team Sync
-// plan (BUILD-DECISIONS B12): these live at the store root and must never be
-// committed/synced. Per-author content under <slug>/sessions/<author>/ and
-// <slug>/audit/<author>.log is intentionally NOT matched here — it syncs.
+// plan (BUILD-DECISIONS B12): these must never be committed/synced. Per-author
+// <slug>/audit/<author>.log is intentionally NOT matched here — it syncs, because
+// attribution of recorded events is provenance the team wants.
 //
-// The dir entries are anchored at the repo root with a leading "/" so that
-// per-slug subdirectories of the same name continue to sync.
+// The raw session stash (<slug>/sessions/<author>/) does NOT sync. It is a
+// byte-for-byte copy of the harness trace with no reader anywhere in the
+// codebase, and a [src:] line range into raw JSONL lands mid-record and cites
+// nothing — so syncing it would ship the rawest possible content (unedited
+// prompts, thinking, every tool result) while adding no depth a teammate can
+// actually reach. The shared depth layer is the compiled transcript artifact
+// under <slug>/artifacts/, which is line-stable and citable.
+//
+// Root entries are anchored with a leading "/" so per-slug subdirectories of the
+// same name are unaffected; "*/sessions/" matches exactly one level down, which
+// is every dossier slug (the topic model is flat).
 var defaultGitignoreEntries = []string{
 	"# Dossier sync — machine-local, never committed (managed by internal/sync)",
 	"/config.yaml",
 	"/credentials",
-	"/sessions/", // root session bindings only; <slug>/sessions/ syncs
+	"/sessions/",  // root session bindings
+	"*/sessions/", // per-slug raw session stash — write-only, never citable
 	"/context/",
 	".lock",
 	".sync.lock",
