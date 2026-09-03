@@ -73,6 +73,27 @@ func TestSearchIncludesCollapsedExtrasWithoutMutatingExpansion(t *testing.T) {
 	}
 }
 
+// Quit must stay reachable from inside the search box: ctrl+c is otherwise
+// swallowed by the text input, leaving no way to kill the TUI while filtering.
+func TestSearchModeCtrlCStillQuits(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "one", "One Topic", core.StatusSpark)
+	m := boardModel(t, store, 120, 40)
+	m.currentView = ViewDashboard
+	m.listView = ViewDashboard
+	m, _ = press(t, m, "/")
+	if !m.searchActive {
+		t.Fatal("/ did not enter search mode")
+	}
+	_, cmd := press(t, m, "ctrl+c")
+	if cmd == nil {
+		t.Fatal("ctrl+c returned no command while searching")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("ctrl+c while searching = %T, want tea.QuitMsg", cmd())
+	}
+}
+
 func TestSearchModeLifecycleAndKeyIsolation(t *testing.T) {
 	store := newTestStore()
 	seedDossier(store, "one", "One Topic", core.StatusSpark)
@@ -1132,11 +1153,11 @@ func TestChooseLeadFiltersDashboard(t *testing.T) {
 	svc := setupTestService(store)
 	m := NewModel(svc)
 
-	m.items = []core.ListItem{
+	m.setItems([]core.ListItem{
 		{ID: "1", Name: "Alpha", Lead: "Bob"},
 		{ID: "2", Name: "Beta", Lead: "Alice"},
 		{ID: "3", Name: "Gamma", Lead: "Bob"},
-	}
+	})
 	m.leadOptions = deriveLeadOptions(m.items)
 	m.leadResults = m.leadOptions
 
@@ -1164,11 +1185,11 @@ func TestEscFromDashboardIsNoOp(t *testing.T) {
 	svc := setupTestService(store)
 	m := NewModel(svc)
 
-	m.items = []core.ListItem{
+	m.setItems([]core.ListItem{
 		{ID: "1", Name: "Alpha", Lead: "Bob"},
 		{ID: "2", Name: "Beta", Lead: "Alice"},
 		{ID: "3", Name: "Gamma", Lead: "Bob"},
-	}
+	})
 	m.leadOptions = deriveLeadOptions(m.items)
 	m.leadResults = m.leadOptions
 
@@ -1450,7 +1471,7 @@ func TestLeadSelectorWindowing(t *testing.T) {
 	m.width = 100
 	m.height = 20 // leadVisibleRows = 20 - 14 = 6
 	m.loading = false
-	m.items = []core.ListItem{{ID: "x", Lead: "anchor"}} // non-empty so loading branch is skipped
+	m.setItems([]core.ListItem{{ID: "x", Lead: "anchor"}}) // non-empty so loading branch is skipped
 
 	for i := 0; i < 50; i++ {
 		m.leadResults = append(m.leadResults, leadOption{

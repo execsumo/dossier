@@ -868,13 +868,20 @@ func filterLeadOptions(opts []leadOption, query string) []leadOption {
 // Done column hid done work would be lying about the stage it names. Grouping
 // here — rather than in the renderer — keeps it O(n) per data/filter change
 // instead of per frame.
-func (m *Model) applyFilters() {
-	if len(m.haystacks) != len(m.items) {
-		m.haystacks = make([]string, len(m.items))
-		for i, item := range m.items {
-			m.haystacks[i] = core.Haystack(item)
-		}
+// setItems replaces the full dossier list and rebuilds the parallel search
+// haystacks in the same step. Binding the two together is what lets applyFilters
+// index m.haystacks[i] directly: a length check would not catch a same-length
+// change (a rename, or one dossier added and one removed in one refresh), so the
+// invariant is kept by construction rather than by re-checking at each use.
+func (m *Model) setItems(items []core.ListItem) {
+	m.items = items
+	m.haystacks = make([]string, len(items))
+	for i, item := range items {
+		m.haystacks[i] = core.Haystack(item)
 	}
+}
+
+func (m *Model) applyFilters() {
 	visible := make([]core.ListItem, 0, len(m.items))
 	var extraItems []core.ListItem
 	matched := make([]core.ListItem, 0, len(m.items))
@@ -882,7 +889,7 @@ func (m *Model) applyFilters() {
 		if !m.leadFilter.matches(item) || !m.interfaceFilter.matches(item) {
 			continue
 		}
-		if i >= len(m.haystacks) || !m.searchQuery.Matches(m.haystacks[i]) {
+		if !m.searchQuery.Matches(m.haystacks[i]) {
 			continue
 		}
 		matched = append(matched, item)
@@ -1242,6 +1249,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.searchActive && m.isListView() {
 			switch msg.String() {
+			case "ctrl+c":
+				// Quit stays reachable from inside the search box; without this
+				// the key falls through to searchInput and is swallowed.
+				return m, tea.Quit
 			case "esc":
 				m.searchInput.SetValue("")
 				m.searchQuery = core.Query{}
@@ -1763,11 +1774,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return false
 		})
 
-		m.items = msg
-		m.haystacks = make([]string, len(m.items))
-		for i, item := range m.items {
-			m.haystacks[i] = core.Haystack(item)
-		}
+		m.setItems(msg)
 
 		// Re-derive lead options on every refresh so newly-assigned leads appear,
 		// while preserving the active filter (and the search box) across hot-reloads.

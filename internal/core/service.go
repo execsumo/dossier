@@ -1763,7 +1763,7 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 		if !matchesInterfaces(fm.Interfaces, req.Interfaces) {
 			continue
 		}
-		if !query.Matches(Haystack(ListItem{
+		if !query.IsEmpty() && !query.Matches(Haystack(ListItem{
 			Name:        fm.Name,
 			Slug:        fm.Slug,
 			Description: fm.Description,
