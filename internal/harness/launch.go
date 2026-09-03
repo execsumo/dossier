@@ -18,7 +18,11 @@ const ClaudeBinEnv = "DOSSIER_CLAUDE_BIN"
 // leave a caller with a silent no-op.
 func ClaudeBin() (string, error) {
 	if override := os.Getenv(ClaudeBinEnv); override != "" {
-		return override, nil
+		path, err := exec.LookPath(override)
+		if err != nil {
+			return "", fmt.Errorf("%s=%q is not an executable file: %w; set %s to the Claude Code executable or unset it to use PATH", ClaudeBinEnv, override, err, ClaudeBinEnv)
+		}
+		return path, nil
 	}
 	path, err := exec.LookPath("claude")
 	if err != nil {

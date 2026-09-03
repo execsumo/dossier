@@ -107,8 +107,10 @@ func TestMCPSwitchResolvesSessionFromEnv(t *testing.T) {
 // TestMCPSwitchNoSessionDegradesVisibly proves the MCP path errors visibly (rather than
 // silently binding the shared sess_default bucket) when no session id is resolvable.
 func TestMCPSwitchNoSessionDegradesVisibly(t *testing.T) {
-	t.Setenv("DOSSIER_SESSION", "")
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("PI_SESSION_ID", "")
+	t.Setenv("DOSSIER_SESSION", "")
+	t.Setenv("DOSSIER_PI_SESSION_DIR", t.TempDir())
 
 	svc := newSessionTestService(t)
 

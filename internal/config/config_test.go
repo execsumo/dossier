@@ -63,17 +63,76 @@ func TestLoadValueLists(t *testing.T) {
 }
 
 func TestConfigRejectsInvalidValueLists(t *testing.T) {
-	cfg := Default()
-	cfg.Leads = []string{"Alice", "Alice"}
-	if err := cfg.Save(filepath.Join(t.TempDir(), "config.yaml")); err == nil || !strings.Contains(err.Error(), "duplicate") {
-		t.Fatalf("Save() error = %v, want duplicate-value error", err)
+	tests := []struct {
+		name string
+		set  func(*Config)
+		want []string
+	}{
+		{
+			name: "interface leading whitespace",
+			set:  func(cfg *Config) { cfg.Interfaces = []string{" Planning"} },
+			want: []string{"interfaces", "leading or trailing whitespace"},
+		},
+		{
+			name: "interface trailing whitespace",
+			set:  func(cfg *Config) { cfg.Interfaces = []string{"Planning\t"} },
+			want: []string{"interfaces", "leading or trailing whitespace"},
+		},
+		{
+			name: "interface whitespace-equivalent duplicate",
+			set:  func(cfg *Config) { cfg.Interfaces = []string{"Planning", "\tPlanning "} },
+			want: []string{"interfaces", "duplicate"},
+		},
+		{
+			name: "lead leading whitespace",
+			set:  func(cfg *Config) { cfg.Leads = []string{" Alice"} },
+			want: []string{"leads", "leading or trailing whitespace"},
+		},
+		{
+			name: "lead trailing whitespace",
+			set:  func(cfg *Config) { cfg.Leads = []string{"Alice\t"} },
+			want: []string{"leads", "leading or trailing whitespace"},
+		},
+		{
+			name: "lead whitespace-equivalent duplicate",
+			set:  func(cfg *Config) { cfg.Leads = []string{"Alice", " Alice\t"} },
+			want: []string{"leads", "duplicate"},
+		},
 	}
 
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("interfaces:\n  - '  '\n"), 0644); err != nil {
-		t.Fatal(err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Default()
+			tt.set(cfg)
+			err := cfg.Save(filepath.Join(t.TempDir(), "config.yaml"))
+			if err == nil {
+				t.Fatal("Save() succeeded, want validation error")
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("Save() error = %v, want it to contain %q", err, want)
+				}
+			}
+		})
 	}
-	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "blank") {
-		t.Fatalf("Load() error = %v, want blank-value error", err)
-	}
+
+	t.Run("load rejects blank interface", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte("interfaces:\n  - '  '\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "blank") {
+			t.Fatalf("Load() error = %v, want blank-value error", err)
+		}
+	})
+
+	t.Run("load rejects whitespace-equivalent lead duplicates", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte("leads:\n  - Alice\n  - ' Alice '\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "leads contains duplicate") {
+			t.Fatalf("Load() error = %v, want whitespace-equivalent duplicate error", err)
+		}
+	})
 }

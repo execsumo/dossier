@@ -84,6 +84,52 @@ func TestClaudeBinHonoursOverride(t *testing.T) {
 	}
 }
 
+func TestClaudeBinRejectsInvalidOverride(t *testing.T) {
+	tests := []struct {
+		name string
+		path func(*testing.T) string
+	}{
+		{
+			name: "nonexistent",
+			path: func(t *testing.T) string {
+				return filepath.Join(t.TempDir(), "missing-claude")
+			},
+		},
+		{
+			name: "directory",
+			path: func(t *testing.T) string {
+				return t.TempDir()
+			},
+		},
+		{
+			name: "non-executable",
+			path: func(t *testing.T) string {
+				path := filepath.Join(t.TempDir(), "claude")
+				if err := os.WriteFile(path, []byte("not executable"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return path
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			override := tt.path(t)
+			t.Setenv(ClaudeBinEnv, override)
+
+			got, err := ClaudeBin()
+			if err == nil {
+				t.Fatalf("expected an error, got %q", got)
+			}
+			msg := err.Error()
+			if !strings.Contains(msg, ClaudeBinEnv) || !strings.Contains(msg, override) || !strings.Contains(msg, "executable") || !strings.Contains(msg, "unset") {
+				t.Errorf("error is not actionable for invalid override: %s", msg)
+			}
+		})
+	}
+}
+
 func TestClaudeBinMissingIsAnActionableError(t *testing.T) {
 	t.Setenv(ClaudeBinEnv, "")
 	t.Setenv("PATH", t.TempDir())

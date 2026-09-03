@@ -98,6 +98,51 @@ func TestOpenCommandBindsThenLaunches(t *testing.T) {
 	}
 }
 
+// An invalid explicit override must fail loudly before a binding is written.
+func TestOpenCommandInvalidOverrideLeavesNoBinding(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("DOSSIER_HOME", tempHome)
+	dossierDir := filepath.Join(tempHome, "pricing-model-refresh")
+	if err := os.MkdirAll(dossierDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Truncate(time.Second)
+	serialized, err := store.FormatDossierFile(core.Frontmatter{
+		ID:        "dos_open123",
+		Name:      "Pricing model refresh",
+		Slug:      "pricing-model-refresh",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Status:    core.StatusActive,
+		Priority:  core.PriorityHigh,
+	}, "# Pricing model refresh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dossierDir, "dossier.md"), []byte(serialized), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	override := filepath.Join(t.TempDir(), "missing-claude")
+	t.Setenv(harness.ClaudeBinEnv, override)
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"open", "pricing-model-refresh", "--home", tempHome})
+	cmd.SetOut(&strings.Builder{})
+	cmd.SetErr(&strings.Builder{})
+
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("expected an error for an invalid DOSSIER_CLAUDE_BIN")
+	}
+	if msg := err.Error(); !strings.Contains(msg, harness.ClaudeBinEnv) || !strings.Contains(msg, override) || !strings.Contains(msg, "executable") {
+		t.Errorf("error should explain how to fix the invalid override, got: %v", err)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(tempHome, "sessions")); len(entries) != 0 {
+		t.Errorf("expected no session bindings written, got %v", entries)
+	}
+}
+
 // A missing claude binary must fail loudly and leave no binding behind.
 func TestOpenCommandMissingBinary(t *testing.T) {
 	tempHome := t.TempDir()

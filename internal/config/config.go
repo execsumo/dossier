@@ -94,17 +94,38 @@ func (c *Config) Save(path string) error {
 }
 
 func (c *Config) validateValues() error {
-	for label, values := range map[string][]string{"interfaces": c.Interfaces, "leads": c.Leads} {
-		seen := make(map[string]bool, len(values))
-		for _, value := range values {
-			if strings.TrimSpace(value) == "" {
-				return fmt.Errorf("%s must not contain blank values", label)
-			}
-			if seen[value] {
-				return fmt.Errorf("%s contains duplicate value %q", label, value)
-			}
-			seen[value] = true
+	for _, vocabulary := range []struct {
+		label  string
+		values []string
+	}{
+		{label: "interfaces", values: c.Interfaces},
+		{label: "leads", values: c.Leads},
+	} {
+		if err := validateVocabulary(vocabulary.label, vocabulary.values); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+func validateVocabulary(label string, values []string) error {
+	seen := make(map[string]bool, len(values))
+	var whitespaceValue string
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return fmt.Errorf("%s must not contain blank values", label)
+		}
+		if seen[trimmed] {
+			return fmt.Errorf("%s contains duplicate value %q (ignoring surrounding whitespace)", label, trimmed)
+		}
+		seen[trimmed] = true
+		if trimmed != value && whitespaceValue == "" {
+			whitespaceValue = value
+		}
+	}
+	if whitespaceValue != "" {
+		return fmt.Errorf("%s value %q must not contain leading or trailing whitespace", label, whitespaceValue)
 	}
 	return nil
 }
