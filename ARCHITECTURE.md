@@ -56,6 +56,7 @@ dossier/
       priority.go        # canonical priority ordering + legacy matrix mapping (SPEC §11.1)
       legacy.go          # pure compatibility merge for retired frontmatter open_questions
       suggest.go         # lexical suggestion ranking (SPEC §11.2)
+      query.go           # Query: compiled frontmatter filter shared by CLI/MCP/TUI list surfaces
       result.go          # Result/Warning/NextAction value types (the §8.2 envelope, surface-agnostic)
       errors.go          # typed domain errors ↔ the §8.2 error codes
       ports.go           # Store, Searcher, Tokenizer, HarnessRegistry, Clock, Syncer interfaces
@@ -89,6 +90,7 @@ dossier/
     mcp/                 # stdio MCP server → core.Service → §8.2 envelope
     tui/                 # bubbletea models/views (fsnotify hot-refresh, glamour markdown) → core.Service
                          #   two home surfaces over one filtered set: dashboard table + kanban.go stage board
+                         #   search-as-you-type ('/') is a mode over both surfaces, not a separate view
   assets/                # go:embed — Distillation Guide, context templates, installables
     guide.md
     library.tmpl.md
@@ -351,6 +353,10 @@ The Distilled State is a *view* over the Archive, not the record. That framing o
 **Citation validation.** `internal/core/provenance.go` owns the citation grammar. `ParseProvenanceRef` parses the `#L<start>-L<end>` fragment that was previously matched and discarded; `validateDistilledStateProvenance` checks that every content line carries a citation, that the artifact exists, and that the cited range fits inside it. `doctor` reports a dangling range as an issue — a pointer that reads as evidence while resolving to nothing is worse than no pointer. Two lines are structurally exempt from the "every line cites" rule rather than flagged: the `## Evidence` section heading (its content lines already name their own `art_<id>`, so a citation to itself is circular) and any `[assumed]`-tagged line (defined by `guide.md` as "believed but unverified" — it has nothing to cite by design). Without the exemption, `guide.md`'s own worked examples fail the validator they're meant to satisfy.
 
 **The low-end signal.** The token target is a ceiling; `uncitedArtifactWarning` supplies the missing floor. `Save`, `Recall`, and `doctor` all surface archived artifacts the Distilled State never cites, since evidence the curated view does not point at is unreachable in practice. It is an advisory in `doctor` (a distillation smell, not store damage) and a warning elsewhere.
+
+**List filtering across surfaces (`core/query.go`).** `Query` is a compiled search over a Dossier's frontmatter — `name`, `description`, `lead`, each `interface`, and `slug`. `NewQuery` lowercases and splits the raw input on whitespace; `Matches` requires **every** term to be a substring of the haystack (AND across terms, OR across fields), so `alice billing` intersects the two. `Haystack` joins the fields with `"\n"`, which is what stops a single term from matching across a field boundary. It is plain substring matching, not fuzzy — predictable beats clever when a teammate has to reason about why a Dossier did or did not appear. The matcher is pure and lives in `core` precisely because `dossier ls -q`, MCP `dossier_list.query`, and the TUI's `/` search must agree; `Service.List` skips the haystack build entirely when the query is empty, so unfiltered listing pays nothing.
+
+The TUI is the one caller that filters repeatedly — once per keystroke — so it precomputes haystacks instead of rebuilding them per pass. `Model.haystacks` runs parallel to `Model.items`, and `setItems` assigns both together: the invariant holds by construction rather than by a length check, which would not catch a same-length change (a rename, or one Dossier added and one removed in a single refresh). `applyFilters` is the single choke point that rebuilds `visibleItems`, `liveCount`, `extrasCount` and `kanbanColumns` from the lead, interface and search filters at once, which is why both home surfaces narrow to identical sets for free. While a query is active it derives extras expansion (`m.extrasExpanded || !m.searchQuery.IsEmpty()`) rather than mutating it — a user who cannot recall a Dossier's name is often hunting an old one, so search must reach done/archived work without disturbing the collapse state they will return to.
 
 `dossier_artifact` / `dossier_artifacts` (MCP), `dossier artifact <dossier> [<artifact>] [-L a-b]` (CLI), and the `a` key from the TUI's detail view (evidence index, then enter to fetch one artifact's content) are the three surfaces over the same `Service` methods.
 

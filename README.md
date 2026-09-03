@@ -122,6 +122,7 @@ dossier status payments-migration active
 dossier lead payments-migration "Bob"
 dossier interface payments-migration "1:1" "Pricing WBR"
 dossier ls --interface "1:1" --json   # topics to discuss in a 1:1
+dossier ls -q "billing"           # find a Dossier without recalling its exact name
 dossier next payments-migration "Write the cutover runbook"
 dossier priority payments-migration --priority high
 dossier link payments-migration --from-file ./notes.md   # attach a source to the archive
@@ -141,6 +142,8 @@ dossier        # or: dossier tui
 
 It opens a priority-sorted dashboard of your Dossiers, with Lead and discussion-interface filters for meeting prep. From there you can:
 
+- **search** with `/` (or `ctrl+f`) and just start typing — the dashboard or board narrows on every keystroke, matching against name, description, Lead, discussion interface, and slug. Space-separated words all have to match, so `alice billing` finds Alice's billing topic. `↑`/`↓` moves through the results, `enter` opens one, `tab` keeps the filter and hands your shortcuts back, and `esc` clears it. Resolved and archived Dossiers are included while you search even though they're normally collapsed — the Dossier you can't name is often one you already finished.
+
 - **open** a Dossier to read its distilled state (with a live token estimate and over-target warning). The distilled state is rendered natively as rich, syntax-highlighted Markdown. The view automatically live-refreshes when Claude Code updates the dossier in the background.
 - **filter** by Lead with `f`, then cycle through `All` and the seven discussion interfaces with `i` (for example, Marcus + `1:1`),
 - **switch to the board** with `b` — the same filtered Dossiers laid out as stage columns (spark → define → delegated → review → blocked → done), each card showing the Dossier's name and description. Arrows move between cards, enter opens one, and `b` returns you to the table. Done cards show the title only, so finished work costs the space it deserves. Every dashboard key works on the board, filters included.
@@ -149,7 +152,7 @@ It opens a priority-sorted dashboard of your Dossiers, with Lead and discussion-
 - **merge** one Dossier into another, resolving any conflicts in a syntax-highlighted side-by-side view (sources are archived, never deleted), and
 - **open in Claude** with `c` — launches a fresh Claude Code session already bound to the selected Dossier, with its distilled state loaded. The TUI suspends until you exit the session, then refreshes. (`dossier open <slug-or-id>` does the same from the shell. Set `DOSSIER_CLAUDE_BIN` if `claude` is not on your PATH.)
 
-Both views — the table and the board — are thin layers over the same core as the CLI and MCP, so they behave identically — `q` quits, `?` toggles help.
+Both views — the table and the board — are thin layers over the same core as the CLI and MCP, so they behave identically — `q` quits, `?` toggles help. Search runs on the same shared filter as `dossier ls -q` and the `dossier_list` MCP tool, so all three agree on what matches.
 
 ## How it works
 

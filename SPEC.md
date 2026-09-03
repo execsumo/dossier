@@ -369,7 +369,7 @@ The first implementation milestone should produce a capability matrix in `docs/h
 
 ```text
 dossier init
-dossier ls [--status spark|define|delegated|review|blocked|done|all] [--interface <interface>] [--json]
+dossier ls [--status spark|define|delegated|review|blocked|done|all] [--interface <interface>] [-q|--query <text>] [--json]
 dossier show <slug-or-id> [--json]
 dossier promote [--name <name>] [--from-file <path>] [--json]
 dossier link [<slug-or-id>] [--from-file <path>] [--json]
@@ -414,6 +414,7 @@ dossier doctor
 - Reads frontmatter across `*/dossier.md`.
 - Default status filter: open work (`spark`, `define`, `delegated`, `review`, `blocked`).
 - Sorts by priority (`max` first, then `high`, `medium`, `low`).
+- `--query` narrows the result to Dossiers whose `name`, `description`, `lead`, any `interface`, or `slug` contains every whitespace-separated term (case-insensitive substring; AND across terms, OR across fields). A term never matches across a field boundary. Filtering only — result ordering is unchanged.
 - Includes capability warning column if invoked inside a known harness/session.
 
 `dossier promote`
@@ -557,6 +558,7 @@ Input:
 ```json
 {
   "status": ["define", "delegated", "review", "blocked"],
+  "query": "billing",
   "limit": 50,
   "include_warnings": true
 }
@@ -1021,7 +1023,15 @@ Checks:
 - Archived Dossier remains searchable.
 - No CLI/MCP delete command exists.
 
-### 14.10 Team Sync
+### 14.10 List Search
+
+- `dossier ls -q`, MCP `dossier_list.query`, and the TUI's `/` search return the same set for the same query — one matcher in `core`, no adapter forks.
+- A query matches against `name`, `description`, `lead`, `interfaces`, and `slug`; a term spanning two fields does not match.
+- Multiple whitespace-separated terms are ANDed.
+- In the TUI, the dashboard and the Kanban board narrow to identical sets, filtering runs on every keystroke with no debounce, and resolved/archived Dossiers are reachable through search without changing the extras collapse state.
+- `ctrl+c` still quits while the search box has focus (`q` types the letter, as it must).
+
+### 14.11 Team Sync
 
 > Status (2026-07-16): implemented and integrated; all criteria are covered by automated tests against local bare repos (internal/sync, internal/cli) EXCEPT the "exactly two commands and one sign-in" PAT onboarding, which remains pending the Phase 4 real-GitHub pilot.
 - Two stores converge through one remote.

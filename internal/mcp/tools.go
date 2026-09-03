@@ -50,6 +50,10 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 						"description": "Filter by status (spark|define|delegated|review|blocked|done|all)",
 					},
 					"interfaces": configuredStringListSchema(interfaces, "Filter by discussion interface; matches dossiers assigned to any supplied interface"),
+					"query": map[string]any{
+						"type":        "string",
+						"description": "Filter by name, description, lead, interface, or slug; whitespace-separated terms are ANDed",
+					},
 				},
 			},
 		},
@@ -281,9 +285,10 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		var params struct {
 			Status     string   `json:"status"`
 			Interfaces []string `json:"interfaces"`
+			Query      string   `json:"query"`
 		}
 		_ = json.Unmarshal(args, &params)
-		res, err = s.svc.List(ctx, core.ListReq{Status: params.Status, Interfaces: params.Interfaces})
+		res, err = s.svc.List(ctx, core.ListReq{Status: params.Status, Interfaces: params.Interfaces, Query: params.Query})
 
 	case "dossier_recall":
 		var params struct {

@@ -1699,6 +1699,7 @@ func (s *Service) ListArtifacts(ctx context.Context, req ListArtifactsReq) (Resu
 type ListReq struct {
 	Status     string
 	Interfaces []string
+	Query      string
 }
 
 func matchesInterfaces(have, want []string) bool {
@@ -1757,8 +1758,18 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 	}
 
 	var filtered []Frontmatter
+	query := NewQuery(req.Query)
 	for _, fm := range fms {
 		if !matchesInterfaces(fm.Interfaces, req.Interfaces) {
+			continue
+		}
+		if !query.IsEmpty() && !query.Matches(Haystack(ListItem{
+			Name:        fm.Name,
+			Slug:        fm.Slug,
+			Description: fm.Description,
+			Lead:        fm.Lead,
+			Interfaces:  fm.Interfaces,
+		})) {
 			continue
 		}
 		if req.Status == "" {

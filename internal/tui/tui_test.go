@@ -22,6 +22,105 @@ func stripANSI(str string) string {
 	return ansiRegex.ReplaceAllString(str, "")
 }
 
+func TestSearchFiltersDashboardAndKanbanFromSameSet(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "billing", "Billing Review", core.StatusSpark, func(fm *core.Frontmatter) {
+		fm.Description = "Quarterly forecast"
+	})
+	seedDossier(store, "roadmap", "Product Roadmap", core.StatusSpark)
+	m := boardModel(t, store, 120, 40)
+	m.currentView = ViewDashboard
+	m.listView = ViewDashboard
+	m.searchActive = true
+	m.searchInput.Focus()
+	m.searchInput.SetValue("forecast")
+	m.searchQuery = core.NewQuery(m.searchInput.Value())
+	m.applyFilters()
+	if len(m.visibleItems) != 1 || m.visibleItems[0].ID != "billing" {
+		t.Fatalf("dashboard search results = %+v, want billing", m.visibleItems)
+	}
+	dashboardIDs := []string{m.visibleItems[0].ID}
+	m.currentView = ViewKanban
+	m.listView = ViewKanban
+	m.applyFilters()
+	var boardIDs []string
+	for _, column := range m.kanbanColumns {
+		for _, item := range column {
+			boardIDs = append(boardIDs, item.ID)
+		}
+	}
+	if len(boardIDs) != 1 || boardIDs[0] != dashboardIDs[0] {
+		t.Fatalf("kanban search results = %v, want %v", boardIDs, dashboardIDs)
+	}
+}
+
+func TestSearchIncludesCollapsedExtrasWithoutMutatingExpansion(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "old", "Archived Billing", core.StatusDone)
+	m := boardModel(t, store, 120, 40)
+	m.currentView = ViewDashboard
+	m.listView = ViewDashboard
+	m.extrasExpanded = false
+	m.searchActive = true
+	m.searchInput.SetValue("archived")
+	m.searchQuery = core.NewQuery(m.searchInput.Value())
+	m.applyFilters()
+	if m.extrasExpanded {
+		t.Fatal("search must not mutate extrasExpanded")
+	}
+	if len(m.visibleItems) != 1 || m.visibleItems[0].ID != "old" {
+		t.Fatalf("search results = %+v, want archived dossier", m.visibleItems)
+	}
+}
+
+// Quit must stay reachable from inside the search box: ctrl+c is otherwise
+// swallowed by the text input, leaving no way to kill the TUI while filtering.
+func TestSearchModeCtrlCStillQuits(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "one", "One Topic", core.StatusSpark)
+	m := boardModel(t, store, 120, 40)
+	m.currentView = ViewDashboard
+	m.listView = ViewDashboard
+	m, _ = press(t, m, "/")
+	if !m.searchActive {
+		t.Fatal("/ did not enter search mode")
+	}
+	_, cmd := press(t, m, "ctrl+c")
+	if cmd == nil {
+		t.Fatal("ctrl+c returned no command while searching")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("ctrl+c while searching = %T, want tea.QuitMsg", cmd())
+	}
+}
+
+func TestSearchModeLifecycleAndKeyIsolation(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "one", "One Topic", core.StatusSpark)
+	seedDossier(store, "two", "Second Topic", core.StatusSpark)
+	m := boardModel(t, store, 120, 40)
+	m.currentView = ViewDashboard
+	m.listView = ViewDashboard
+	m, _ = press(t, m, "/")
+	if !m.searchActive {
+		t.Fatal("/ did not enter search mode")
+	}
+	searchCursor := m.table.Cursor()
+	m, _ = press(t, m, "s")
+	if m.searchInput.Value() != "s" || m.currentView != ViewDashboard || m.table.Cursor() != searchCursor {
+		t.Fatalf("search key leaked to another handler: value=%q view=%v cursor=%d before=%d", m.searchInput.Value(), m.currentView, m.table.Cursor(), searchCursor)
+	}
+	m, _ = press(t, m, "tab")
+	if m.searchActive || m.searchQuery.IsEmpty() {
+		t.Fatalf("tab should commit the query: active=%v queryEmpty=%v", m.searchActive, m.searchQuery.IsEmpty())
+	}
+	m, _ = press(t, m, "/")
+	m, _ = press(t, m, "esc")
+	if m.searchActive || !m.searchQuery.IsEmpty() || m.searchInput.Value() != "" {
+		t.Fatalf("esc should clear search: active=%v queryEmpty=%v value=%q", m.searchActive, m.searchQuery.IsEmpty(), m.searchInput.Value())
+	}
+}
+
 // enterDashboard keeps tests that explicitly construct a lead-selector model
 // compatible with the dashboard-focused startup behavior.
 func enterDashboard(t *testing.T, m Model) Model {
@@ -1054,11 +1153,11 @@ func TestChooseLeadFiltersDashboard(t *testing.T) {
 	svc := setupTestService(store)
 	m := NewModel(svc)
 
-	m.items = []core.ListItem{
+	m.setItems([]core.ListItem{
 		{ID: "1", Name: "Alpha", Lead: "Bob"},
 		{ID: "2", Name: "Beta", Lead: "Alice"},
 		{ID: "3", Name: "Gamma", Lead: "Bob"},
-	}
+	})
 	m.leadOptions = deriveLeadOptions(m.items)
 	m.leadResults = m.leadOptions
 
@@ -1086,11 +1185,11 @@ func TestEscFromDashboardIsNoOp(t *testing.T) {
 	svc := setupTestService(store)
 	m := NewModel(svc)
 
-	m.items = []core.ListItem{
+	m.setItems([]core.ListItem{
 		{ID: "1", Name: "Alpha", Lead: "Bob"},
 		{ID: "2", Name: "Beta", Lead: "Alice"},
 		{ID: "3", Name: "Gamma", Lead: "Bob"},
-	}
+	})
 	m.leadOptions = deriveLeadOptions(m.items)
 	m.leadResults = m.leadOptions
 
@@ -1372,7 +1471,7 @@ func TestLeadSelectorWindowing(t *testing.T) {
 	m.width = 100
 	m.height = 20 // leadVisibleRows = 20 - 14 = 6
 	m.loading = false
-	m.items = []core.ListItem{{ID: "x", Lead: "anchor"}} // non-empty so loading branch is skipped
+	m.setItems([]core.ListItem{{ID: "x", Lead: "anchor"}}) // non-empty so loading branch is skipped
 
 	for i := 0; i < 50; i++ {
 		m.leadResults = append(m.leadResults, leadOption{

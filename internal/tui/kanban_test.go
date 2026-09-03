@@ -63,6 +63,10 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "tab":
+		return tea.KeyMsg{Type: tea.KeyTab}
+	case "ctrl+c":
+		return tea.KeyMsg{Type: tea.KeyCtrlC}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -328,7 +332,7 @@ func TestKanbanHonoursFiltersAndShowsTerminalWork(t *testing.T) {
 	m := boardModel(t, store, 140, 40)
 	m.leadFilter = leadFilter{kind: filterByName, name: "Alice"}
 	m.interfaceFilter = interfaceFilter("Pricing WBR")
-	m.applyLeadFilter()
+	m.applyFilters()
 
 	view := stripANSI(m.View())
 	for _, want := range []string{"Keep Me", "Alice Done Work"} {
@@ -635,7 +639,7 @@ func TestEmptyStateFitsTerminalWidth(t *testing.T) {
 		// overflow both widths.
 		m.leadFilter = leadFilter{kind: filterByName, name: "Alexandra Featherstonehaugh"}
 		m.interfaceFilter = interfaceFilter("Pricing WBR")
-		m.applyLeadFilter()
+		m.applyFilters()
 		m.populateTableRows()
 
 		for _, surface := range []struct {

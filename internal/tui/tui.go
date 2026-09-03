@@ -273,6 +273,7 @@ type Model struct {
 	// Data
 	items        []core.ListItem // full dossier list, source of truth
 	visibleItems []core.ListItem // items[] narrowed by lead/interface filters and extrasExpanded; what the table shows
+	haystacks    []string        // searchable text parallel to items
 	liveCount    int             // visibleItems[:liveCount] are tier-0 (live) items; visibleItems[liveCount:] are extras, present only while expanded
 	extrasCount  int             // resolved/archived items matching leadFilter but excluded from visibleItems while collapsed
 	recallResult core.RecallResult
@@ -286,6 +287,9 @@ type Model struct {
 	interfaceFilter      interfaceFilter
 	configuredLeads      []string
 	configuredInterfaces []string
+	searchInput          textinput.Model
+	searchActive         bool
+	searchQuery          core.Query
 
 	// extrasExpanded controls the dashboard's "Show More... / Hide Extras..." row:
 	// when false (the default), resolved/archived dossiers are collapsed out of
@@ -347,7 +351,7 @@ type Model struct {
 	mergeConflict          *core.Conflict
 	conflictResolverCursor int // 0 = Resolve/Force, 1 = Cancel
 
-	// Kanban board view state. kanbanColumns is rebuilt by applyLeadFilter — one
+	// Kanban board view state. kanbanColumns is rebuilt by applyFilters — one
 	// bucket per canonical stage, holding the same filtered items the dashboard
 	// shows — so the board never groups per frame.
 	kanbanColumns [][]core.ListItem
@@ -412,6 +416,9 @@ func NewModel(svc *core.Service) Model {
 	leadSearch.Placeholder = "Type a lead's name to search…"
 	leadSearch.Focus()
 	leadSearch.Width = 40
+	searchInput := textinput.New()
+	searchInput.Placeholder = "Search dossiers…"
+	searchInput.Width = 40
 
 	watcher, err := fsnotify.NewWatcher()
 	updateChan := make(chan string, 100)
@@ -443,6 +450,7 @@ func NewModel(svc *core.Service) Model {
 		loading:              true,
 		statusOptions:        statusOptions,
 		leadSearch:           leadSearch,
+		searchInput:          searchInput,
 		configuredLeads:      svc.Leads(),
 		configuredInterfaces: svc.Interfaces(),
 		watcher:              watcher,
@@ -846,7 +854,7 @@ func filterLeadOptions(opts []leadOption, query string) []leadOption {
 	return out
 }
 
-// applyLeadFilter recomputes the dashboard's visible items from the full set and
+// applyFilters recomputes both home surfaces from the full set and
 // the active lead filter. It is the single choke point that keeps the table rows
 // in sync with the filter, so cursor lookups can index visibleItems directly.
 // Live (tier-0) items always come first, followed by extras (resolved/archived)
@@ -860,12 +868,28 @@ func filterLeadOptions(opts []leadOption, query string) []leadOption {
 // Done column hid done work would be lying about the stage it names. Grouping
 // here — rather than in the renderer — keeps it O(n) per data/filter change
 // instead of per frame.
-func (m *Model) applyLeadFilter() {
+// setItems replaces the full dossier list and rebuilds the parallel search
+// haystacks in the same step. Binding the two together is what lets applyFilters
+// index m.haystacks[i] directly: a length check would not catch a same-length
+// change (a rename, or one dossier added and one removed in one refresh), so the
+// invariant is kept by construction rather than by re-checking at each use.
+func (m *Model) setItems(items []core.ListItem) {
+	m.items = items
+	m.haystacks = make([]string, len(items))
+	for i, item := range items {
+		m.haystacks[i] = core.Haystack(item)
+	}
+}
+
+func (m *Model) applyFilters() {
 	visible := make([]core.ListItem, 0, len(m.items))
 	var extraItems []core.ListItem
 	matched := make([]core.ListItem, 0, len(m.items))
-	for _, item := range m.items {
+	for i, item := range m.items {
 		if !m.leadFilter.matches(item) || !m.interfaceFilter.matches(item) {
+			continue
+		}
+		if !m.searchQuery.Matches(m.haystacks[i]) {
 			continue
 		}
 		matched = append(matched, item)
@@ -877,13 +901,33 @@ func (m *Model) applyLeadFilter() {
 	}
 	m.liveCount = len(visible)
 	m.extrasCount = len(extraItems)
-	if m.extrasExpanded {
+	expanded := m.extrasExpanded || !m.searchQuery.IsEmpty()
+	if expanded {
 		visible = append(visible, extraItems...)
 	}
 	m.visibleItems = visible
 
 	m.kanbanColumns = groupByStage(matched)
 	m.clampKanbanCursor()
+}
+
+func (m *Model) openSelectedDossier() tea.Cmd {
+	var item core.ListItem
+	var ok bool
+	if m.currentView == ViewKanban {
+		item, ok = m.selectedKanbanItem()
+	} else if m.currentView == ViewDashboard {
+		itemIdx, isToggle := m.rowToItemIndex(m.table.Cursor())
+		if !isToggle && itemIdx >= 0 && itemIdx < len(m.visibleItems) {
+			item, ok = m.visibleItems[itemIdx], true
+		}
+	}
+	if !ok || item.ID == "" {
+		return nil
+	}
+	m.loading = true
+	m.err = nil
+	return m.recallDossierCmd(item.ID)
 }
 
 // isListView reports whether the current view is a home surface — the dashboard
@@ -933,7 +977,7 @@ func (m *Model) chooseLead() {
 	if m.leadCursor >= 0 && m.leadCursor < len(m.leadResults) {
 		m.leadFilter = m.leadResults[m.leadCursor].filter
 	}
-	m.applyLeadFilter()
+	m.applyFilters()
 	m.populateTableRows()
 	m.currentView = m.listView
 	m.table.SetCursor(0)
@@ -1203,6 +1247,67 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.searchActive && m.isListView() {
+			switch msg.String() {
+			case "ctrl+c":
+				// Quit stays reachable from inside the search box; without this
+				// the key falls through to searchInput and is swallowed.
+				return m, tea.Quit
+			case "esc":
+				m.searchInput.SetValue("")
+				m.searchQuery = core.Query{}
+				m.searchActive = false
+				m.searchInput.Blur()
+				m.applyFilters()
+				m.populateTableRows()
+				m.recalculateTableLayout()
+				m.table.SetCursor(0)
+				m.kanbanRow = 0
+				m.table.Focus()
+				return m, nil
+			case "tab":
+				m.searchActive = false
+				m.searchInput.Blur()
+				m.table.Focus()
+				m.recalculateTableLayout()
+				return m, nil
+			case "enter":
+				return m, m.openSelectedDossier()
+			case "up":
+				if m.currentView == ViewDashboard {
+					m.table.MoveUp(1)
+				} else {
+					m.moveKanbanRow(-1)
+				}
+				return m, nil
+			case "down":
+				if m.currentView == ViewDashboard {
+					m.table.MoveDown(1)
+				} else {
+					m.moveKanbanRow(1)
+				}
+				return m, nil
+			case "left":
+				if m.currentView == ViewKanban {
+					m.moveKanbanColumn(-1)
+				}
+				return m, nil
+			case "right":
+				if m.currentView == ViewKanban {
+					m.moveKanbanColumn(1)
+				}
+				return m, nil
+			}
+			m.searchInput, cmd = m.searchInput.Update(msg)
+			m.searchQuery = core.NewQuery(m.searchInput.Value())
+			m.applyFilters()
+			m.populateTableRows()
+			m.recalculateTableLayout()
+			m.table.SetCursor(0)
+			m.kanbanRow = 0
+			return m, cmd
+		}
+
 		// View-specific key overrides
 		switch m.currentView {
 		case ViewKanban:
@@ -1246,7 +1351,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Skip selection: fall through to the dashboard with the current
 				// filter (All by default). On the startup landing this means
 				// "show everything"; reopened via 'f' it cancels the change.
-				m.applyLeadFilter()
+				m.applyFilters()
 				m.populateTableRows()
 				m.currentView = m.listView
 				m.table.SetCursor(0)
@@ -1510,7 +1615,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if isToggle {
 					// The "Show More.../Hide Extras..." row, between live items and extras.
 					m.extrasExpanded = !m.extrasExpanded
-					m.applyLeadFilter()
+					m.applyFilters()
 					m.populateTableRows()
 					m.table.SetCursor(m.liveCount)
 					return m, nil
@@ -1579,10 +1684,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.openLeadSelector()
 				return m, nil
 			}
+		case "/", "ctrl+f":
+			if m.isListView() {
+				m.searchActive = true
+				m.searchInput.Focus()
+				m.recalculateTableLayout()
+				return m, nil
+			}
 		case "i":
 			if m.isListView() {
 				m.interfaceFilter = nextInterfaceFilter(m.interfaceFilter, m.configuredInterfaces)
-				m.applyLeadFilter()
+				m.applyFilters()
 				m.populateTableRows()
 				m.table.SetCursor(0)
 				return m, nil
@@ -1662,7 +1774,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return false
 		})
 
-		m.items = msg
+		m.setItems(msg)
 
 		// Re-derive lead options on every refresh so newly-assigned leads appear,
 		// while preserving the active filter (and the search box) across hot-reloads.
@@ -1675,7 +1787,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.leadCursor = 0
 		}
 
-		m.applyLeadFilter()
+		m.applyFilters()
 		m.populateTableRows()
 		if len(m.visibleItems) > 0 {
 			m.table.SetCursor(0)
@@ -1962,7 +2074,7 @@ func (m *Model) populateTableRows() {
 		rows = append(rows, itemTableRow(item, showPriority, showDue))
 	}
 	if m.extrasCount > 0 {
-		rows = append(rows, extrasToggleTableRow(m.extrasExpanded, showPriority, showDue))
+		rows = append(rows, extrasToggleTableRow(m.extrasExpanded || !m.searchQuery.IsEmpty(), showPriority, showDue))
 	}
 	for _, item := range m.visibleItems[m.liveCount:] {
 		rows = append(rows, itemTableRow(item, showPriority, showDue))
@@ -1977,7 +2089,11 @@ func (m *Model) populateTableRows() {
 // revealed progressively as the terminal widens.
 func (m *Model) recalculateTableLayout() {
 	footerH := m.footerHeight(ViewDashboard)
-	tableHeight := m.height - 4 - footerH
+	searchH := 0
+	if m.searchBarVisible() {
+		searchH = 1
+	}
+	tableHeight := m.height - 4 - footerH - searchH
 	if tableHeight < 3 {
 		tableHeight = 3
 	}
@@ -2480,10 +2596,10 @@ func (m Model) footerContent(v View) string {
 		}
 	}
 
-	keyHelp := "↑/↓: select • f: filters • s: stage • l: lead • p: priority • n: next action • k: link • m: merge • c: claude • b: board"
+	keyHelp := "↑/↓: select • f: filters • s: stage • l: lead • p: priority • n: next action • k: link • m: merge • c: claude • b: board • /: search"
 	switch v {
 	case ViewKanban:
-		keyHelp = "←/→: stage • ↑/↓: card • enter: open • f: filters • i: interface • s: stage • l: lead • p: priority • n: next action • c: claude • b: table"
+		keyHelp = "←/→: stage • ↑/↓: card • enter: open • f: filters • i: interface • s: stage • l: lead • p: priority • n: next action • c: claude • b: table • /: search"
 	case ViewLeadSelector:
 		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
 	case ViewDetail:
@@ -2509,6 +2625,9 @@ func (m Model) footerContent(v View) string {
 	case ViewMergeConflictResolver:
 		keyHelp = "↑/↓/pgup/pgdn: scroll diff • tab: switch button • esc: cancel"
 	}
+	if m.searchActive && m.isListView() {
+		keyHelp = "type: filter • ↑↓: select • enter: open • tab: keep filter • esc: clear"
+	}
 	footerParts = append(footerParts, keyHelp)
 
 	w := m.width
@@ -2524,6 +2643,14 @@ func (m Model) footerHeight(v View) int {
 		h = 1
 	}
 	return h
+}
+
+func (m Model) searchBarVisible() bool {
+	return m.searchActive || !m.searchQuery.IsEmpty()
+}
+
+func (m Model) renderSearchBar() string {
+	return " Search: " + m.searchInput.View()
 }
 
 // renderListSubtitle fits a home surface's subtitle line to the terminal.
@@ -2571,15 +2698,27 @@ func (m Model) View() string {
 		if m.extrasCount > 0 && !m.extrasExpanded {
 			archivedNote = " · resolved/archived hidden"
 		}
-		sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" %s — Dashboard · Lead: %s · Interface: %s%s", subheadline, m.leadFilter.label(), m.interfaceFilter.label(), archivedNote)))
+		searchNote := ""
+		if !m.searchQuery.IsEmpty() {
+			searchNote = fmt.Sprintf(" · Search: %q", m.searchInput.Value())
+		}
+		sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" %s — Dashboard · Lead: %s · Interface: %s%s%s", subheadline, m.leadFilter.label(), m.interfaceFilter.label(), archivedNote, searchNote)))
 		sb.WriteString("\n\n")
+		if m.searchBarVisible() {
+			sb.WriteString(m.renderSearchBar())
+			sb.WriteString("\n")
+		}
 
 		if m.loading && len(m.items) == 0 {
 			sb.WriteString(" Loading dossiers...\n")
 		} else if len(m.visibleItems) == 0 && m.extrasCount == 0 {
 			// The newline stays outside the fitted text so a width cut can never
 			// eat it and collapse the layout.
-			sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" No dossiers for lead: %s / interface: %s — press f or i to change filters.", m.leadFilter.label(), m.interfaceFilter.label())))
+			if !m.searchQuery.IsEmpty() {
+				sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" No dossiers match %q — esc to clear", m.searchInput.Value())))
+			} else {
+				sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" No dossiers for lead: %s / interface: %s — press f or i to change filters.", m.leadFilter.label(), m.interfaceFilter.label())))
+			}
 			sb.WriteString("\n")
 		} else {
 			sb.WriteString(m.table.View())
@@ -2592,15 +2731,27 @@ func (m Model) View() string {
 		if start, end := m.kanbanStageWindow(); end-start < len(stages) {
 			stageNote = fmt.Sprintf(" · stages %d–%d of %d", start+1, end, len(stages))
 		}
-		sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" %s — Board · Lead: %s · Interface: %s%s", subheadline, m.leadFilter.label(), m.interfaceFilter.label(), stageNote)))
+		searchNote := ""
+		if !m.searchQuery.IsEmpty() {
+			searchNote = fmt.Sprintf(" · Search: %q", m.searchInput.Value())
+		}
+		sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" %s — Board · Lead: %s · Interface: %s%s%s", subheadline, m.leadFilter.label(), m.interfaceFilter.label(), stageNote, searchNote)))
 		sb.WriteString("\n\n")
+		if m.searchBarVisible() {
+			sb.WriteString(m.renderSearchBar())
+			sb.WriteString("\n")
+		}
 
 		if m.loading && len(m.items) == 0 {
 			sb.WriteString(" Loading dossiers...\n")
 		} else if m.kanbanIsEmpty() {
 			// The newline stays outside the fitted text so a width cut can never
 			// eat it and collapse the layout.
-			sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" No dossiers for lead: %s / interface: %s — press f or i to change filters.", m.leadFilter.label(), m.interfaceFilter.label())))
+			if !m.searchQuery.IsEmpty() {
+				sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" No dossiers match %q — esc to clear", m.searchInput.Value())))
+			} else {
+				sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" No dossiers for lead: %s / interface: %s — press f or i to change filters.", m.leadFilter.label(), m.interfaceFilter.label())))
+			}
 			sb.WriteString("\n")
 		} else {
 			sb.WriteString(m.renderKanban())
