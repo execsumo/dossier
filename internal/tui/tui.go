@@ -362,8 +362,8 @@ func NewModel(svc *core.Service) Model {
 	columns := []table.Column{
 		{Title: "Dossier", Width: 30},
 		{Title: "Priority", Width: 12},
+		{Title: "Stage", Width: 10},
 		{Title: "Lead", Width: 8},
-		{Title: "Status", Width: 10},
 		{Title: "Due", Width: 8},
 	}
 
@@ -1781,7 +1781,7 @@ type claudeFinishedMsg struct {
 }
 
 // tableColumnsConfig reports which width-sensitive columns the dashboard shows.
-// Name, Lead, and Status are always present; Priority and Due are revealed
+// Dossier, Stage, and Lead are always present; Priority and Due are revealed
 // progressively as the terminal widens.
 func (m *Model) tableColumnsConfig() (showPriority, showDue bool) {
 	w := m.width
@@ -1792,7 +1792,7 @@ func (m *Model) tableColumnsConfig() (showPriority, showDue bool) {
 }
 
 // itemTableRow builds a single dossier row. Cells mirror the column order
-// Name, [Priority], Lead, Status, [Due]; the optional cells are included only
+// Dossier, [Priority], Stage, Lead, [Due]; the optional cells are included only
 // when the corresponding column is shown.
 func itemTableRow(item core.ListItem, showPriority, showDue bool) table.Row {
 	if item.ID == "" {
@@ -1800,7 +1800,7 @@ func itemTableRow(item core.ListItem, showPriority, showDue bool) table.Row {
 		if showPriority {
 			row = append(row, "")
 		}
-		row = append(row, "", "") // Lead, Status
+		row = append(row, "", "") // Stage, Lead
 		if showDue {
 			row = append(row, "")
 		}
@@ -1831,7 +1831,7 @@ func itemTableRow(item core.ListItem, showPriority, showDue bool) table.Row {
 	if showPriority {
 		row = append(row, priorityStr)
 	}
-	row = append(row, leadStr, item.Status)
+	row = append(row, item.Status, leadStr)
 	if showDue {
 		row = append(row, dueStr)
 	}
@@ -1849,7 +1849,7 @@ func extrasToggleTableRow(expanded bool, showPriority, showDue bool) table.Row {
 	if showPriority {
 		row = append(row, "")
 	}
-	row = append(row, "", "") // Lead, Status
+	row = append(row, "", "") // Stage, Lead
 	if showDue {
 		row = append(row, "")
 	}
@@ -1878,7 +1878,7 @@ func (m *Model) populateTableRows() {
 }
 
 // recalculateTableLayout fits the table to the screen size. Columns appear in
-// the canonical order Name, Priority, Lead, Status, Due; Name is always present
+// the canonical order Dossier, Priority, Stage, Lead, Due; Dossier is always present
 // and flexes to absorb the leftover width, while the fixed-width columns are
 // revealed progressively as the terminal widens.
 func (m *Model) recalculateTableLayout() {
@@ -1893,15 +1893,15 @@ func (m *Model) recalculateTableLayout() {
 
 	const (
 		widthPriority = 12
+		widthStage    = 10
 		widthLead     = 8
-		widthStatus   = 10
 		widthDue      = 8
 		minNameWidth  = 12
 	)
 
-	// Tally the fixed-width columns first so Name can take whatever remains.
-	fixedUsed := widthLead + widthStatus
-	numCols := 3 // Dossier + Lead + Status
+	// Tally the fixed-width columns first so Dossier can take whatever remains.
+	fixedUsed := widthStage + widthLead
+	numCols := 3 // Dossier + Stage + Lead
 	if showPriority {
 		fixedUsed += widthPriority
 		numCols++
@@ -1925,8 +1925,8 @@ func (m *Model) recalculateTableLayout() {
 		cols = append(cols, table.Column{Title: "Priority", Width: widthPriority})
 	}
 	cols = append(cols,
+		table.Column{Title: "Stage", Width: widthStage},
 		table.Column{Title: "Lead", Width: widthLead},
-		table.Column{Title: "Status", Width: widthStatus},
 	)
 	if showDue {
 		cols = append(cols, table.Column{Title: "Due", Width: widthDue})
@@ -1984,7 +1984,7 @@ func (m *Model) recalculateConflictViewportLayout() {
 
 func (m Model) renderStatusPicker() string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Select new status for %s:\n\n", m.targetName))
+	sb.WriteString(fmt.Sprintf("Select new stage for %s:\n\n", m.targetName))
 
 	for i, opt := range m.statusOptions {
 		cursor := "  "
@@ -2271,7 +2271,7 @@ func (m Model) renderMergeSelector() string {
 				cursor = "> "
 			}
 
-			tgtLine := fmt.Sprintf("%s (%s) - status: %s", tgt.Name, tgt.ID, tgt.Status)
+			tgtLine := fmt.Sprintf("%s (%s) - stage: %s", tgt.Name, tgt.ID, tgt.Status)
 			if i == m.mergeCursor {
 				sb.WriteString(focusedItemStyle.Render(cursor + tgtLine))
 			} else {
@@ -2372,7 +2372,7 @@ func (m Model) renderDetailMetadata() string {
 		sb.WriteString(renderRow("Summary:", fm.Description))
 	}
 	sb.WriteString(renderTwoCols(
-		"Status:", string(fm.Status),
+		"Stage:", string(fm.Status),
 		"Lead:", leadLabel,
 	))
 	sb.WriteString(renderRow("Priority:", string(fm.Priority)))
@@ -2397,18 +2397,18 @@ func (m Model) footerContent(v View) string {
 		}
 	}
 
-	keyHelp := "↑/↓: select • f: filters • s: status • l: lead • p: priority • n: next action • k: link • m: merge • c: claude"
+	keyHelp := "↑/↓: select • f: filters • s: stage • l: lead • p: priority • n: next action • k: link • m: merge • c: claude"
 	switch v {
 	case ViewLeadSelector:
 		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
 	case ViewDetail:
-		keyHelp = "↑/↓/pgup/pgdn: scroll • s: status • l: lead • p: priority • n: next action • a: artifacts • c: claude • esc: back"
+		keyHelp = "↑/↓/pgup/pgdn: scroll • s: stage • l: lead • p: priority • n: next action • a: artifacts • c: claude • esc: back"
 	case ViewArtifactIndex:
 		keyHelp = "↑/↓: select • enter: view artifact • esc: back"
 	case ViewArtifactContent:
 		keyHelp = "↑/↓/pgup/pgdn: scroll • esc: back"
 	case ViewStatusPicker:
-		keyHelp = "↑/↓: select status • esc: cancel"
+		keyHelp = "↑/↓: select stage • esc: cancel"
 	case ViewNextActionEditor:
 		keyHelp = "esc: cancel"
 	case ViewLeadEditor:
@@ -2529,7 +2529,7 @@ func (m Model) View() string {
 		sb.WriteString("\n")
 
 	case ViewStatusPicker:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Update Status", subheadline)))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Update Stage", subheadline)))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderStatusPicker())
 		sb.WriteString("\n")

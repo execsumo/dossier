@@ -1815,7 +1815,7 @@ func TestTUI_FooterSequenceConsistency(t *testing.T) {
 	dashView := stripANSI(m.View())
 
 	// Shared keys that appear in both footers
-	sharedKeys := []string{"s: status", "l: lead", "p: priority", "n: next action", "c: claude"}
+	sharedKeys := []string{"s: stage", "l: lead", "p: priority", "n: next action", "c: claude"}
 
 	// Verify shared keys appear in order in dashboard footer
 	lastIdx := -1
@@ -1855,11 +1855,11 @@ func TestTUI_FooterSequenceConsistency(t *testing.T) {
 
 	// Also verify navigation is before edits, and esc is at the end of detail
 	scrollIdx := strings.Index(detailView, "scroll")
-	statusIdx := strings.Index(detailView, "s: status")
+	statusIdx := strings.Index(detailView, "s: stage")
 	claudeIdx := strings.Index(detailView, "c: claude")
 	escIdx := strings.Index(detailView, "esc: back")
 	if scrollIdx > statusIdx {
-		t.Errorf("expected navigation (scroll) before status edit in detail footer")
+		t.Errorf("expected navigation (scroll) before stage edit in detail footer")
 	}
 	if claudeIdx > escIdx {
 		t.Errorf("expected claude before esc in detail footer")
@@ -1993,7 +1993,7 @@ func TestTUI_TableHeaderColorMatchesDetailLabels(t *testing.T) {
 	lines := strings.Split(viewStr, "\n")
 	foundHeaderWithPurple := false
 	for _, l := range lines {
-		if strings.Contains(stripANSI(l), "Dossier") && strings.Contains(stripANSI(l), "Lead") {
+		if strings.Contains(stripANSI(l), "Dossier") && strings.Contains(stripANSI(l), "Stage") {
 			if strings.Contains(l, "38;5;99") {
 				foundHeaderWithPurple = true
 				break
@@ -2002,5 +2002,44 @@ func TestTUI_TableHeaderColorMatchesDetailLabels(t *testing.T) {
 	}
 	if !foundHeaderWithPurple {
 		t.Errorf("expected table header row with 'Dossier' column to be styled with purple foreground (color 99), view:\n%s", viewStr)
+	}
+}
+
+func TestTUI_TableColumnSequence(t *testing.T) {
+	svc := setupTestService(newTestStore())
+	m := NewModel(svc)
+	m.width = 120
+	m.height = 40
+	m.recalculateTableLayout()
+
+	cols := m.table.Columns()
+	expectedTitles := []string{"Dossier", "Priority", "Stage", "Lead", "Due"}
+	if len(cols) != len(expectedTitles) {
+		t.Fatalf("expected %d columns, got %d", len(expectedTitles), len(cols))
+	}
+	for i, expected := range expectedTitles {
+		if cols[i].Title != expected {
+			t.Errorf("column %d: expected %q, got %q", i, expected, cols[i].Title)
+		}
+	}
+
+	// Verify row cell mapping aligns with the column sequence
+	row := itemTableRow(core.ListItem{
+		ID:       "dos1",
+		Name:     "Alpha",
+		Priority: "high",
+		Status:   "active",
+		Lead:     "Alice",
+		DueDate:  "2026-12-01",
+	}, true, true)
+
+	expectedCells := []string{"Alpha", "high", "active", "Alice", "12/01"}
+	if len(row) != len(expectedCells) {
+		t.Fatalf("expected row length %d, got %d", len(expectedCells), len(row))
+	}
+	for i, expected := range expectedCells {
+		if row[i] != expected {
+			t.Errorf("cell %d: expected %q, got %q", i, expected, row[i])
+		}
 	}
 }
