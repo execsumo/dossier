@@ -272,9 +272,12 @@ type Model struct {
 	// visibleItems and represented by that single trailing toggle row instead.
 	extrasExpanded bool
 
-	// Viewport & Table
+	// Viewport & Table. Detail and artifact content intentionally use separate
+	// viewports so following evidence cannot replace or reposition the rendered
+	// Distilled State.
 	table            table.Model
 	viewport         viewport.Model
+	artifactViewport viewport.Model
 	conflictViewport viewport.Model
 	width            int
 	height           int
@@ -373,6 +376,7 @@ func NewModel(svc *core.Service) Model {
 	t.SetStyles(s)
 
 	vp := viewport.New(0, 0)
+	avp := viewport.New(0, 0)
 	cvp := viewport.New(0, 0)
 
 	statusOptions := []core.Status{
@@ -412,6 +416,7 @@ func NewModel(svc *core.Service) Model {
 		currentView:          ViewDashboard,
 		table:                t,
 		viewport:             vp,
+		artifactViewport:     avp,
 		conflictViewport:     cvp,
 		loading:              true,
 		statusOptions:        statusOptions,
@@ -1283,7 +1288,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = nil
 				return m, nil
 			}
-			m.viewport, cmd = m.viewport.Update(msg)
+			m.artifactViewport, cmd = m.artifactViewport.Update(msg)
 			return m, cmd
 
 		case ViewNextActionEditor:
@@ -1513,15 +1518,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.recalculateTableLayout()
 		m.recalculateViewportLayout()
+		m.recalculateArtifactViewportLayout()
 		m.recalculateConflictViewportLayout()
 
-		if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
+		// Re-render cached content even when its view is hidden. A resize in the
+		// artifact browser must not leave the detail view wrapped to the old width
+		// when the user returns to it. SetContent and the layout helpers preserve
+		// each viewport's independent scroll offset (clamped to its new bounds).
+		if m.recallResult.Frontmatter.ID != "" {
 			m.viewport.SetContent(m.renderMarkdown(m.recallResult.DistilledState))
+			m.viewport.SetYOffset(m.viewport.YOffset)
 		}
-		if m.currentView == ViewArtifactContent && m.artifactContent.ID != "" {
-			header := fmt.Sprintf("Artifact: %s (%s)\nType: %s  Lines: %d-%d of %d\n\n",
-				m.artifactContent.Title, m.artifactContent.ID, m.artifactContent.Type, m.artifactContent.StartLine, m.artifactContent.EndLine, m.artifactContent.Lines)
-			m.viewport.SetContent(header + m.artifactContent.Content)
+		if m.artifactContent.ID != "" {
+			m.artifactViewport.SetContent(renderArtifactContent(m.artifactContent))
+			m.artifactViewport.SetYOffset(m.artifactViewport.YOffset)
 		}
 		if m.currentView == ViewMergeConflictResolver && m.mergeConflict != nil {
 			diffMd := fmt.Sprintf("```diff\n%s\n```", m.mergeConflict.DiffAgainstCurrent)
@@ -1630,11 +1640,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.currentView = ViewArtifactContent
 			m.artifactContent = msg.content
 			m.warnings = msg.warnings
-			header := fmt.Sprintf("Artifact: %s (%s)\nType: %s  Lines: %d-%d of %d\n\n",
-				msg.content.Title, msg.content.ID, msg.content.Type, msg.content.StartLine, msg.content.EndLine, msg.content.Lines)
-			m.viewport.SetContent(header + msg.content.Content)
-			m.recalculateViewportLayout()
-			m.viewport.YOffset = 0
+			m.artifactViewport.SetContent(renderArtifactContent(msg.content))
+			m.recalculateArtifactViewportLayout()
+			m.artifactViewport.GotoTop()
 			m.err = nil
 		}
 
@@ -1931,6 +1939,18 @@ func (m *Model) recalculateViewportLayout() {
 	if m.viewport.Height < 3 {
 		m.viewport.Height = 3
 	}
+	m.viewport.SetYOffset(m.viewport.YOffset)
+}
+
+// recalculateArtifactViewportLayout fits artifact content to its simpler screen
+// chrome. It is separate from the detail viewport both for sizing and state.
+func (m *Model) recalculateArtifactViewportLayout() {
+	m.artifactViewport.Width = m.width
+	m.artifactViewport.Height = m.height - 7
+	if m.artifactViewport.Height < 3 {
+		m.artifactViewport.Height = 3
+	}
+	m.artifactViewport.SetYOffset(m.artifactViewport.YOffset)
 }
 
 // recalculateConflictViewportLayout fits the conflict viewport to the screen.
@@ -2129,21 +2149,55 @@ func (m Model) leadVisibleRows() int {
 // leadWindow returns the [start, end) slice of leadResults to render, scrolled so
 // the cursor stays visible and roughly centered within the available height.
 func (m Model) leadWindow() (start, end int) {
-	n := len(m.leadResults)
-	h := m.leadVisibleRows()
-	if h >= n {
+	return centeredWindow(len(m.leadResults), m.leadCursor, m.leadVisibleRows())
+}
+
+// artifactVisibleRows bounds the evidence index to the terminal height. The
+// reserved chrome covers title/subtitle, both possible clipping indicators,
+// spacing, and the footer.
+func (m Model) artifactVisibleRows() int {
+	const chrome = 7
+	rows := m.height - chrome
+	if rows < 1 {
+		rows = 1
+	}
+	return rows
+}
+
+// artifactWindow returns the visible evidence-index slice with the cursor kept
+// in view. It deliberately shares the lead selector's centering behavior.
+func (m Model) artifactWindow() (start, end int) {
+	return centeredWindow(len(m.artifactIndex), m.artifactCursor, m.artifactVisibleRows())
+}
+
+func centeredWindow(n, cursor, height int) (start, end int) {
+	if n == 0 || height <= 0 {
+		return 0, 0
+	}
+	if height >= n {
 		return 0, n
 	}
-	start = m.leadCursor - h/2
+	if cursor < 0 {
+		cursor = 0
+	} else if cursor >= n {
+		cursor = n - 1
+	}
+	start = cursor - height/2
 	if start < 0 {
 		start = 0
 	}
-	end = start + h
+	end = start + height
 	if end > n {
 		end = n
-		start = end - h
+		start = end - height
 	}
 	return start, end
+}
+
+func renderArtifactContent(content core.ArtifactContent) string {
+	header := fmt.Sprintf("Artifact: %s (%s)\nType: %s  Lines: %d-%d of %d\n\n",
+		content.Title, content.ID, content.Type, content.StartLine, content.EndLine, content.Lines)
+	return header + content.Content
 }
 
 func (m Model) renderLinkInput() string {
@@ -2357,7 +2411,12 @@ func (m Model) View() string {
 		if len(m.artifactIndex) == 0 {
 			sb.WriteString(" No artifacts archived for this dossier.\n")
 		} else {
-			for i, a := range m.artifactIndex {
+			start, end := m.artifactWindow()
+			if start > 0 {
+				sb.WriteString(subtitleStyle.Render(fmt.Sprintf("  ↑ %d more above\n", start)))
+			}
+			for i := start; i < end; i++ {
+				a := m.artifactIndex[i]
 				cited := "uncited"
 				if a.Cited {
 					cited = "cited"
@@ -2370,12 +2429,15 @@ func (m Model) View() string {
 				}
 				sb.WriteString("\n")
 			}
+			if end < len(m.artifactIndex) {
+				sb.WriteString(subtitleStyle.Render(fmt.Sprintf("  ↓ %d more below\n", len(m.artifactIndex)-end)))
+			}
 		}
 
 	case ViewArtifactContent:
 		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Artifact"))
 		sb.WriteString("\n\n")
-		sb.WriteString(m.viewport.View())
+		sb.WriteString(m.artifactViewport.View())
 		sb.WriteString("\n")
 
 	case ViewStatusPicker:
@@ -2441,7 +2503,7 @@ func (m Model) View() string {
 	case ViewLeadSelector:
 		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
 	case ViewDetail:
-		keyHelp = "↑/↓/pgup/pgdn: scroll • s: status • l: lead • p: priority • n: next action • a: artifacts • c: claude • esc: back"
+		keyHelp = "a: artifacts • c: claude • ↑/↓/pgup/pgdn: scroll • s: status • l: lead • p: priority • n: next action • esc: back"
 	case ViewArtifactIndex:
 		keyHelp = "↑/↓: select • enter: view artifact • esc: back"
 	case ViewArtifactContent:

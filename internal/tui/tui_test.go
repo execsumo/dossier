@@ -361,18 +361,18 @@ func TestTUI_Detail(t *testing.T) {
 	}
 }
 
-func TestTUI_ArtifactFlow(t *testing.T) {
+func TestTUI_ArtifactFlowRestoresDistilledStateAndScroll(t *testing.T) {
 	store := newTestStore()
 	store.dossiers["dos1"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:            "dos1",
-			Name:          "Project Alpha",
-			Slug:          "project-alpha",
-			Status:        core.StatusActive,
-			LastTouchedAt: testClock{}.Now(),
+			ID:       "dos1",
+			Name:     "Project Alpha",
+			Slug:     "project-alpha",
+			Status:   core.StatusActive,
+			Priority: core.PriorityHigh,
 		},
 		DistilledState: core.DistilledState{
-			Body: "This is the distilled state of Alpha",
+			Body: "This is the distilled state of Alpha\n" + strings.Repeat("distilled detail line\n", 60),
 		},
 	}
 	store.artifacts["dos1"] = []core.Artifact{
@@ -382,39 +382,42 @@ func TestTUI_ArtifactFlow(t *testing.T) {
 			Type:          core.ArtifactTypeDecisionEvidence,
 			Title:         "Lock latency benchmark",
 			ContentFormat: core.ContentFormatText,
-			Content:       "line one\nline two\n",
+			Content:       "artifact line one\n" + strings.Repeat("artifact evidence line\n", 60),
 			CapturedAt:    testClock{}.Now(),
 		},
 	}
 	svc := setupTestService(store)
 	m := NewModel(svc)
 	m.width = 100
-	m.height = 40
+	m.height = 24
 	m.recalculateTableLayout()
 
 	listMsg := m.listDossiersCmd()()
 	newM, _ := m.Update(listMsg)
 	m = newM.(Model)
-	m = enterDashboard(t, m)
 	m.table.MoveDown(1)
 
 	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = newM.(Model)
-	recallMsg := cmd()
-	newM, _ = m.Update(recallMsg)
+	newM, _ = m.Update(cmd())
 	m = newM.(Model)
 	if m.currentView != ViewDetail {
 		t.Fatalf("expected view to be ViewDetail, got %v", m.currentView)
 	}
+	m.viewport.SetYOffset(5)
+	detailOffset := m.viewport.YOffset
+	if detailOffset == 0 {
+		t.Fatal("test setup expected a scrollable Distilled State")
+	}
 
-	// 'a' from the detail view opens the artifact index.
+	// 'a' from detail opens the artifact index without changing the detail
+	// viewport or interfering with the independently-supported 'c' shortcut.
 	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	m = newM.(Model)
 	if cmd == nil {
 		t.Fatal("expected 'a' to return a listArtifacts command")
 	}
-	indexMsg := cmd()
-	newM, _ = m.Update(indexMsg)
+	newM, _ = m.Update(cmd())
 	m = newM.(Model)
 	if m.currentView != ViewArtifactIndex {
 		t.Fatalf("expected view to be ViewArtifactIndex, got %v", m.currentView)
@@ -423,33 +426,140 @@ func TestTUI_ArtifactFlow(t *testing.T) {
 		t.Fatalf("expected artifact index to contain art_evidence, got %+v", m.artifactIndex)
 	}
 
-	// Enter on the artifact fetches its content.
+	// Enter fetches the artifact into its own viewport, which scrolls without
+	// moving the preserved Distilled State viewport.
 	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = newM.(Model)
 	if cmd == nil {
 		t.Fatal("expected enter to return a readArtifact command")
 	}
-	contentMsg := cmd()
-	newM, _ = m.Update(contentMsg)
+	newM, _ = m.Update(cmd())
 	m = newM.(Model)
 	if m.currentView != ViewArtifactContent {
 		t.Fatalf("expected view to be ViewArtifactContent, got %v", m.currentView)
 	}
-	viewStr := stripANSI(m.View())
-	if !strings.Contains(viewStr, "line one") {
-		t.Errorf("expected artifact content in view, got:\n%s", viewStr)
+	if got := stripANSI(m.View()); !strings.Contains(got, "artifact line one") {
+		t.Errorf("expected artifact content in view, got:\n%s", got)
+	}
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	m = newM.(Model)
+	if m.artifactViewport.YOffset == 0 {
+		t.Fatal("expected artifact content viewport to scroll")
+	}
+	if m.viewport.YOffset != detailOffset {
+		t.Fatalf("artifact scroll changed detail offset to %d, want %d", m.viewport.YOffset, detailOffset)
+	}
+	newM, _ = m.Update(tea.WindowSizeMsg{Width: 90, Height: 20})
+	m = newM.(Model)
+	if m.viewport.YOffset != detailOffset {
+		t.Fatalf("resize in artifact view changed detail offset to %d, want %d", m.viewport.YOffset, detailOffset)
 	}
 
-	// Esc steps back index -> detail.
+	// Esc steps content -> index -> detail. Neither intermediate nor final view
+	// may render stale artifact viewport content.
 	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = newM.(Model)
 	if m.currentView != ViewArtifactIndex {
 		t.Fatalf("expected esc from content to return to ViewArtifactIndex, got %v", m.currentView)
 	}
+	if got := stripANSI(m.View()); strings.Contains(got, "artifact evidence line") {
+		t.Fatalf("artifact index rendered stale artifact content:\n%s", got)
+	}
 	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = newM.(Model)
 	if m.currentView != ViewDetail {
 		t.Fatalf("expected esc from index to return to ViewDetail, got %v", m.currentView)
+	}
+	got := stripANSI(m.View())
+	if !strings.Contains(got, "distilled detail line") || strings.Contains(got, "artifact evidence line") {
+		t.Fatalf("detail did not restore the rendered Distilled State:\n%s", got)
+	}
+	if m.viewport.YOffset != detailOffset {
+		t.Fatalf("detail offset = %d after artifact round-trip, want %d", m.viewport.YOffset, detailOffset)
+	}
+}
+
+func TestArtifactIndexWindowingScrollingAndResize(t *testing.T) {
+	m := NewModel(setupTestService(newTestStore()))
+	m.currentView = ViewArtifactIndex
+	m.recallResult.Frontmatter.Name = "Project Alpha"
+	m.width = 120
+	m.height = 16 // nine artifact rows after index chrome
+	m.loading = false
+	for i := 0; i < 40; i++ {
+		m.artifactIndex = append(m.artifactIndex, core.ArtifactSummary{
+			ID:    fmt.Sprintf("art_%02d", i),
+			Title: fmt.Sprintf("Evidence %02d", i),
+			Lines: i + 1,
+		})
+	}
+
+	countRows := func(view string) int {
+		n := 0
+		for _, line := range strings.Split(stripANSI(view), "\n") {
+			if strings.Contains(line, "art_") {
+				n++
+			}
+		}
+		return n
+	}
+
+	top := stripANSI(m.View())
+	if got, want := countRows(top), m.artifactVisibleRows(); got != want {
+		t.Fatalf("top rendered %d artifact rows, want %d", got, want)
+	}
+	if !strings.Contains(top, "art_00") || strings.Contains(top, "more above") || !strings.Contains(top, "more below") {
+		t.Fatalf("unexpected top artifact window:\n%s", top)
+	}
+
+	for i := 0; i < 20; i++ {
+		newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = newM.(Model)
+	}
+	middle := stripANSI(m.View())
+	if !strings.Contains(middle, "art_20") || !strings.Contains(middle, "more above") || !strings.Contains(middle, "more below") {
+		t.Fatalf("cursor was not visible in middle artifact window:\n%s", middle)
+	}
+
+	newM, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 12})
+	m = newM.(Model)
+	resized := stripANSI(m.View())
+	if got, want := countRows(resized), m.artifactVisibleRows(); got != want {
+		t.Fatalf("resized view rendered %d artifact rows, want %d", got, want)
+	}
+	if !strings.Contains(resized, "art_20") {
+		t.Fatalf("resize hid the cursor row:\n%s", resized)
+	}
+	if got := len(strings.Split(resized, "\n")); got > m.height {
+		t.Fatalf("resized artifact index uses %d lines, exceeds height %d:\n%s", got, m.height, resized)
+	}
+
+	m.artifactCursor = len(m.artifactIndex) - 1
+	bottom := stripANSI(m.View())
+	if !strings.Contains(bottom, "art_39") || !strings.Contains(bottom, "more above") || strings.Contains(bottom, "more below") {
+		t.Fatalf("unexpected bottom artifact window:\n%s", bottom)
+	}
+}
+
+func TestArtifactIndexEmptyStateAndNavigation(t *testing.T) {
+	m := NewModel(setupTestService(newTestStore()))
+	m.currentView = ViewArtifactIndex
+	m.width = 80
+	m.height = 12
+	m.loading = false
+
+	for _, key := range []tea.KeyType{tea.KeyUp, tea.KeyDown, tea.KeyEnter} {
+		newM, cmd := m.Update(tea.KeyMsg{Type: key})
+		m = newM.(Model)
+		if cmd != nil {
+			t.Fatalf("empty artifact index key %v unexpectedly returned a command", key)
+		}
+		if m.currentView != ViewArtifactIndex {
+			t.Fatalf("empty artifact index key %v changed view to %v", key, m.currentView)
+		}
+	}
+	if got := stripANSI(m.View()); !strings.Contains(got, "No artifacts archived for this dossier") {
+		t.Fatalf("missing empty artifact index state:\n%s", got)
 	}
 }
 
@@ -1484,20 +1594,33 @@ func TestClaudeFinishedRefreshes(t *testing.T) {
 	}
 }
 
-func TestFooterMentionsClaudeKey(t *testing.T) {
+func TestArtifactAndClaudeKeysCoexistWithDashboardNavigation(t *testing.T) {
 	store := newTestStore()
 	m := claudeTestModel(t, store)
 
 	if got := stripANSI(m.View()); !strings.Contains(got, "c: claude") {
 		t.Errorf("dashboard footer should advertise 'c: claude', got:\n%s", got)
 	}
+	// 'a' remains detail-only; it must not resurrect the removed dashboard
+	// active-session behavior or disturb dashboard-first/Esc semantics.
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = newM.(Model)
+	if cmd != nil || m.currentView != ViewDashboard || len(store.bindings) != 0 {
+		t.Fatalf("dashboard 'a' changed state: view=%v cmd=%v bindings=%d", m.currentView, cmd != nil, len(store.bindings))
+	}
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = newM.(Model)
+	if m.currentView != ViewDashboard {
+		t.Fatalf("dashboard Esc changed view to %v", m.currentView)
+	}
 
-	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = newM.(Model)
 	newM, _ = m.Update(cmd())
 	m = newM.(Model)
-	if got := stripANSI(m.View()); !strings.Contains(got, "c: claude") {
-		t.Errorf("detail footer should advertise 'c: claude', got:\n%s", got)
+	got := stripANSI(m.View())
+	if !strings.Contains(got, "a: artifacts") || !strings.Contains(got, "c: claude") {
+		t.Errorf("detail footer should advertise both artifact and Claude keys, got:\n%s", got)
 	}
 }
 
