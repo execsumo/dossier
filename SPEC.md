@@ -945,6 +945,7 @@ Checks:
 - Dossier frontmatter parses.
 - Required sections exist.
 - Artifact references resolve.
+- Files in `<slug>/artifacts/` are artifacts (a file without valid frontmatter is uncitable and absent from the evidence index — reported as an issue, not an advisory).
 - Provenance links resolve.
 - Audit log is parseable JSONL.
 - Context files are current.
@@ -977,6 +978,7 @@ Checks:
 - Sample generated Dossiers include provenance on every material claim.
 - `dossier doctor` reports missing provenance.
 - Provenance links resolve to artifacts or line ranges where available.
+- A working file written into `<slug>/artifacts/` without artifact frontmatter is reported by `dossier doctor` rather than silently omitted from the evidence index; `<slug>/files/` holds loose work and is not reported.
 
 ### 14.4 Promote/Link
 

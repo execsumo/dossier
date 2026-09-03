@@ -81,7 +81,7 @@ dossier/
       gitsync.go         # GitSync + Config/report types; sync.go: pull→resolve→commit→push
       merge.go/tree.go   # remote-wins 3-way merge (no git markers ever); DiffTree + MergeBase
       credentials.go     # PAT resolution (~/.dossier/credentials 0600, `gh auth token` fallback)
-      gitignore.go       # machine-local exclusion set (config.yaml, root + per-slug sessions/, context/)
+      gitignore.go       # machine-local exclusion set (config.yaml, root + per-slug sessions/, context/) — B13
       adapter.go         # maps GitSync's internal types → core.Sync* DTOs (keeps core pure)
     config/              # config.yaml load/save/defaults (incl. team.remote / team.branch)
     hooks/               # hook PAYLOAD builders + session-start/end handlers (call core)
@@ -154,6 +154,7 @@ type Store interface {
     Write(d *Dossier, base Revision) (Revision, error) // optimistic; see §6
     WriteArtifact(dossierID string, a *Artifact) error
     AppendAudit(dossierID string, e AuditEvent) error
+    ValidateArtifactFiles(dossierID string) []string // files in artifacts/ that are not artifacts (§ namespaces)
     // ... session bindings, conflicts, init/layout
 }
 
@@ -357,11 +358,11 @@ The Distilled State is a *view* over the Archive, not the record. That framing o
 ## 10. Testing strategy (how the acceptance criteria get met)
 
 - **core**: pure → table-driven unit tests. `revision.go`, `priority.go`, `suggest.go`, concurrency branches, frontmatter validation. Use a fake `Store`/`Clock`/`Tokenizer`.
-- **store**: integration tests against a temp `DOSSIER_HOME`. Assert atomic-write durability, the 500-Dossier frontmatter scan < 2s (SPEC §14.1), append-only audit, slug collisions.
+- **store**: integration tests against a temp `DOSSIER_HOME`. Assert atomic-write durability, the 500-Dossier frontmatter scan < 2s (SPEC §14.1), append-only audit, slug collisions, and that `ValidateArtifactFiles` flags a loose file in `artifacts/` while exempting `files/`, directories, and dotfiles.
 - **Distillation Guide**: golden-file fixtures — sample transcript in, assert the distilled output's *structure and provenance presence* (not verbatim prose). This is how guide quality stays regression-safe.
 - **MCP**: drive the server over in-memory pipes; assert the §8.2 envelope and error-code mapping for each tool.
 - **harness**: fixture Claude Code and Pi config dirs; assert `Detect()` capabilities (including that Pi does **not** claim MCP or lifecycle hooks) and that `Install()` is idempotent, backs up, and writes nothing without confirmation. Pointer resolution is tested with an injected ancestry function: ancestor pointers resolve, a concurrent session's pointer does not, and malformed/newer-schema pointers are rejected.
-- **doctor**: corrupt-store fixtures (bad YAML, dangling provenance, out-of-range citation, unparseable audit, stale context) → assert each is reported, and that uncited evidence advises rather than fails.
+- **doctor**: corrupt-store fixtures (bad YAML, dangling provenance, out-of-range citation, unparseable audit, stale context) → assert each is reported, and that uncited evidence advises rather than fails. A non-artifact file in `artifacts/` is an **issue**, not an advisory: the point is that the store stops reporting healthy over silently lost evidence.
 - **transcript compiler**: table tests over a JSONL fixture — role headers assigned, tool arguments and results kept verbatim, bookkeeping records counted rather than dropped, `thinking` excluded but tallied (and no tally line when a trace has none), unparsable lines preserved, plain text passed through.
 - **citations**: `ParseProvenanceRef` table tests over well-formed and malformed fragments; `ReadArtifact` range resolution, absolute line numbering, blank-line preservation, and warn-don'''t-truncate on an overlong range.
 

@@ -155,7 +155,8 @@ The TUI is a thin layer over the same core as the CLI and MCP, so it behaves ide
 Each Dossier is a directory under `~/.dossier/<slug>/`:
 
 - **Distilled State** — one curated Markdown file: the topic with noise removed, not a lossy summary.
-- **Archive** — the captured source artifacts that the distilled claims cite.
+- **Archive** — the captured source artifacts that the distilled claims cite. `artifacts/` holds registered evidence only; use `dossier link --from-file` to add to it.
+- **files/** — loose deliverables, scratch, and attachments that aren't (yet) evidence.
 - **audit.log** — an append-only record of every change.
 
 One Go binary serves the CLI, the MCP-over-stdio server, and the session hooks. There's no daemon — it runs on demand, invoked by you, by the hooks, or by the MCP server. **Nothing is ever deleted:** superseded content moves to the Archive and audit log.
