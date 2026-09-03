@@ -87,7 +87,7 @@ Store layout:
     audit.log
 ```
 
-`config.yaml` records install settings, user-configurable interface and lead vocabularies, detected harness capabilities, and optional team-sync settings. New installs include the legacy seven interface defaults; older configs that omit `interfaces` inherit those defaults. An empty `leads` list preserves free-form lead assignment. Readers also accept the retired `token_target` and `schema_version` keys from pre-simplification configs, ignore their values, and omit them on the next normal config write. All other unknown config keys remain errors.
+`config.yaml` records install settings, user-configurable interface and lead vocabularies, global token warning ceiling (`token_limit`, defaulting to 100,000), detected harness capabilities, and optional team-sync settings. New installs include the legacy seven interface defaults; older configs that omit `interfaces` inherit those defaults. An empty `leads` list preserves free-form lead assignment. Readers also accept the retired `token_target` key from pre-simplification configs (mapping it to `token_limit`) and `schema_version` (ignoring its value), omitting them on the next normal config write. All other unknown config keys remain errors.
 
 `context/library.md` is the generated open-work context file for harnesses without deterministic hooks.
 
@@ -438,7 +438,7 @@ dossier doctor
 
 - Returns full Distilled State.
 - Estimates tokens.
-- Warns if above the fixed 100,000-token target.
+- Warns if above the configured token limit (`token_limit` in `config.yaml`, default 100,000).
 - Does not load Archive artifacts by default.
 
 `dossier done` / `dossier archive`

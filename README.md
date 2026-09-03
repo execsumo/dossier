@@ -51,7 +51,7 @@ That single `init` does everything:
 
 It's idempotent and non-clobbering: your existing MCP servers, hooks, and extensions are preserved, and every file is backed up before editing. Re-run it anytime, and check things with `dossier doctor` or `dossier harness list`.
 
-Discussion interfaces and lead choices are configured in `~/.dossier/config.yaml`:
+Discussion interfaces, lead choices, and global token limits are configured in `~/.dossier/config.yaml`:
 
 ```yaml
 interfaces:
@@ -61,9 +61,10 @@ interfaces:
 leads:
   - Alice
   - Bob
+token_limit: 100000
 ```
 
-Interface and lead selectors follow the configured order after restarting Dossier. Existing configs that omit `interfaces` retain the original seven defaults. An empty `leads` list keeps lead entry free-form; once leads are listed, new assignments must use one of them. The file remains machine-local and is never team-synced.
+Interface and lead selectors follow the configured order after restarting Dossier. Existing configs that omit `interfaces` retain the original seven defaults. An empty `leads` list keeps lead entry free-form; once leads are listed, new assignments must use one of them. The `token_limit` sets the warning ceiling for Distilled State tokens (defaults to 100000). The file remains machine-local and is never team-synced.
 
 ## Using it
 
@@ -142,7 +143,7 @@ It opens a priority-sorted dashboard of your Dossiers, with Lead and discussion-
 
 - **open** a Dossier to read its distilled state (with a live token estimate and over-target warning). The distilled state is rendered natively as rich, syntax-highlighted Markdown. The view automatically live-refreshes when Claude Code updates the dossier in the background.
 - **filter** by Lead with `f`, then cycle through `All` and the seven discussion interfaces with `i` (for example, Marcus + `1:1`),
-- **edit** the Lead, status, priority (`low`/`medium`/`high`/`max`), due date, and next action (up to 140 characters) inline without leaving the dashboard,
+- **edit** the Lead, stage, priority (`low`/`medium`/`high`/`max`), due date, and next action (up to 140 characters) inline without leaving the dashboard,
 - **link** a source, resolving ambiguous matches by picking from ranked candidates, and
 - **merge** one Dossier into another, resolving any conflicts in a syntax-highlighted side-by-side view (sources are archived, never deleted), and
 - **open in Claude** with `c` — launches a fresh Claude Code session already bound to the selected Dossier, with its distilled state loaded. The TUI suspends until you exit the session, then refreshes. (`dossier open <slug-or-id>` does the same from the shell. Set `DOSSIER_CLAUDE_BIN` if `claude` is not on your PATH.)
@@ -164,7 +165,7 @@ One Go binary serves the CLI, the MCP-over-stdio server, and the session hooks. 
 - **Team Sync (pilot).** Dossier includes an experimental, optionally team-synced mode so you can share a store with colleagues. It keeps your work local-first, pulling and pushing changes to a shared GitHub repo. For setup and how to join a team, see [`docs/team-sync-onboarding.md`](docs/team-sync-onboarding.md).
 - **Claude Code and Pi.** Claude Code is fully integrated. Pi has session identity via the bundled extension; its lifecycle hooks and MCP are not wired yet. Other harnesses (Codex, Antigravity) remain out of scope. If a capability is missing, Dossier says so — at install, in `dossier harness list`, and in `dossier doctor` — rather than failing silently.
 - **Config lives in two files.** Hooks go in `~/.claude/settings.json`; the MCP server goes in `~/.claude.json` (the only place Claude Code reads user-scope MCP servers). Both store the absolute path of the stable binary — if you rebuild, rename, or move it, re-run `dossier install` then `dossier init` to re-bind, idempotently.
-- **Token counts are estimates.** Dossier uses a BPE tokenizer benchmarked against Opus 4.8; it won't match every model exactly. The 100k-token figure is a configurable warning threshold, not a hard cap — Dossier warns, it never silently truncates.
+- **Token counts are estimates.** Dossier uses a BPE tokenizer benchmarked against Opus 4.8; it won't match every model exactly. The token target is a configurable warning threshold (`token_limit` in `config.yaml`, default 100,000), not a hard cap — Dossier warns, it never silently truncates.
 - **Wiring it up by hand.** If you'd rather not let `init` edit your config: register the MCP server with `claude mcp add dossier -- dossier mcp serve`, and run `dossier hook session-start` to see what the start hook emits.
 - **Switching install methods.** `dossier install` (Option B) puts the binary at `~/.local/bin/dossier`; Homebrew (Option A) puts it under its own prefix (e.g. `/opt/homebrew/bin/dossier`). If both are present, whichever comes first on your `PATH` wins — `brew` will warn you ("shadowed by...") if that happens. Pick one method per machine to avoid confusion about which binary is actually running.
 

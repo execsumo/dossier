@@ -208,16 +208,7 @@ semantics: a dossier is returned when it contains at least one requested value.
 
 ### Schema-simplification compatibility boundary
 
-Canonical domain structs contain only the current schema. Strict wire structs at
-the two YAML boundaries (`internal/config` and `store.ParseDossierFile`) additionally
-whitelist the retired origin/main keys; `yaml.Decoder.KnownFields(true)` still
-rejects anything else. Config compatibility fields (`token_target`,
-`schema_version`) are discarded. Dossier compatibility fields are converted at
-read time: `core.PriorityFromLegacyMatrix` maps importance/urgency toward the new
-priority enum using the old normalize-toward-attention rule, and
-`core.MergeLegacyOpenQuestions` merges frontmatter questions into the Markdown
-`## Open Questions` section without duplicates. A present canonical priority is
-never overridden by the old matrix.
+Canonical domain structs contain only the current schema. Machine-local `config.yaml` manages the global token warning ceiling via `token_limit` (defaulting to 100,000). Strict wire structs at the two YAML boundaries (`internal/config` and `store.ParseDossierFile`) additionally whitelist the retired origin/main keys; `yaml.Decoder.KnownFields(true)` still rejects anything else. A legacy `token_target` in config is mapped to `token_limit` on read, while `schema_version` is discarded. Dossier compatibility fields are converted at read time: `core.PriorityFromLegacyMatrix` maps importance/urgency toward the new priority enum using the old normalize-toward-attention rule, and `core.MergeLegacyOpenQuestions` merges frontmatter questions into the Markdown `## Open Questions` section without duplicates. A present canonical priority is never overridden by the old matrix.
 
 This conversion is a logical read view, not an eager migration. Merely listing or
 recalling a Dossier leaves its bytes untouched. The next ordinary `Service.Save`

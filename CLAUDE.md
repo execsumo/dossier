@@ -36,7 +36,7 @@ Match the surrounding code's idioms once they exist. Standard Go: `gofmt`, table
 - **CLI, MCP, and TUI must behave identically** — they are thin adapters over one `core.Service`. Never fork logic into an adapter.
 - **No native delete.** Archive only.
 - **No last-write-wins for Distilled State.** Concurrent edits become `conflicts/*.md` artifacts, surfaced.
-- **No silent truncation** to hit the 100k token target — warn, never cut.
+- **No silent truncation** to hit the token target (configured via `token_limit`, default 100k) — warn, never cut.
 - **No silent link/merge** of ambiguous targets — ask the user.
 - **No global active Dossier** — binding is per session.
 - **Non-destructive always** — superseded content moves to Archive/audit, never deleted. This replaces a human confirm gate.
