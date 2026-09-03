@@ -829,11 +829,9 @@ func TestChooseLeadFiltersDashboard(t *testing.T) {
 	}
 }
 
-// TestEscFromDashboardReturnsToLeadSelector verifies that Esc on the dashboard
-// takes the user back to the lead selector — the screen the app starts on —
-// rather than being a no-op, and that the selector reopens scoped to the
-// filter that was active on the dashboard.
-func TestEscFromDashboardReturnsToLeadSelector(t *testing.T) {
+// TestEscFromDashboardIsNoOp verifies that dashboard filters are opened only
+// through their explicit shortcuts rather than through Esc.
+func TestEscFromDashboardIsNoOp(t *testing.T) {
 	store := newTestStore()
 	svc := setupTestService(store)
 	m := NewModel(svc)
@@ -856,11 +854,11 @@ func TestEscFromDashboardReturnsToLeadSelector(t *testing.T) {
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = newM.(Model)
 
-	if m.currentView != ViewLeadSelector {
-		t.Fatalf("expected esc to return to lead selector, got view %d", m.currentView)
+	if m.currentView != ViewDashboard {
+		t.Fatalf("expected esc to leave the dashboard open, got view %d", m.currentView)
 	}
-	if m.leadResults[m.leadCursor].filter != m.leadFilter {
-		t.Errorf("expected cursor parked on active filter %+v, got %+v", m.leadFilter, m.leadResults[m.leadCursor].filter)
+	if got := stripANSI(m.View()); strings.Contains(got, "esc: leads") {
+		t.Errorf("dashboard footer should not advertise an Esc binding, got:\n%s", got)
 	}
 }
 

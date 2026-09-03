@@ -1280,10 +1280,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.table.Focus()
 				return m, m.listDossiersCmd()
 			case ViewDashboard:
-				// Esc from the dashboard returns to the lead selector, the
-				// screen the app always starts on.
-				m.openLeadSelector()
-				return m, nil
+				// Esc has no dashboard action; filters are opened explicitly
+				// with f. Preserve the existing backspace shortcut.
+				if msg.String() == "backspace" {
+					m.openLeadSelector()
+					return m, nil
+				}
 			}
 		case "r":
 			m.loading = true
@@ -2249,7 +2251,7 @@ func (m Model) View() string {
 		}
 	}
 
-	keyHelp := "↑/↓: select • f: filters • s: status • l: lead • p: priority • n: next action • k: link • m: merge • c: claude • esc: leads"
+	keyHelp := "↑/↓: select • f: filters • s: status • l: lead • p: priority • n: next action • k: link • m: merge • c: claude"
 	switch m.currentView {
 	case ViewLeadSelector:
 		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
