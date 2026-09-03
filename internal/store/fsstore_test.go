@@ -137,6 +137,105 @@ func TestFSStoreDossierLifecycle(t *testing.T) {
 	}
 }
 
+func TestFSStoreLegacyReadAndLazyCanonicalSavePreserveHistory(t *testing.T) {
+	tempHome := t.TempDir()
+	dossierDir := filepath.Join(tempHome, "legacy-topic")
+	if err := os.MkdirAll(dossierDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `---
+id: dos_legacy
+name: Legacy Topic
+slug: legacy-topic
+created_at: 2026-01-01T00:00:00Z
+updated_at: 2026-01-02T00:00:00Z
+last_touched_at: 2026-01-03T00:00:00Z
+status: active
+lead: Alice
+interfaces:
+  - Pricing WBR
+next_action: Review old state
+open_questions:
+  - Already in body?
+  - Only in frontmatter?
+  - Only in frontmatter?
+importance: high
+urgency: low
+due_date: 2026-01-10
+token_target: 100000
+---
+# Legacy Topic
+
+## Open Questions
+
+- Already in body?
+
+## Current State
+
+Still active.
+`
+	dossierPath := filepath.Join(dossierDir, "dossier.md")
+	if err := os.WriteFile(dossierPath, []byte(legacy), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewFSStore(tempHome)
+	dossier, legacyRevision, err := store.Read("legacy-topic")
+	if err != nil {
+		t.Fatalf("Read() rejected origin/main-shaped dossier: %v", err)
+	}
+	if dossier.Frontmatter.Priority != core.PriorityHigh {
+		t.Fatalf("legacy high/low priority = %q, want high", dossier.Frontmatter.Priority)
+	}
+	if strings.Count(dossier.DistilledState.Body, "Already in body?") != 1 || strings.Count(dossier.DistilledState.Body, "Only in frontmatter?") != 1 {
+		t.Fatalf("legacy questions were not merged without duplicates:\n%s", dossier.DistilledState.Body)
+	}
+	unchanged, err := os.ReadFile(dossierPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(unchanged) != legacy {
+		t.Fatal("Read() eagerly rewrote the legacy dossier")
+	}
+
+	dossier.Frontmatter.NextAction = "Save canonical state"
+	newRevision, err := store.Write(dossier, legacyRevision)
+	if err != nil {
+		t.Fatalf("Write() failed: %v", err)
+	}
+	if newRevision == legacyRevision {
+		t.Fatal("canonical edit did not advance revision")
+	}
+	canonical, err := os.ReadFile(dossierPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, legacyKey := range []string{"last_touched_at:", "open_questions:", "importance:", "urgency:", "token_target:"} {
+		if strings.Contains(string(canonical), legacyKey) {
+			t.Fatalf("canonical write re-emitted %s:\n%s", legacyKey, canonical)
+		}
+	}
+	if !strings.Contains(string(canonical), "priority: high") || strings.Count(string(canonical), "Only in frontmatter?") != 1 {
+		t.Fatalf("canonical write lost converted data:\n%s", canonical)
+	}
+
+	historyPath := filepath.Join(dossierDir, "history", string(legacyRevision)+".md")
+	history, err := os.ReadFile(historyPath)
+	if err != nil {
+		t.Fatalf("legacy revision was not archived: %v", err)
+	}
+	if string(history) != legacy {
+		t.Fatal("history did not preserve the original legacy bytes")
+	}
+	historical, err := store.ReadRevision("legacy-topic", legacyRevision)
+	if err != nil {
+		t.Fatalf("ReadRevision() could not load legacy history: %v", err)
+	}
+	if historical.Frontmatter.Priority != core.PriorityHigh || strings.Count(historical.DistilledState.Body, "Only in frontmatter?") != 1 {
+		t.Fatalf("historical compatibility view was destructive: %+v\n%s", historical.Frontmatter, historical.DistilledState.Body)
+	}
+}
+
 func TestFSStoreArtifacts(t *testing.T) {
 	tempHome, err := os.MkdirTemp("", "dossier-test-artifacts-*")
 	if err != nil {

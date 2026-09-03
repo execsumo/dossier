@@ -18,13 +18,26 @@ type TeamConfig struct {
 	Branch string `yaml:"branch,omitempty"`
 }
 
-// Config represents the schema of ~/.dossier/config.yaml.
+// Config represents the canonical schema of ~/.dossier/config.yaml.
 type Config struct {
 	DossierHome string     `yaml:"dossier_home"`
 	Author      string     `yaml:"author"`
 	Interfaces  []string   `yaml:"interfaces"`
 	Leads       []string   `yaml:"leads"`
 	Team        TeamConfig `yaml:"team,omitempty"`
+}
+
+// configFile is the strict read schema. TokenTarget and SchemaVersion are
+// accepted only so stores written by pre-simplification releases remain
+// readable; Config.Save deliberately cannot emit them.
+type configFile struct {
+	DossierHome   string     `yaml:"dossier_home"`
+	Author        string     `yaml:"author"`
+	Interfaces    []string   `yaml:"interfaces"`
+	Leads         []string   `yaml:"leads"`
+	Team          TeamConfig `yaml:"team,omitempty"`
+	TokenTarget   int        `yaml:"token_target,omitempty"`
+	SchemaVersion int        `yaml:"schema_version,omitempty"`
 }
 
 // Default returns the default configuration with standard paths.
@@ -67,11 +80,23 @@ func Load(path string) (*Config, error) {
 		}
 		return nil, err
 	}
+	wire := configFile{
+		DossierHome: cfg.DossierHome,
+		Author:      cfg.Author,
+		Interfaces:  cfg.Interfaces,
+		Leads:       cfg.Leads,
+		Team:        cfg.Team,
+	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
-	if err := decoder.Decode(cfg); err != nil {
+	if err := decoder.Decode(&wire); err != nil {
 		return nil, err
 	}
+	cfg.DossierHome = wire.DossierHome
+	cfg.Author = wire.Author
+	cfg.Interfaces = wire.Interfaces
+	cfg.Leads = wire.Leads
+	cfg.Team = wire.Team
 	if err := cfg.validateValues(); err != nil {
 		return nil, err
 	}

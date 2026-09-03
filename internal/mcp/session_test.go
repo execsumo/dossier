@@ -110,7 +110,11 @@ func TestMCPSwitchNoSessionDegradesVisibly(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Setenv("PI_SESSION_ID", "")
 	t.Setenv("DOSSIER_SESSION", "")
-	t.Setenv("DOSSIER_PI_SESSION_DIR", t.TempDir())
+	// Isolate this no-session case from a real parent Pi process and its
+	// extension-published session pointer.
+	piDir := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_DIR", piDir)
+	t.Setenv("DOSSIER_PI_SESSION_DIR", piDir)
 
 	svc := newSessionTestService(t)
 

@@ -1597,6 +1597,7 @@ func TestClaudeFinishedRefreshes(t *testing.T) {
 func TestArtifactAndClaudeKeysCoexistWithDashboardNavigation(t *testing.T) {
 	store := newTestStore()
 	m := claudeTestModel(t, store)
+	m.width = 140 // Keep the key label on one line as other footer actions grow.
 
 	if got := stripANSI(m.View()); !strings.Contains(got, "c: claude") {
 		t.Errorf("dashboard footer should advertise 'c: claude', got:\n%s", got)

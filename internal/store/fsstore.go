@@ -812,6 +812,29 @@ func (s *FSStore) findDossierDir(slugOrID string) (string, error) {
 
 // Public Parsing helpers exported for store integration tests
 
+// dossierFrontmatterFile is the strict read schema. The compatibility-only
+// fields mirror the last pre-simplification release and are intentionally not
+// part of core.Frontmatter, so FormatDossierFile can only emit canonical YAML.
+type dossierFrontmatterFile struct {
+	ID            string         `yaml:"id"`
+	Name          string         `yaml:"name"`
+	Description   string         `yaml:"description,omitempty"`
+	Slug          string         `yaml:"slug"`
+	CreatedAt     time.Time      `yaml:"created_at"`
+	UpdatedAt     time.Time      `yaml:"updated_at"`
+	Status        core.Status    `yaml:"status"`
+	Lead          string         `yaml:"lead,omitempty"`
+	Interfaces    []string       `yaml:"interfaces,omitempty"`
+	NextAction    string         `yaml:"next_action"`
+	Priority      *core.Priority `yaml:"priority"`
+	DueDate       string         `yaml:"due_date,omitempty"`
+	LastTouchedAt time.Time      `yaml:"last_touched_at,omitempty"`
+	OpenQuestions []string       `yaml:"open_questions,omitempty"`
+	Importance    string         `yaml:"importance,omitempty"`
+	Urgency       string         `yaml:"urgency,omitempty"`
+	TokenTarget   int            `yaml:"token_target,omitempty"`
+}
+
 func ParseDossierFile(content string) (*core.Frontmatter, string, error) {
 	startIdx := strings.Index(content, "---")
 	if startIdx == -1 {
@@ -827,13 +850,36 @@ func ParseDossierFile(content string) (*core.Frontmatter, string, error) {
 	yamlContent := content[startIdx+3 : endIdx]
 	body := content[endIdx+3:]
 
-	var fm core.Frontmatter
+	var wire dossierFrontmatterFile
 	decoder := yaml.NewDecoder(strings.NewReader(yamlContent))
 	decoder.KnownFields(true)
-	if err := decoder.Decode(&fm); err != nil {
+	if err := decoder.Decode(&wire); err != nil {
 		return nil, "", err
 	}
-	return &fm, strings.TrimPrefix(body, "\n"), nil
+
+	priority := core.Priority("")
+	if wire.Priority != nil {
+		priority = *wire.Priority
+	} else {
+		priority = core.PriorityFromLegacyMatrix(wire.Importance, wire.Urgency)
+	}
+	fm := core.Frontmatter{
+		ID:          wire.ID,
+		Name:        wire.Name,
+		Description: wire.Description,
+		Slug:        wire.Slug,
+		CreatedAt:   wire.CreatedAt,
+		UpdatedAt:   wire.UpdatedAt,
+		Status:      wire.Status,
+		Lead:        wire.Lead,
+		Interfaces:  wire.Interfaces,
+		NextAction:  wire.NextAction,
+		Priority:    priority,
+		DueDate:     wire.DueDate,
+	}
+	body = strings.TrimPrefix(body, "\n")
+	body = core.MergeLegacyOpenQuestions(body, wire.OpenQuestions)
+	return &fm, body, nil
 }
 
 func FormatDossierFile(fm core.Frontmatter, body string) (string, error) {

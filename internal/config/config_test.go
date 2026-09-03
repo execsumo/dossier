@@ -62,6 +62,59 @@ func TestLoadValueLists(t *testing.T) {
 	})
 }
 
+func TestLoadLegacyConfigAndSaveCanonical(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	legacy := `dossier_home: /tmp/dossiers
+token_target: 100000
+author: legacy-user
+schema_version: 2
+team:
+  remote: https://example.test/team.git
+  branch: main
+`
+	if err := os.WriteFile(path, []byte(legacy), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() rejected legacy config: %v", err)
+	}
+	if cfg.DossierHome != "/tmp/dossiers" || cfg.Author != "legacy-user" {
+		t.Fatalf("legacy values not loaded: %+v", cfg)
+	}
+	if len(cfg.Interfaces) != 7 {
+		t.Fatalf("legacy config did not inherit interface defaults: %v", cfg.Interfaces)
+	}
+	unchanged, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(unchanged) != legacy {
+		t.Fatal("Load() eagerly rewrote the legacy config")
+	}
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(written), "token_target:") || strings.Contains(string(written), "schema_version:") {
+		t.Fatalf("canonical save re-emitted compatibility fields:\n%s", written)
+	}
+}
+
+func TestLoadRejectsUnknownConfigField(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("dossier_home: /tmp/dossiers\nauthor: test\nunknown_setting: true\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "unknown_setting") {
+		t.Fatalf("Load() error = %v, want strict unknown-field error", err)
+	}
+}
+
 func TestConfigRejectsInvalidValueLists(t *testing.T) {
 	tests := []struct {
 		name string

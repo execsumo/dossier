@@ -7,6 +7,56 @@ import (
 	"time"
 )
 
+func TestSavePreservesCompatibilityViewAndHistory(t *testing.T) {
+	store := newLocalFakeStore()
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	body := MergeLegacyOpenQuestions("# Legacy\n\n## Current State\n\nActive.\n", []string{"What remains?"})
+	dossier := &Dossier{
+		Frontmatter: Frontmatter{
+			ID: "dos_legacy", Name: "Legacy", Slug: "legacy",
+			CreatedAt: now, UpdatedAt: now, Status: StatusActive,
+			Priority: PriorityFromLegacyMatrix("low", "high"),
+		},
+		DistilledState: DistilledState{Body: body},
+	}
+	store.dossiers[dossier.Frontmatter.ID] = dossier
+	base := CalculateRevision(dossier.Frontmatter, body, nil)
+	store.revisions[dossier.Frontmatter.ID] = base
+
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: now}, Config{DossierHome: "/tmp/dossier-test"}, nil)
+	res, err := svc.Save(context.Background(), SaveReq{
+		ID:           dossier.Frontmatter.ID,
+		BaseRevision: base,
+		FrontmatterUpdates: map[string]any{
+			"next_action": "Continue safely",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+	if res.Data.(Revision) == base {
+		t.Fatal("Save() did not advance the revision")
+	}
+	current, _, err := store.Read(dossier.Frontmatter.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Frontmatter.Priority != PriorityMedium || strings.Count(current.DistilledState.Body, "What remains?") != 1 {
+		t.Fatalf("Save() lost compatibility data: %+v\n%s", current.Frontmatter, current.DistilledState.Body)
+	}
+	events := store.audits[dossier.Frontmatter.ID]
+	if len(events) != 1 || events[0].BeforeRevision != string(base) || events[0].AfterRevision != string(res.Data.(Revision)) {
+		t.Fatalf("Save() did not audit the compatibility revision transition: %+v", events)
+	}
+	historical, err := store.ReadRevision(dossier.Frontmatter.ID, base)
+	if err != nil {
+		t.Fatalf("compatibility revision was not retained: %v", err)
+	}
+	if historical.DistilledState.Body != body || historical.Frontmatter.Priority != PriorityMedium {
+		t.Fatalf("history changed compatibility state: %+v\n%s", historical.Frontmatter, historical.DistilledState.Body)
+	}
+}
+
 func TestNewDossierDefaultsToHighPriority(t *testing.T) {
 	store := newLocalFakeStore()
 	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()}, Config{DossierHome: "/tmp/dossier-test"}, nil)

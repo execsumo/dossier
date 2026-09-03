@@ -53,7 +53,8 @@ dossier/
       artifact.go        # Artifact, types, size/format validation
       audit.go           # AuditEvent types (§4.4) + JSONL marshaling
       revision.go        # canonical hashing + optimistic-concurrency check (see §6)
-      priority.go        # priority scoring (SPEC §11.1)
+      priority.go        # canonical priority ordering + legacy matrix mapping (SPEC §11.1)
+      legacy.go          # pure compatibility merge for retired frontmatter open_questions
       suggest.go         # lexical suggestion ranking (SPEC §11.2)
       result.go          # Result/Warning/NextAction value types (the §8.2 envelope, surface-agnostic)
       errors.go          # typed domain errors ↔ the §8.2 error codes
@@ -205,6 +206,27 @@ unreadable or blocks unrelated edits. The TUI selectors and MCP schemas use the
 same service-owned lists. `Service.List` applies interface filters with **ANY**
 semantics: a dossier is returned when it contains at least one requested value.
 
+### Schema-simplification compatibility boundary
+
+Canonical domain structs contain only the current schema. Strict wire structs at
+the two YAML boundaries (`internal/config` and `store.ParseDossierFile`) additionally
+whitelist the retired origin/main keys; `yaml.Decoder.KnownFields(true)` still
+rejects anything else. Config compatibility fields (`token_target`,
+`schema_version`) are discarded. Dossier compatibility fields are converted at
+read time: `core.PriorityFromLegacyMatrix` maps importance/urgency toward the new
+priority enum using the old normalize-toward-attention rule, and
+`core.MergeLegacyOpenQuestions` merges frontmatter questions into the Markdown
+`## Open Questions` section without duplicates. A present canonical priority is
+never overridden by the old matrix.
+
+This conversion is a logical read view, not an eager migration. Merely listing or
+recalling a Dossier leaves its bytes untouched. The next ordinary `Service.Save`
+flows through `Store.Write`: the pre-save legacy bytes are archived under
+`history/<revision>.md`, while `FormatDossierFile(core.Frontmatter, body)` can emit
+only canonical keys. Historical legacy files pass through the same compatibility
+reader, so revision lookup remains lossless and no retired field can leak back
+onto the canonical write path.
+
 ---
 
 ## 5. File operations & atomic writes
@@ -245,7 +267,7 @@ canonical(frontmatter)         # keys sorted; scalars normalized; lists in decla
 + join(sorted("<art_id>:<sha256(content)>"), "\n")
 ```
 
-Canonicalization must be **deterministic** — same logical content always yields the same revision regardless of YAML key order or line endings. Put `canonicalize()` and `Revision()` in `revision.go` with exhaustive table tests; they are load-bearing.
+Canonicalization must be **deterministic** — same logical content always yields the same revision regardless of YAML key order or line endings. Put `canonicalize()` and `Revision()` in `revision.go` with exhaustive table tests; they are load-bearing. Compatibility reads hash the converted canonical frontmatter and question-merged body, so the revision returned by Recall is exactly the base accepted by a subsequent Save; the original legacy bytes are then filed under that revision before replacement.
 
 **Optimistic concurrency on `Save`** (SPEC §11.5):
 1. Read current revision.

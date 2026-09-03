@@ -87,7 +87,7 @@ Store layout:
     audit.log
 ```
 
-`config.yaml` records install settings, user-configurable interface and lead vocabularies, detected harness capabilities, and optional team-sync settings. New installs include the legacy seven interface defaults; older configs that omit `interfaces` inherit those defaults. An empty `leads` list preserves free-form lead assignment.
+`config.yaml` records install settings, user-configurable interface and lead vocabularies, detected harness capabilities, and optional team-sync settings. New installs include the legacy seven interface defaults; older configs that omit `interfaces` inherit those defaults. An empty `leads` list preserves free-form lead assignment. Readers also accept the retired `token_target` and `schema_version` keys from pre-simplification configs, ignore their values, and omit them on the next normal config write. All other unknown config keys remain errors.
 
 `context/library.md` is the generated open-work context file for harnesses without deterministic hooks.
 
@@ -137,6 +137,8 @@ Optional fields:
 - `lead`
 - `interfaces`
 - `due_date`
+
+The read schema is backward-compatible with the immediately preceding schema. It additionally accepts `last_touched_at`, `open_questions`, `importance`, `urgency`, and `token_target`, while continuing to reject every other unknown YAML key. When canonical `priority` is absent, the old matrix maps `high/high` → `max`, `high/low` → `high`, `low/high` → `medium`, and `low/low` → `low`; a missing or unknown legacy dimension uses the old normalize-toward-attention behavior and is treated as `high`. A present canonical `priority` takes precedence. Legacy `open_questions` are merged into the body's `## Open Questions` section without duplicates. Compatibility is lazy: reads do not rewrite files; the next ordinary Save writes canonical frontmatter only and preserves the prior bytes in revision history. Retired fields are never re-emitted.
 
 `next_action` must be no more than 140 Unicode characters. The limit is enforced by the core service and does not truncate existing or submitted values.
 
@@ -953,6 +955,8 @@ Checks:
 - `dossier.md` is readable as plain Markdown.
 - Frontmatter scan over 500 Dossiers completes under 2 seconds on a typical laptop.
 - No database file is created.
+- Pre-simplification config and Dossier files load without an eager rewrite; unknown YAML keys still fail.
+- The next normal Save emits canonical frontmatter, preserves legacy open questions in the body, and keeps the original legacy file readable through revision history.
 
 ### 14.2 Recall
 

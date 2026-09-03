@@ -44,8 +44,35 @@ next_action: inspect
 		t.Fatalf("removed fields leaked into formatted dossier: %s", formatted)
 	}
 
-	legacy := strings.Replace(formatted, "priority: high", "importance: high", 1)
-	if _, _, err := ParseDossierFile(legacy); err == nil {
-		t.Fatal("legacy frontmatter was accepted; schema should fail explicitly")
+	unknown := strings.Replace(formatted, "priority: high", "priority: high\nfuture_field: true", 1)
+	if _, _, err := ParseDossierFile(unknown); err == nil || !strings.Contains(err.Error(), "future_field") {
+		t.Fatalf("unknown frontmatter field error = %v, want strict rejection", err)
+	}
+}
+
+func TestParseLegacyFrontmatterUsesCanonicalPriorityWhenPresent(t *testing.T) {
+	content := `---
+id: dos_example
+name: Example
+slug: example
+created_at: 2026-01-01T00:00:00Z
+updated_at: 2026-01-01T00:00:00Z
+last_touched_at: 2026-01-02T00:00:00Z
+status: active
+next_action: inspect
+priority: low
+importance: high
+urgency: high
+open_questions: []
+token_target: 100000
+---
+# Example
+`
+	fm, _, err := ParseDossierFile(content)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if fm.Priority != core.PriorityLow {
+		t.Fatalf("canonical priority did not take precedence: %q", fm.Priority)
 	}
 }
