@@ -45,6 +45,10 @@ const (
 	// ViewArtifactContent shows one artifact's line-numbered content, mirroring
 	// `dossier artifact <slug> <artifact-id>`.
 	ViewArtifactContent
+	// ViewKanban is the second home surface: the same filtered dossier set as the
+	// dashboard, laid out as stage columns. It is appended last so the existing
+	// iota values stay stable for anything that persisted them.
+	ViewKanban
 )
 
 // leadFilterKind enumerates the three ways the dashboard can be scoped by lead.
@@ -260,6 +264,12 @@ type Model struct {
 	svc         *core.Service
 	currentView View
 
+	// listView records which home surface — the dashboard table or the Kanban
+	// board — the user last chose. Every "go back" path returns here rather than
+	// hardcoding the dashboard, so opening a dossier from the board and pressing
+	// esc lands back on the board.
+	listView View
+
 	// Data
 	items        []core.ListItem // full dossier list, source of truth
 	visibleItems []core.ListItem // items[] narrowed by lead/interface filters and extrasExpanded; what the table shows
@@ -336,6 +346,13 @@ type Model struct {
 	mergeCursor            int
 	mergeConflict          *core.Conflict
 	conflictResolverCursor int // 0 = Resolve/Force, 1 = Cancel
+
+	// Kanban board view state. kanbanColumns is rebuilt by applyLeadFilter — one
+	// bucket per canonical stage, holding the same filtered items the dashboard
+	// shows — so the board never groups per frame.
+	kanbanColumns [][]core.ListItem
+	kanbanCol     int
+	kanbanRow     int
 
 	// Artifact index / content view state
 	artifactIndex   []core.ArtifactSummary
@@ -418,6 +435,7 @@ func NewModel(svc *core.Service) Model {
 	return Model{
 		svc:                  svc,
 		currentView:          ViewDashboard,
+		listView:             ViewDashboard,
 		table:                t,
 		viewport:             vp,
 		artifactViewport:     avp,
@@ -645,6 +663,24 @@ func (m Model) getTargetDossier() (targetDossier, bool) {
 		}, true
 	}
 
+	if m.currentView == ViewKanban {
+		item, ok := m.selectedKanbanItem()
+		if !ok {
+			return targetDossier{}, false
+		}
+		return targetDossier{
+			id:           item.ID,
+			name:         item.Name,
+			slug:         item.Slug,
+			status:       core.Status(item.Status),
+			priority:     core.Priority(item.Priority),
+			dueDate:      item.DueDate,
+			nextAction:   item.NextAction,
+			lead:         item.Lead,
+			baseRevision: "", // Skip check from the board, as from the dashboard
+		}, true
+	}
+
 	// Dashboard view
 	itemIdx, isToggle := m.rowToItemIndex(m.table.Cursor())
 	if !isToggle && itemIdx >= 0 && itemIdx < len(m.visibleItems) {
@@ -818,13 +854,21 @@ func filterLeadOptions(opts []leadOption, query string) []leadOption {
 // live set and visibleItems[liveCount:] is always the extras set, regardless of
 // expansion state. That invariant lets the toggle row live at a stable row
 // index (liveCount) rather than always trailing the last row.
+//
+// The same pass also rebuilds the Kanban columns. The board shares the lead and
+// interface filters but deliberately ignores the extras collapse: a board whose
+// Done column hid done work would be lying about the stage it names. Grouping
+// here — rather than in the renderer — keeps it O(n) per data/filter change
+// instead of per frame.
 func (m *Model) applyLeadFilter() {
 	visible := make([]core.ListItem, 0, len(m.items))
 	var extraItems []core.ListItem
+	matched := make([]core.ListItem, 0, len(m.items))
 	for _, item := range m.items {
 		if !m.leadFilter.matches(item) || !m.interfaceFilter.matches(item) {
 			continue
 		}
+		matched = append(matched, item)
 		if statusTier(item.Status) == 1 {
 			extraItems = append(extraItems, item)
 			continue
@@ -837,6 +881,16 @@ func (m *Model) applyLeadFilter() {
 		visible = append(visible, extraItems...)
 	}
 	m.visibleItems = visible
+
+	m.kanbanColumns = groupByStage(matched)
+	m.clampKanbanCursor()
+}
+
+// isListView reports whether the current view is a home surface — the dashboard
+// table or the Kanban board. Both list the same filtered dossiers, so the
+// filter, link, merge and handoff keys behave identically on either.
+func (m Model) isListView() bool {
+	return m.currentView == ViewDashboard || m.currentView == ViewKanban
 }
 
 // rowToItemIndex translates a table cursor row into an index into
@@ -881,7 +935,7 @@ func (m *Model) chooseLead() {
 	}
 	m.applyLeadFilter()
 	m.populateTableRows()
-	m.currentView = ViewDashboard
+	m.currentView = m.listView
 	m.table.SetCursor(0)
 	m.table.Focus()
 }
@@ -1151,6 +1205,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// View-specific key overrides
 		switch m.currentView {
+		case ViewKanban:
+			// Only the keys the board owns are intercepted; everything else
+			// (s/l/p/n/c/f/i/k/m/r/q) falls through to the global switch so the
+			// board and the dashboard offer the same verbs.
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc", "b":
+				m.listView = ViewDashboard
+				m.currentView = ViewDashboard
+				m.table.Focus()
+				return m, nil
+			case "left":
+				m.moveKanbanColumn(-1)
+				return m, nil
+			case "right":
+				m.moveKanbanColumn(1)
+				return m, nil
+			case "up":
+				m.moveKanbanRow(-1)
+				return m, nil
+			case "down":
+				m.moveKanbanRow(1)
+				return m, nil
+			case "enter":
+				if item, ok := m.selectedKanbanItem(); ok && item.ID != "" {
+					m.loading = true
+					m.err = nil
+					return m, m.recallDossierCmd(item.ID)
+				}
+				return m, nil
+			}
+
 		case ViewLeadSelector:
 			switch msg.String() {
 			case "ctrl+c":
@@ -1161,7 +1248,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// "show everything"; reopened via 'f' it cancels the change.
 				m.applyLeadFilter()
 				m.populateTableRows()
-				m.currentView = ViewDashboard
+				m.currentView = m.listView
 				m.table.SetCursor(0)
 				m.table.Focus()
 				return m, nil
@@ -1208,7 +1295,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewLinkSelector:
 			switch msg.String() {
 			case "esc":
-				m.currentView = ViewDashboard
+				m.currentView = m.listView
 				return m, nil
 			case "up", "k":
 				m.linkCursor = (m.linkCursor - 1 + len(m.linkSuggestions)) % len(m.linkSuggestions)
@@ -1224,7 +1311,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewMergeSelector:
 			switch msg.String() {
 			case "esc":
-				m.currentView = ViewDashboard
+				m.currentView = m.listView
 				return m, nil
 			case "up", "k":
 				m.mergeCursor = (m.mergeCursor - 1 + len(m.mergeTargets)) % len(m.mergeTargets)
@@ -1243,7 +1330,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewMergeConflictResolver:
 			switch msg.String() {
 			case "esc":
-				m.currentView = ViewDashboard
+				m.currentView = m.listView
 				return m, nil
 			case "tab", "shift+tab":
 				m.conflictResolverCursor = (m.conflictResolverCursor + 1) % 2
@@ -1253,7 +1340,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.err = nil
 					return m, m.mergeCmd(m.mergeSourceID, m.mergeTargetID, []string{m.mergeConflict.ID})
 				} else {
-					m.currentView = ViewDashboard
+					m.currentView = m.listView
 					return m, nil
 				}
 			}
@@ -1397,7 +1484,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc", "backspace":
 			switch m.currentView {
 			case ViewDetail:
-				m.currentView = ViewDashboard
+				m.currentView = m.listView
 				m.warnings = nil
 				m.err = nil
 				m.table.Focus()
@@ -1476,7 +1563,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				})
 			}
 		case "c":
-			if m.currentView == ViewDashboard || m.currentView == ViewDetail {
+			if m.isListView() || m.currentView == ViewDetail {
 				if t, ok := m.getTargetDossier(); ok && t.id != "" {
 					return m.openInClaude(t)
 				}
@@ -1488,12 +1575,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.listArtifactsCmd(m.recallResult.Frontmatter.ID)
 			}
 		case "f":
-			if m.currentView == ViewDashboard {
+			if m.isListView() {
 				m.openLeadSelector()
 				return m, nil
 			}
 		case "i":
-			if m.currentView == ViewDashboard {
+			if m.isListView() {
 				m.interfaceFilter = nextInterfaceFilter(m.interfaceFilter, m.configuredInterfaces)
 				m.applyLeadFilter()
 				m.populateTableRows()
@@ -1501,17 +1588,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "k":
-			if m.currentView == ViewDashboard {
+			if m.isListView() {
 				m.startLinkInput()
 				return m, nil
 			}
 		case "m":
-			if m.currentView == ViewDashboard {
-				itemIdx, isToggle := m.rowToItemIndex(m.table.Cursor())
-				if !isToggle && itemIdx >= 0 && itemIdx < len(m.visibleItems) {
-					m.startMergeSelector(m.visibleItems[itemIdx].ID, m.visibleItems[itemIdx].Name)
+			if m.isListView() {
+				if t, ok := m.getTargetDossier(); ok && t.id != "" {
+					m.startMergeSelector(t.id, t.name)
 					return m, nil
 				}
+			}
+		case "b":
+			// Toggle to the board. The reverse toggle lives in the ViewKanban
+			// key block; every other view leaves 'b' alone.
+			if m.currentView == ViewDashboard {
+				m.listView = ViewKanban
+				m.currentView = ViewKanban
+				return m, nil
 			}
 		}
 
@@ -1663,16 +1757,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.err = msg.err
-			m.currentView = ViewDashboard
+			m.currentView = m.listView
 		} else {
-			m.currentView = ViewDashboard
+			m.currentView = m.listView
 			m.err = nil
 			return m, m.listDossiersCmd()
 		}
 
 	case linkConfirmResultMsg:
 		m.loading = false
-		m.currentView = ViewDashboard
+		m.currentView = m.listView
 		if msg.err != nil {
 			m.err = msg.err
 		} else {
@@ -1696,9 +1790,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.err = msg.err
-			m.currentView = ViewDashboard
+			m.currentView = m.listView
 		} else {
-			m.currentView = ViewDashboard
+			m.currentView = m.listView
 			m.err = nil
 			// Show success info
 			return m, m.listDossiersCmd()
@@ -1749,7 +1843,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
 			m.loading = true
 			cmds = append(cmds, m.recallDossierCmd(m.recallResult.Frontmatter.ID))
-		} else if m.currentView == ViewDashboard || m.currentView == ViewLeadSelector {
+		} else if m.isListView() || m.currentView == ViewLeadSelector {
 			cmds = append(cmds, m.listDossiersCmd())
 		}
 	}
@@ -1993,21 +2087,7 @@ func (m Model) renderStatusPicker() string {
 		}
 
 		statusStr := string(opt)
-		var style lipgloss.Style
-		switch opt {
-		case core.StatusSpark:
-			style = statusSparkStyle
-		case core.StatusDefine, core.StatusActive:
-			style = statusDefineStyle
-		case core.StatusDelegated, core.StatusWaiting:
-			style = statusDelegatedStyle
-		case core.StatusReview:
-			style = statusReviewStyle
-		case core.StatusBlocked:
-			style = statusBlockedStyle
-		case core.StatusDone, core.StatusResolved, core.StatusArchived:
-			style = statusDoneStyle
-		}
+		style := stageStyle(opt)
 
 		if i == m.statusCursor {
 			sb.WriteString(focusedItemStyle.Render(fmt.Sprintf("%s%s", cursor, statusStr)))
@@ -2400,8 +2480,10 @@ func (m Model) footerContent(v View) string {
 		}
 	}
 
-	keyHelp := "↑/↓: select • f: filters • s: stage • l: lead • p: priority • n: next action • k: link • m: merge • c: claude"
+	keyHelp := "↑/↓: select • f: filters • s: stage • l: lead • p: priority • n: next action • k: link • m: merge • c: claude • b: board"
 	switch v {
+	case ViewKanban:
+		keyHelp = "←/→: stage • ↑/↓: card • enter: open • f: filters • i: interface • s: stage • l: lead • p: priority • n: next action • c: claude • b: table"
 	case ViewLeadSelector:
 		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
 	case ViewDetail:
@@ -2444,6 +2526,22 @@ func (m Model) footerHeight(v View) int {
 	return h
 }
 
+// renderListSubtitle fits a home surface's subtitle line to the terminal.
+//
+// Nothing else constrains it, and the dashboard and board subtitles are the two
+// that grow with state (filter labels, the extras note, the stage window). Past
+// the terminal width a real terminal soft-wraps them onto a second row and
+// pushes the footer off the bottom of the screen — a wrap lipgloss never emits
+// as a "\n", so line-count assertions cannot see it. Truncation happens on the
+// plain text so the ellipsis lands inside the styled span instead of cutting an
+// ANSI sequence in half.
+func (m Model) renderListSubtitle(text string) string {
+	if m.width <= 0 {
+		return subtitleStyle.Render(text)
+	}
+	return subtitleStyle.Render(truncateCell(text, m.width))
+}
+
 // View renders the screen based on state.
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
@@ -2473,15 +2571,39 @@ func (m Model) View() string {
 		if m.extrasCount > 0 && !m.extrasExpanded {
 			archivedNote = " · resolved/archived hidden"
 		}
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Dashboard · Lead: %s · Interface: %s%s", subheadline, m.leadFilter.label(), m.interfaceFilter.label(), archivedNote)))
+		sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" %s — Dashboard · Lead: %s · Interface: %s%s", subheadline, m.leadFilter.label(), m.interfaceFilter.label(), archivedNote)))
 		sb.WriteString("\n\n")
 
 		if m.loading && len(m.items) == 0 {
 			sb.WriteString(" Loading dossiers...\n")
 		} else if len(m.visibleItems) == 0 && m.extrasCount == 0 {
-			sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" No dossiers for lead: %s / interface: %s — press f or i to change filters.\n", m.leadFilter.label(), m.interfaceFilter.label())))
+			// The newline stays outside the fitted text so a width cut can never
+			// eat it and collapse the layout.
+			sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" No dossiers for lead: %s / interface: %s — press f or i to change filters.", m.leadFilter.label(), m.interfaceFilter.label())))
+			sb.WriteString("\n")
 		} else {
 			sb.WriteString(m.table.View())
+			sb.WriteString("\n")
+		}
+
+	case ViewKanban:
+		stageNote := ""
+		stages := core.CanonicalStatuses()
+		if start, end := m.kanbanStageWindow(); end-start < len(stages) {
+			stageNote = fmt.Sprintf(" · stages %d–%d of %d", start+1, end, len(stages))
+		}
+		sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" %s — Board · Lead: %s · Interface: %s%s", subheadline, m.leadFilter.label(), m.interfaceFilter.label(), stageNote)))
+		sb.WriteString("\n\n")
+
+		if m.loading && len(m.items) == 0 {
+			sb.WriteString(" Loading dossiers...\n")
+		} else if m.kanbanIsEmpty() {
+			// The newline stays outside the fitted text so a width cut can never
+			// eat it and collapse the layout.
+			sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" No dossiers for lead: %s / interface: %s — press f or i to change filters.", m.leadFilter.label(), m.interfaceFilter.label())))
+			sb.WriteString("\n")
+		} else {
+			sb.WriteString(m.renderKanban())
 			sb.WriteString("\n")
 		}
 

@@ -88,6 +88,7 @@ dossier/
     cli/                 # cobra commands → core.Service → render (text/--json)
     mcp/                 # stdio MCP server → core.Service → §8.2 envelope
     tui/                 # bubbletea models/views (fsnotify hot-refresh, glamour markdown) → core.Service
+                         #   two home surfaces over one filtered set: dashboard table + kanban.go stage board
   assets/                # go:embed — Distillation Guide, context templates, installables
     guide.md
     library.tmpl.md

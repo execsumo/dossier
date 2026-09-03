@@ -1941,8 +1941,10 @@ func TestTUI_FooterConvergenceAtTerminalBottom(t *testing.T) {
 			t.Errorf("dim %dx%d: expected Dashboard line count %d, got %d", dim.w, dim.h, dim.h, len(dashLines))
 		}
 		lastDashLine := dashLines[len(dashLines)-1]
-		if !strings.Contains(lastDashLine, "claude") {
-			t.Errorf("dim %dx%d: expected Dashboard bottom line to be footer with 'claude', got: %q", dim.w, dim.h, lastDashLine)
+		// The help string wraps at narrower widths, so the bottom line is
+		// whichever footer fragment lands last: "…c: claude" or "…b: board".
+		if !strings.Contains(lastDashLine, "claude") && !strings.Contains(lastDashLine, "board") {
+			t.Errorf("dim %dx%d: expected Dashboard bottom line to be footer with 'claude' or 'board', got: %q", dim.w, dim.h, lastDashLine)
 		}
 
 		// 2. Detail view with description: footer must be on bottom line

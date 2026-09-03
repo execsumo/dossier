@@ -143,12 +143,13 @@ It opens a priority-sorted dashboard of your Dossiers, with Lead and discussion-
 
 - **open** a Dossier to read its distilled state (with a live token estimate and over-target warning). The distilled state is rendered natively as rich, syntax-highlighted Markdown. The view automatically live-refreshes when Claude Code updates the dossier in the background.
 - **filter** by Lead with `f`, then cycle through `All` and the seven discussion interfaces with `i` (for example, Marcus + `1:1`),
+- **switch to the board** with `b` — the same filtered Dossiers laid out as stage columns (spark → define → delegated → review → blocked → done), each card showing the Dossier's name and description. Arrows move between cards, enter opens one, and `b` returns you to the table. Done cards show the title only, so finished work costs the space it deserves. Every dashboard key works on the board, filters included.
 - **edit** the Lead, stage, priority (`low`/`medium`/`high`/`max`), due date, and next action (up to 140 characters) inline without leaving the dashboard,
 - **link** a source, resolving ambiguous matches by picking from ranked candidates, and
 - **merge** one Dossier into another, resolving any conflicts in a syntax-highlighted side-by-side view (sources are archived, never deleted), and
 - **open in Claude** with `c` — launches a fresh Claude Code session already bound to the selected Dossier, with its distilled state loaded. The TUI suspends until you exit the session, then refreshes. (`dossier open <slug-or-id>` does the same from the shell. Set `DOSSIER_CLAUDE_BIN` if `claude` is not on your PATH.)
 
-The TUI is a thin layer over the same core as the CLI and MCP, so it behaves identically — `q` quits, `?` toggles help.
+Both views — the table and the board — are thin layers over the same core as the CLI and MCP, so they behave identically — `q` quits, `?` toggles help.
 
 ## How it works
 
