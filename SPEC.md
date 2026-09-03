@@ -144,7 +144,7 @@ The read schema is backward-compatible with the immediately preceding schema. It
 
 Valid enums:
 
-- `status`: `active`, `waiting`, `blocked`, `resolved`, `archived`
+- `status`: `spark`, `define`, `delegated`, `review`, `blocked`, `done` (legacy statuses `active` → `define`, `waiting` → `delegated`, and `resolved`/`archived` → `done` are accepted on input and transparently normalized).
 - `priority`: `low`, `medium`, `high`, `max`
 
 Interface and lead values are configured in machine-local `config.yaml`. Interface assignments must use configured values. When `leads` is nonempty, new lead assignments must use a configured value (or empty to clear); when it is empty, lead assignment remains free-form. Removing a configured value does not invalidate existing Dossiers or unrelated edits. TUI selectors and MCP schemas read these lists at process startup.
@@ -365,7 +365,7 @@ The first implementation milestone should produce a capability matrix in `docs/h
 
 ```text
 dossier init
-dossier ls [--status active|waiting|blocked|resolved|archived|all] [--interface <interface>] [--json]
+dossier ls [--status spark|define|delegated|review|blocked|done|all] [--interface <interface>] [--json]
 dossier show <slug-or-id> [--json]
 dossier promote [--name <name>] [--from-file <path>] [--json]
 dossier link [<slug-or-id>] [--from-file <path>] [--json]
@@ -376,7 +376,7 @@ dossier artifact <slug-or-id> [<artifact-id>] [-L <a-b>] [--json]
 dossier sync [--status] [--json]
 dossier team create <url> [--json]
 dossier team join <url> [--json]
-dossier status <slug-or-id> <active|waiting|blocked|resolved|archived>
+dossier status <slug-or-id> <spark|define|delegated|review|blocked|done>
 dossier lead <slug-or-id> "<lead-name>"
 dossier description <slug-or-id> "<summary>"
 dossier interface <slug-or-id> "<interface>"...
@@ -386,6 +386,7 @@ dossier active [--session <session-id>] [--json]
 dossier switch <slug-or-id> [--session <session-id>] [--json]
 dossier path [<slug-or-id>] [--json]
 dossier archive <slug-or-id> [--json]
+dossier done <slug-or-id> [--json]
 dossier context refresh
 dossier doctor
 ```
@@ -407,7 +408,7 @@ dossier doctor
 `dossier ls`
 
 - Reads frontmatter across `*/dossier.md`.
-- Default status filter: `active`, `waiting`, `blocked`.
+- Default status filter: open work (`spark`, `define`, `delegated`, `review`, `blocked`).
 - Sorts by priority (`max` first, then `high`, `medium`, `low`).
 - Includes capability warning column if invoked inside a known harness/session.
 
@@ -440,9 +441,9 @@ dossier doctor
 - Warns if above the fixed 100,000-token target.
 - Does not load Archive artifacts by default.
 
-`dossier archive`
+`dossier done` / `dossier archive`
 
-- Sets status to `archived`.
+- Sets status to `done`.
 - Hides Dossier from default open-work view.
 - Does not delete files.
 
@@ -551,7 +552,7 @@ Input:
 
 ```json
 {
-  "status": ["active", "waiting", "blocked"],
+  "status": ["define", "delegated", "review", "blocked"],
   "limit": 50,
   "include_warnings": true
 }
@@ -564,7 +565,7 @@ Output Dossier item:
   "id": "dos_...",
   "name": "Pricing model refresh",
   "slug": "pricing-model-refresh",
-  "status": "active",
+  "status": "define",
   "lead": "Alice",
   "description": "Pricing strategy and packaging decisions for the next planning cycle.",
   "next_action": "Compare revised pricing scenarios with sales feedback.",
@@ -584,7 +585,7 @@ Input:
   "id": "dos_...",
   "base_revision": "rev_...",
   "frontmatter_updates": {
-    "status": "active",
+    "status": "define",
     "next_action": "...",
     "priority": "high"
   },

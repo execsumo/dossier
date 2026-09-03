@@ -344,8 +344,8 @@ func TestServiceListAndRecall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read from store: %v", err)
 	}
-	if d.Frontmatter.Status != StatusArchived {
-		t.Errorf("expected status to be archived, got %q", d.Frontmatter.Status)
+	if d.Frontmatter.Status != StatusDone {
+		t.Errorf("expected status to be done, got %q", d.Frontmatter.Status)
 	}
 }
 

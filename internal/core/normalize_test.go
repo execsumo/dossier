@@ -6,11 +6,40 @@ import (
 )
 
 func TestStatusEnum(t *testing.T) {
-	for _, status := range []Status{StatusActive, StatusWaiting, StatusBlocked, StatusResolved, StatusArchived} {
+	for _, status := range CanonicalStatuses() {
 		if !status.IsValid() {
-			t.Errorf("status %q rejected", status)
+			t.Errorf("canonical status %q rejected", status)
+		}
+		if status == StatusDone {
+			if !status.IsTerminal() || status.IsOpen() {
+				t.Errorf("status %q should be terminal and not open", status)
+			}
+		} else {
+			if status.IsTerminal() || !status.IsOpen() {
+				t.Errorf("status %q should be open and not terminal", status)
+			}
 		}
 	}
+
+	legacyCases := []struct {
+		legacy    Status
+		canonical Status
+	}{
+		{StatusActive, StatusDefine},
+		{StatusWaiting, StatusDelegated},
+		{StatusBlocked, StatusBlocked},
+		{StatusResolved, StatusDone},
+		{StatusArchived, StatusDone},
+	}
+	for _, tc := range legacyCases {
+		if !tc.legacy.IsValid() {
+			t.Errorf("legacy status %q rejected", tc.legacy)
+		}
+		if got := NormalizeStatus(tc.legacy); got != tc.canonical {
+			t.Errorf("NormalizeStatus(%q) = %q, want %q", tc.legacy, got, tc.canonical)
+		}
+	}
+
 	if Status("stalled").IsValid() {
 		t.Fatal("unknown status accepted")
 	}

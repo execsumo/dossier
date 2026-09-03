@@ -1648,3 +1648,46 @@ func TestClaudeKeyDoesNotHijackTextInput(t *testing.T) {
 		t.Errorf("typing in an editor must not launch claude, got %d execs", spy.calls)
 	}
 }
+
+func TestTUIStatusOptionsAndTiers(t *testing.T) {
+	m := NewModel(setupTestService(newTestStore()))
+
+	wantStatuses := []core.Status{
+		core.StatusSpark,
+		core.StatusDefine,
+		core.StatusDelegated,
+		core.StatusReview,
+		core.StatusBlocked,
+		core.StatusDone,
+	}
+
+	if len(m.statusOptions) != len(wantStatuses) {
+		t.Fatalf("expected %d status options, got %d", len(wantStatuses), len(m.statusOptions))
+	}
+	for i, st := range wantStatuses {
+		if m.statusOptions[i] != st {
+			t.Errorf("statusOptions[%d] = %q, want %q", i, m.statusOptions[i], st)
+		}
+	}
+
+	// Verify statusTier ordering
+	for _, openStatus := range []string{"spark", "define", "delegated", "review", "blocked", "active", "waiting"} {
+		if tier := statusTier(openStatus); tier != 0 {
+			t.Errorf("statusTier(%q) = %d, want 0", openStatus, tier)
+		}
+	}
+	for _, terminalStatus := range []string{"done", "archived", "resolved"} {
+		if tier := statusTier(terminalStatus); tier != 1 {
+			t.Errorf("statusTier(%q) = %d, want 1", terminalStatus, tier)
+		}
+	}
+
+	// Verify renderStatusPicker produces valid view
+	m.startEditStatus(targetDossier{id: "dos_test", name: "Status Test"})
+	pickerView := m.renderStatusPicker()
+	for _, st := range wantStatuses {
+		if !strings.Contains(pickerView, string(st)) {
+			t.Errorf("renderStatusPicker() missing status %q", st)
+		}
+	}
+}

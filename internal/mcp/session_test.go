@@ -60,7 +60,7 @@ func callTool(t *testing.T, svc *core.Service, name, args string) mcpEnvelope {
 func TestMCPUpdateLeadAndStatus(t *testing.T) {
 	svc := newSessionTestService(t)
 
-	upd := callTool(t, svc, "dossier_update", `{"id":"dos_1","lead":"Alice","status":"waiting"}`)
+	upd := callTool(t, svc, "dossier_update", `{"id":"dos_1","lead":"Alice","status":"delegated"}`)
 	if !upd.OK {
 		t.Fatalf("expected update ok, got error: %+v", upd.Error)
 	}
@@ -73,8 +73,19 @@ func TestMCPUpdateLeadAndStatus(t *testing.T) {
 	if !strings.Contains(string(raw), "Alice") {
 		t.Errorf("expected recalled dossier to carry lead Alice, got %s", raw)
 	}
-	if !strings.Contains(string(raw), "waiting") {
-		t.Errorf("expected recalled dossier status waiting, got %s", raw)
+	if !strings.Contains(string(raw), "delegated") {
+		t.Errorf("expected recalled dossier status delegated, got %s", raw)
+	}
+
+	// Legacy status "waiting" normalizes to "delegated"
+	updLegacy := callTool(t, svc, "dossier_update", `{"id":"dos_1","status":"waiting"}`)
+	if !updLegacy.OK {
+		t.Fatalf("expected legacy update ok, got error: %+v", updLegacy.Error)
+	}
+	recLegacy := callTool(t, svc, "dossier_recall", `{"id":"dos_1"}`)
+	rawLegacy, _ := json.Marshal(recLegacy.Data)
+	if !strings.Contains(string(rawLegacy), "delegated") {
+		t.Errorf("expected legacy status waiting to normalize to delegated, got %s", rawLegacy)
 	}
 }
 

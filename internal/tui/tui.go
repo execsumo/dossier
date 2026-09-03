@@ -161,10 +161,17 @@ var (
 	metaValueStyle = lipgloss.NewStyle() // Inherit terminal's default text foreground color
 	mutedStyle     = lipgloss.NewStyle().Foreground(darkGray)
 
-	statusActiveStyle   = lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true)
-	statusWaitingStyle  = lipgloss.NewStyle().Foreground(warningGold)
-	statusBlockedStyle  = lipgloss.NewStyle().Foreground(vibrantRed).Bold(true)
-	statusResolvedStyle = lipgloss.NewStyle().Foreground(darkGray)
+	statusSparkStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D7D7")).Bold(true)
+	statusDefineStyle    = lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true)
+	statusDelegatedStyle = lipgloss.NewStyle().Foreground(warningGold)
+	statusReviewStyle    = lipgloss.NewStyle().Foreground(purple).Bold(true)
+	statusBlockedStyle   = lipgloss.NewStyle().Foreground(vibrantRed).Bold(true)
+	statusDoneStyle      = lipgloss.NewStyle().Foreground(darkGray)
+
+	// Legacy aliases for backward compatibility
+	statusActiveStyle   = statusDefineStyle
+	statusWaitingStyle  = statusDelegatedStyle
+	statusResolvedStyle = statusDoneStyle
 	statusArchivedStyle = lipgloss.NewStyle().Foreground(darkGray).Faint(true)
 
 	editorBoxStyle = lipgloss.NewStyle().
@@ -354,7 +361,7 @@ func NewModel(svc *core.Service) Model {
 		{Title: "Name", Width: 30},
 		{Title: "Priority", Width: 12},
 		{Title: "Lead", Width: 8},
-		{Title: "Status", Width: 8},
+		{Title: "Status", Width: 10},
 		{Title: "Due", Width: 8},
 	}
 
@@ -379,13 +386,7 @@ func NewModel(svc *core.Service) Model {
 	avp := viewport.New(0, 0)
 	cvp := viewport.New(0, 0)
 
-	statusOptions := []core.Status{
-		core.StatusActive,
-		core.StatusWaiting,
-		core.StatusBlocked,
-		core.StatusResolved,
-		core.StatusArchived,
-	}
+	statusOptions := core.CanonicalStatuses()
 
 	leadSearch := textinput.New()
 	leadSearch.Placeholder = "Type a lead's name to search…"
@@ -780,16 +781,14 @@ func deriveLeadOptions(items []core.ListItem, configured ...[]string) []leadOpti
 	return opts
 }
 
-// statusTier ranks a dossier's lifecycle status for dashboard ordering: live
-// work (active/waiting/blocked) is tier 0, terminal work (resolved/archived) is
+// statusTier ranks a dossier's lifecycle status for dashboard ordering: open
+// work (spark/define/delegated/review/blocked) is tier 0, terminal work (done) is
 // tier 1, so terminal dossiers always sort below open ones at any priority.
 func statusTier(status string) int {
-	switch core.Status(status) {
-	case core.StatusResolved, core.StatusArchived:
+	if core.Status(status).IsTerminal() {
 		return 1
-	default:
-		return 0
 	}
+	return 0
 }
 
 // filterLeadOptions narrows opts to those whose label contains query
@@ -1891,7 +1890,7 @@ func (m *Model) recalculateTableLayout() {
 	const (
 		widthPriority = 12
 		widthLead     = 8
-		widthStatus   = 8
+		widthStatus   = 10
 		widthDue      = 8
 		minNameWidth  = 12
 	)
@@ -1914,8 +1913,13 @@ func (m *Model) recalculateTableLayout() {
 	if nameWidth < minNameWidth {
 		nameWidth = minNameWidth
 	}
+	if nameWidth > 40 {
+		nameWidth = 40
+	}
 
-	cols := []table.Column{{Title: "Name", Width: nameWidth}}
+	cols := []table.Column{
+		table.Column{Title: "Name", Width: nameWidth},
+	}
 	if showPriority {
 		cols = append(cols, table.Column{Title: "Priority", Width: widthPriority})
 	}
@@ -1926,7 +1930,6 @@ func (m *Model) recalculateTableLayout() {
 	if showDue {
 		cols = append(cols, table.Column{Title: "Due", Width: widthDue})
 	}
-
 	m.table.SetRows(nil) // prevent bubbles/table looping old rows against new columns
 	m.table.SetColumns(cols)
 	m.populateTableRows()
@@ -1975,16 +1978,18 @@ func (m Model) renderStatusPicker() string {
 		statusStr := string(opt)
 		var style lipgloss.Style
 		switch opt {
-		case core.StatusActive:
-			style = statusActiveStyle
-		case core.StatusWaiting:
-			style = statusWaitingStyle
+		case core.StatusSpark:
+			style = statusSparkStyle
+		case core.StatusDefine, core.StatusActive:
+			style = statusDefineStyle
+		case core.StatusDelegated, core.StatusWaiting:
+			style = statusDelegatedStyle
+		case core.StatusReview:
+			style = statusReviewStyle
 		case core.StatusBlocked:
 			style = statusBlockedStyle
-		case core.StatusResolved:
-			style = statusResolvedStyle
-		case core.StatusArchived:
-			style = statusArchivedStyle
+		case core.StatusDone, core.StatusResolved, core.StatusArchived:
+			style = statusDoneStyle
 		}
 
 		if i == m.statusCursor {

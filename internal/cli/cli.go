@@ -306,8 +306,8 @@ func NewRootCmd() *cobra.Command {
 				return
 			}
 
-			fmt.Printf("%-30s %-15s %-10s %-8s %-5s %s\n", "NAME/SLUG", "LEAD", "STATUS", "PRIORITY", "DUE", "NEXT ACTION")
-			fmt.Println(strings.Repeat("-", 95))
+			fmt.Printf("%-30s %-15s %-11s %-8s %-5s %s\n", "NAME/SLUG", "LEAD", "STATUS", "PRIORITY", "DUE", "NEXT ACTION")
+			fmt.Println(strings.Repeat("-", 96))
 			for _, item := range items {
 				nameOrSlug := item.Name
 				if nameOrSlug == "" {
@@ -329,11 +329,11 @@ func NewRootCmd() *cobra.Command {
 					nextAction = nextAction[:25] + "..."
 				}
 
-				fmt.Printf("%-30s %-15s %-10s %-8s %-5s %s\n", nameOrSlug, lead, item.Status, item.Priority, item.DueDate, nextAction)
+				fmt.Printf("%-30s %-15s %-11s %-8s %-5s %s\n", nameOrSlug, lead, item.Status, item.Priority, item.DueDate, nextAction)
 			}
 		},
 	}
-	lsCmd.Flags().StringVar(&statusFlag, "status", "", "Filter by status (active|waiting|blocked|resolved|archived|all)")
+	lsCmd.Flags().StringVar(&statusFlag, "status", "", "Filter by status (spark|define|delegated|review|blocked|done|all)")
 	lsCmd.Flags().StringSliceVar(&interfacesFlag, "interface", nil, "Filter by interface (repeat or comma-separate)")
 	lsCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
@@ -424,7 +424,7 @@ func NewRootCmd() *cobra.Command {
 
 	archiveCmd := &cobra.Command{
 		Use:   "archive <slug-or-id>",
-		Short: "Archive a dossier (marks status as archived, keeping files)",
+		Short: "Archive a dossier (marks status as done, keeping files)",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			homeDir := resolveHomeDir()
@@ -449,6 +449,34 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 	archiveCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
+
+	doneCmd := &cobra.Command{
+		Use:   "done <slug-or-id>",
+		Short: "Mark a dossier as done (terminal status, keeping files)",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			homeDir := resolveHomeDir()
+			svc, err := wire(homeDir)
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			res, err := svc.Archive(context.Background(), core.ArchiveReq{ID: args[0]})
+			if err != nil {
+				fmt.Printf("Done failed: %v\n", err)
+				os.Exit(1)
+			}
+
+			if jsonFlag {
+				printJSON(res)
+				return
+			}
+
+			fmt.Printf("Dossier marked done successfully. New revision: %s\n", res.Data.(core.Revision))
+		},
+	}
+	doneCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
 	searchCmd := &cobra.Command{
 		Use:   "search <query>",
@@ -896,7 +924,7 @@ func NewRootCmd() *cobra.Command {
 	mergeCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
 	statusCmd := &cobra.Command{
-		Use:   "status <slug-or-id> <active|waiting|blocked|resolved|archived>",
+		Use:   "status <slug-or-id> <spark|define|delegated|review|blocked|done>",
 		Short: "Update status of a dossier",
 		Args:  cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
@@ -1314,6 +1342,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(showCmd)
 	rootCmd.AddCommand(pathCmd)
 	rootCmd.AddCommand(archiveCmd)
+	rootCmd.AddCommand(doneCmd)
 	rootCmd.AddCommand(searchCmd)
 	rootCmd.AddCommand(artifactCmd)
 	rootCmd.AddCommand(contextCmd)

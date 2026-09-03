@@ -108,8 +108,8 @@ func TestCLICommands(t *testing.T) {
 		t.Fatalf("failed to recall archived dossier: %v", err)
 	}
 	recallData2 := recallRes2.Data.(core.RecallResult)
-	if recallData2.Frontmatter.Status != core.StatusArchived {
-		t.Errorf("expected status to be archived, got %s", recallData2.Frontmatter.Status)
+	if recallData2.Frontmatter.Status != core.StatusDone {
+		t.Errorf("expected status to be done, got %s", recallData2.Frontmatter.Status)
 	}
 }
 
@@ -514,8 +514,8 @@ func TestCLIMilestone7(t *testing.T) {
 	}
 	recall := d.Data.(core.RecallResult)
 
-	if recall.Frontmatter.Status != core.StatusWaiting {
-		t.Errorf("expected status 'waiting', got %s", recall.Frontmatter.Status)
+	if recall.Frontmatter.Status != core.StatusDelegated {
+		t.Errorf("expected status 'delegated', got %s", recall.Frontmatter.Status)
 	}
 	if recall.Frontmatter.NextAction != "Do something next" {
 		t.Errorf("expected next_action 'Do something next', got %q", recall.Frontmatter.NextAction)
@@ -563,8 +563,8 @@ func TestCLIMilestone7(t *testing.T) {
 		t.Fatalf("Recall of source failed: %v", err)
 	}
 	srcRecall := srcD.Data.(core.RecallResult)
-	if srcRecall.Frontmatter.Status != core.StatusArchived {
-		t.Errorf("expected source status to be archived, got %s", srcRecall.Frontmatter.Status)
+	if srcRecall.Frontmatter.Status != core.StatusDone {
+		t.Errorf("expected source status to be done, got %s", srcRecall.Frontmatter.Status)
 	}
 }
 
@@ -660,4 +660,63 @@ func TestCLIUpdate(t *testing.T) {
 	if mode&0111 == 0 {
 		t.Errorf("expected file to be executable, got mode: %v", mode)
 	}
+}
+
+func TestCLIDoneAndStatuses(t *testing.T) {
+	tempHome := t.TempDir()
+	svc, err := wire(tempHome)
+	if err != nil {
+		t.Fatalf("wire failed: %v", err)
+	}
+
+	// Create new dossier - verify default status is spark
+	res, err := svc.Save(context.Background(), core.SaveReq{
+		DistilledStateMarkdown: "# Spark Dossier\nInitial thoughts.",
+		FrontmatterUpdates: map[string]any{
+			"name": "Idea Spark",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	recallRes, err := svc.Recall(context.Background(), core.RecallReq{ID: "idea-spark"})
+	if err != nil {
+		t.Fatalf("Recall failed: %v", err)
+	}
+	recall := recallRes.Data.(core.RecallResult)
+	if recall.Frontmatter.Status != core.StatusSpark {
+		t.Fatalf("expected default status spark, got %s", recall.Frontmatter.Status)
+	}
+
+	// Transition through statuses via CLI
+	statuses := []string{"define", "delegated", "review", "blocked"}
+	for _, st := range statuses {
+		cmd := NewRootCmd()
+		cmd.SetArgs([]string{"status", "idea-spark", st, "--home", tempHome})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("failed to set status %s: %v", st, err)
+		}
+		r, err := svc.Recall(context.Background(), core.RecallReq{ID: "idea-spark"})
+		if err != nil {
+			t.Fatalf("Recall failed: %v", err)
+		}
+		if r.Data.(core.RecallResult).Frontmatter.Status != core.Status(st) {
+			t.Fatalf("expected status %s, got %s", st, r.Data.(core.RecallResult).Frontmatter.Status)
+		}
+	}
+
+	// Mark done via dossier done
+	doneCmd := NewRootCmd()
+	doneCmd.SetArgs([]string{"done", "idea-spark", "--home", tempHome})
+	if err := doneCmd.Execute(); err != nil {
+		t.Fatalf("dossier done failed: %v", err)
+	}
+	rDone, err := svc.Recall(context.Background(), core.RecallReq{ID: "idea-spark"})
+	if err != nil {
+		t.Fatalf("Recall failed: %v", err)
+	}
+	if rDone.Data.(core.RecallResult).Frontmatter.Status != core.StatusDone {
+		t.Fatalf("expected status done, got %s", rDone.Data.(core.RecallResult).Frontmatter.Status)
+	}
+	_ = res
 }

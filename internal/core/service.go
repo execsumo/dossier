@@ -818,7 +818,7 @@ func applyFrontmatterUpdates(d *Dossier, updates map[string]any) {
 	}
 	if val, ok := updates["status"]; ok {
 		if strVal, ok := val.(string); ok {
-			d.Frontmatter.Status = Status(strVal)
+			d.Frontmatter.Status = NormalizeStatus(Status(strVal))
 		}
 	}
 	if val, ok := updates["lead"]; ok {
@@ -965,7 +965,7 @@ func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 	if isNew {
 		d = &Dossier{
 			Frontmatter: Frontmatter{
-				Status:   StatusActive,
+				Status:   StatusSpark,
 				Priority: PriorityHigh,
 			},
 		}
@@ -1670,10 +1670,10 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 			continue
 		}
 		if req.Status == "" {
-			if fm.Status == StatusActive || fm.Status == StatusWaiting || fm.Status == StatusBlocked {
+			if fm.Status.IsOpen() {
 				filtered = append(filtered, fm)
 			}
-		} else if req.Status == "all" || string(fm.Status) == req.Status {
+		} else if req.Status == "all" || string(fm.Status) == req.Status || fm.Status == NormalizeStatus(Status(req.Status)) {
 			filtered = append(filtered, fm)
 		}
 	}
@@ -1891,7 +1891,7 @@ func (s *Service) Archive(ctx context.Context, req ArchiveReq) (Result, error) {
 		return Result{}, err
 	}
 
-	d.Frontmatter.Status = StatusArchived
+	d.Frontmatter.Status = StatusDone
 
 	newRev, err := s.store.Write(d, rev)
 	if err != nil {

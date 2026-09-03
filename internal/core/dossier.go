@@ -10,20 +10,63 @@ import (
 type Status string
 
 const (
+	StatusSpark     Status = "spark"
+	StatusDefine    Status = "define"
+	StatusDelegated Status = "delegated"
+	StatusReview    Status = "review"
+	StatusBlocked   Status = "blocked"
+	StatusDone      Status = "done"
+
+	// Legacy statuses maintained for backward compatibility.
 	StatusActive   Status = "active"
 	StatusWaiting  Status = "waiting"
-	StatusBlocked  Status = "blocked"
 	StatusResolved Status = "resolved"
 	StatusArchived Status = "archived"
 )
 
-// IsValid validates if the status is one of the allowed enums.
-func (s Status) IsValid() bool {
+// NormalizeStatus translates legacy status values into their canonical equivalents.
+func NormalizeStatus(s Status) Status {
 	switch s {
-	case StatusActive, StatusWaiting, StatusBlocked, StatusResolved, StatusArchived:
+	case StatusActive:
+		return StatusDefine
+	case StatusWaiting:
+		return StatusDelegated
+	case StatusResolved, StatusArchived:
+		return StatusDone
+	default:
+		return s
+	}
+}
+
+// CanonicalStatuses returns the six canonical statuses in lifecycle order.
+func CanonicalStatuses() []Status {
+	return []Status{
+		StatusSpark,
+		StatusDefine,
+		StatusDelegated,
+		StatusReview,
+		StatusBlocked,
+		StatusDone,
+	}
+}
+
+// IsValid validates if the status is one of the allowed enums (canonical or legacy).
+func (s Status) IsValid() bool {
+	switch NormalizeStatus(s) {
+	case StatusSpark, StatusDefine, StatusDelegated, StatusReview, StatusBlocked, StatusDone:
 		return true
 	}
 	return false
+}
+
+// IsTerminal reports whether the status represents completed/closed work.
+func (s Status) IsTerminal() bool {
+	return NormalizeStatus(s) == StatusDone
+}
+
+// IsOpen reports whether the status represents open/active work.
+func (s Status) IsOpen() bool {
+	return s.IsValid() && !s.IsTerminal()
 }
 
 // Interface identifies the forum where a dossier should be discussed.
@@ -101,6 +144,7 @@ func (f *Frontmatter) Validate() error {
 	if !f.Status.IsValid() {
 		return fmt.Errorf("invalid status: %q", f.Status)
 	}
+	f.Status = NormalizeStatus(f.Status)
 	if !f.Priority.IsValid() {
 		return fmt.Errorf("invalid priority: %q", f.Priority)
 	}

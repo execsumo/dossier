@@ -106,16 +106,12 @@ func (s *FSStore) List(statusFilter string) ([]core.Frontmatter, error) {
 			continue
 		}
 
-		if statusFilter != "all" && !bytes.Contains(data, []byte("status: "+statusFilter)) {
-			continue
-		}
-
 		fm, _, err := ParseDossierFile(string(data))
 		if err != nil {
 			continue
 		}
 
-		if statusFilter == "all" || string(fm.Status) == statusFilter {
+		if statusFilter == "all" || string(fm.Status) == statusFilter || fm.Status == core.NormalizeStatus(core.Status(statusFilter)) {
 			list = append(list, *fm)
 		}
 	}
@@ -870,7 +866,7 @@ func ParseDossierFile(content string) (*core.Frontmatter, string, error) {
 		Slug:        wire.Slug,
 		CreatedAt:   wire.CreatedAt,
 		UpdatedAt:   wire.UpdatedAt,
-		Status:      wire.Status,
+		Status:      core.NormalizeStatus(wire.Status),
 		Lead:        wire.Lead,
 		Interfaces:  wire.Interfaces,
 		NextAction:  wire.NextAction,
