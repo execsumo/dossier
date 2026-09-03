@@ -34,6 +34,7 @@ var (
 	dossierHomeFlag     string
 	yesFlag             bool
 	statusFlag          string
+	queryFlag           string
 	jsonFlag            bool
 	dossierSearchFlag   string
 	distilledFlag       string
@@ -293,7 +294,7 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
-			res, err := svc.List(context.Background(), core.ListReq{Status: statusFlag, Interfaces: interfacesFlag})
+			res, err := svc.List(context.Background(), core.ListReq{Status: statusFlag, Interfaces: interfacesFlag, Query: queryFlag})
 			if err != nil {
 				fmt.Printf("List failed: %v\n", err)
 				os.Exit(1)
@@ -344,6 +345,7 @@ func NewRootCmd() *cobra.Command {
 	}
 	lsCmd.Flags().StringVar(&statusFlag, "status", "", "Filter by status (spark|define|delegated|review|blocked|done|all)")
 	lsCmd.Flags().StringSliceVar(&interfacesFlag, "interface", nil, "Filter by interface (repeat or comma-separate)")
+	lsCmd.Flags().StringVarP(&queryFlag, "query", "q", "", "Filter by name, description, lead, interface, or slug")
 	lsCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
 	showCmd := &cobra.Command{

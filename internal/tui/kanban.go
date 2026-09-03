@@ -6,7 +6,7 @@ package tui
 // stuck?". It is a pure projection of the same filtered dossier set the
 // dashboard shows, bucketed by canonical stage, so it introduces no state of its
 // own beyond a cursor. Grouping happens once per data/filter change in
-// applyLeadFilter, never per frame; everything in this file is either pure or a
+// applyFilters, never per frame; everything in this file is either pure or a
 // read-only render over the model.
 //
 // Two deliberate differences from the dashboard:

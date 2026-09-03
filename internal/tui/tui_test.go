@@ -22,6 +22,84 @@ func stripANSI(str string) string {
 	return ansiRegex.ReplaceAllString(str, "")
 }
 
+func TestSearchFiltersDashboardAndKanbanFromSameSet(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "billing", "Billing Review", core.StatusSpark, func(fm *core.Frontmatter) {
+		fm.Description = "Quarterly forecast"
+	})
+	seedDossier(store, "roadmap", "Product Roadmap", core.StatusSpark)
+	m := boardModel(t, store, 120, 40)
+	m.currentView = ViewDashboard
+	m.listView = ViewDashboard
+	m.searchActive = true
+	m.searchInput.Focus()
+	m.searchInput.SetValue("forecast")
+	m.searchQuery = core.NewQuery(m.searchInput.Value())
+	m.applyFilters()
+	if len(m.visibleItems) != 1 || m.visibleItems[0].ID != "billing" {
+		t.Fatalf("dashboard search results = %+v, want billing", m.visibleItems)
+	}
+	dashboardIDs := []string{m.visibleItems[0].ID}
+	m.currentView = ViewKanban
+	m.listView = ViewKanban
+	m.applyFilters()
+	var boardIDs []string
+	for _, column := range m.kanbanColumns {
+		for _, item := range column {
+			boardIDs = append(boardIDs, item.ID)
+		}
+	}
+	if len(boardIDs) != 1 || boardIDs[0] != dashboardIDs[0] {
+		t.Fatalf("kanban search results = %v, want %v", boardIDs, dashboardIDs)
+	}
+}
+
+func TestSearchIncludesCollapsedExtrasWithoutMutatingExpansion(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "old", "Archived Billing", core.StatusDone)
+	m := boardModel(t, store, 120, 40)
+	m.currentView = ViewDashboard
+	m.listView = ViewDashboard
+	m.extrasExpanded = false
+	m.searchActive = true
+	m.searchInput.SetValue("archived")
+	m.searchQuery = core.NewQuery(m.searchInput.Value())
+	m.applyFilters()
+	if m.extrasExpanded {
+		t.Fatal("search must not mutate extrasExpanded")
+	}
+	if len(m.visibleItems) != 1 || m.visibleItems[0].ID != "old" {
+		t.Fatalf("search results = %+v, want archived dossier", m.visibleItems)
+	}
+}
+
+func TestSearchModeLifecycleAndKeyIsolation(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "one", "One Topic", core.StatusSpark)
+	seedDossier(store, "two", "Second Topic", core.StatusSpark)
+	m := boardModel(t, store, 120, 40)
+	m.currentView = ViewDashboard
+	m.listView = ViewDashboard
+	m, _ = press(t, m, "/")
+	if !m.searchActive {
+		t.Fatal("/ did not enter search mode")
+	}
+	searchCursor := m.table.Cursor()
+	m, _ = press(t, m, "s")
+	if m.searchInput.Value() != "s" || m.currentView != ViewDashboard || m.table.Cursor() != searchCursor {
+		t.Fatalf("search key leaked to another handler: value=%q view=%v cursor=%d before=%d", m.searchInput.Value(), m.currentView, m.table.Cursor(), searchCursor)
+	}
+	m, _ = press(t, m, "tab")
+	if m.searchActive || m.searchQuery.IsEmpty() {
+		t.Fatalf("tab should commit the query: active=%v queryEmpty=%v", m.searchActive, m.searchQuery.IsEmpty())
+	}
+	m, _ = press(t, m, "/")
+	m, _ = press(t, m, "esc")
+	if m.searchActive || !m.searchQuery.IsEmpty() || m.searchInput.Value() != "" {
+		t.Fatalf("esc should clear search: active=%v queryEmpty=%v value=%q", m.searchActive, m.searchQuery.IsEmpty(), m.searchInput.Value())
+	}
+}
+
 // enterDashboard keeps tests that explicitly construct a lead-selector model
 // compatible with the dashboard-focused startup behavior.
 func enterDashboard(t *testing.T, m Model) Model {
