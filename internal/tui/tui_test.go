@@ -12,6 +12,8 @@ import (
 	"dossier/internal/core"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 var ansiRegex = regexp.MustCompile("[\u001B\u009B][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[a-zA-Z\\d]*)*)?\u0007)|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PRZcf-ntqry=><~]))")
@@ -311,6 +313,7 @@ func TestTUI_Detail(t *testing.T) {
 			Name:   "Project Alpha",
 			Slug:   "project-alpha",
 			Status: core.StatusActive, Priority: core.PriorityHigh,
+			Interfaces: []string{"Pricing WBR", "1:1"},
 		},
 		DistilledState: core.DistilledState{
 			Body: "This is the distilled state of Alpha",
@@ -351,6 +354,9 @@ func TestTUI_Detail(t *testing.T) {
 	cleanView := stripANSI(viewStr)
 	if !strings.Contains(cleanView, "This is the distilled state of Alpha") {
 		t.Errorf("expected view to contain distilled state, got:\n%s", cleanView)
+	}
+	if !strings.Contains(cleanView, "Interfaces: Pricing WBR, 1:1") {
+		t.Errorf("expected view to contain 'Interfaces: Pricing WBR, 1:1' on one line without wrapped colon, got:\n%s", cleanView)
 	}
 
 	// Press esc to go back
@@ -1690,5 +1696,304 @@ func TestTUIStatusOptionsAndTiers(t *testing.T) {
 		if !strings.Contains(pickerView, string(st)) {
 			t.Errorf("renderStatusPicker() missing status %q", st)
 		}
+	}
+}
+
+func TestTUI_DashboardWidthDynamicAdaptation(t *testing.T) {
+	longName := "2026-q3-pricing-restructure-and-packaging-strategy"
+	store := newTestStore()
+	store.dossiers["dos1"] = &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:       "dos1",
+			Name:     longName,
+			Slug:     "pricing-restructure",
+			Status:   core.StatusActive,
+			Priority: core.PriorityHigh,
+			Lead:     "Alice Smith",
+			DueDate:  "2026-10-15",
+		},
+	}
+	store.dossiers["dos2"] = &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:       "dos2",
+			Name:     "Short Name",
+			Slug:     "short-name",
+			Status:   core.StatusDefine,
+			Priority: core.PriorityLow,
+		},
+	}
+	store.dossiers["dos3"] = &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:       "dos3",
+			Name:     "Third Item",
+			Slug:     "third-item",
+			Status:   core.StatusReview,
+			Priority: core.PriorityMedium,
+		},
+	}
+	svc := setupTestService(store)
+	m := NewModel(svc)
+
+	// Load items into model
+	listMsg := m.listDossiersCmd()()
+	newM, _ := m.Update(listMsg)
+	m = newM.(Model)
+
+	// Test widths from narrow to very wide
+	testWidths := []int{50, 60, 80, 100, 120, 160, 200}
+	for _, w := range testWidths {
+		newM, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: 40})
+		m = newM.(Model)
+
+		cols := m.table.Columns()
+		totalColWidth := 0
+		for _, col := range cols {
+			// Each column has 2 chars padding (1 left, 1 right)
+			totalColWidth += col.Width + 2
+		}
+
+		if totalColWidth != w {
+			t.Errorf("width %d: expected table columns to total width %d, got %d (columns: %+v)", w, w, totalColWidth, cols)
+		}
+		if m.table.Width() != w {
+			t.Errorf("width %d: expected m.table.Width() == %d, got %d", w, w, m.table.Width())
+		}
+
+		// At wide widths (>= 120), Name column must expand past 40 to fill available width
+		if w >= 120 {
+			nameCol := cols[0]
+			if nameCol.Width <= 40 {
+				t.Errorf("width %d: Name column width %d is unexpectedly capped at <= 40", w, nameCol.Width)
+			}
+			// And the long name should not be truncated in the rendered view
+			view := m.View()
+			if !strings.Contains(view, longName) {
+				t.Errorf("width %d: expected long name %q to not be truncated in view, got:\n%s", w, longName, view)
+			}
+		}
+	}
+
+	// Test cursor preservation across resize
+	m.table.SetCursor(2)
+	if m.table.Cursor() != 2 {
+		t.Fatalf("failed to set cursor to 2, got %d", m.table.Cursor())
+	}
+	newM, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 50})
+	m = newM.(Model)
+	if m.table.Cursor() != 2 {
+		t.Errorf("expected cursor to be preserved at 2 across window resize, got %d", m.table.Cursor())
+	}
+}
+
+func TestTUI_FooterSequenceConsistency(t *testing.T) {
+	store := newTestStore()
+	store.dossiers["dos1"] = &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:     "dos1",
+			Name:   "Test Item",
+			Slug:   "test-item",
+			Status: core.StatusActive, Priority: core.PriorityHigh,
+		},
+		DistilledState: core.DistilledState{
+			Body: "Distilled state content",
+		},
+	}
+	svc := setupTestService(store)
+	m := NewModel(svc)
+	m.width = 120
+	m.height = 40
+	m.recalculateTableLayout()
+
+	listMsg := m.listDossiersCmd()()
+	newM, _ := m.Update(listMsg)
+	m = newM.(Model)
+
+	// Dashboard view footer
+	dashView := stripANSI(m.View())
+
+	// Shared keys that appear in both footers
+	sharedKeys := []string{"s: status", "l: lead", "p: priority", "n: next action", "c: claude"}
+
+	// Verify shared keys appear in order in dashboard footer
+	lastIdx := -1
+	for _, key := range sharedKeys {
+		idx := strings.Index(dashView, key)
+		if idx == -1 {
+			t.Fatalf("dashboard footer missing key %q", key)
+		}
+		if idx < lastIdx {
+			t.Errorf("dashboard footer key %q appeared out of order", key)
+		}
+		lastIdx = idx
+	}
+
+	// Open Detail view
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(Model)
+	if cmd != nil {
+		newM, _ = m.Update(cmd())
+		m = newM.(Model)
+	}
+
+	detailView := stripANSI(m.View())
+
+	// Verify shared keys appear in the same order in detail footer
+	lastIdx = -1
+	for _, key := range sharedKeys {
+		idx := strings.Index(detailView, key)
+		if idx == -1 {
+			t.Fatalf("detail footer missing key %q", key)
+		}
+		if idx < lastIdx {
+			t.Errorf("detail footer key %q appeared out of order", key)
+		}
+		lastIdx = idx
+	}
+
+	// Also verify navigation is before edits, and esc is at the end of detail
+	scrollIdx := strings.Index(detailView, "scroll")
+	statusIdx := strings.Index(detailView, "s: status")
+	claudeIdx := strings.Index(detailView, "c: claude")
+	escIdx := strings.Index(detailView, "esc: back")
+	if scrollIdx > statusIdx {
+		t.Errorf("expected navigation (scroll) before status edit in detail footer")
+	}
+	if claudeIdx > escIdx {
+		t.Errorf("expected claude before esc in detail footer")
+	}
+}
+
+func TestTUI_FooterConvergenceAtTerminalBottom(t *testing.T) {
+	store := newTestStore()
+	store.dossiers["dos1"] = &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:          "dos1",
+			Name:        "Project Alpha",
+			Slug:        "project-alpha",
+			Description: "Summary of Project Alpha",
+			Status:      core.StatusActive,
+			Priority:    core.PriorityHigh,
+			Interfaces:  []string{"Pricing WBR", "1:1"},
+		},
+		DistilledState: core.DistilledState{
+			Body: "This is the distilled state of Alpha",
+		},
+	}
+	store.dossiers["dos2"] = &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:       "dos2",
+			Name:     "Project Beta (No Description)",
+			Slug:     "project-beta",
+			Status:   core.StatusReview,
+			Priority: core.PriorityMedium,
+		},
+		DistilledState: core.DistilledState{
+			Body: "This is Beta without summary",
+		},
+	}
+	svc := setupTestService(store)
+	m := NewModel(svc)
+
+	listMsg := m.listDossiersCmd()()
+	newM, _ := m.Update(listMsg)
+	m = newM.(Model)
+
+	testDimensions := []struct {
+		w, h int
+	}{
+		{w: 80, h: 25},
+		{w: 90, h: 30},
+		{w: 100, h: 40},
+		{w: 120, h: 40},
+		{w: 140, h: 50},
+	}
+
+	for _, dim := range testDimensions {
+		newM, _ = m.Update(tea.WindowSizeMsg{Width: dim.w, Height: dim.h})
+		m = newM.(Model)
+
+		// 1. Dashboard view: footer must be on bottom line (total lines == dim.h)
+		dashView := m.View()
+		dashLines := strings.Split(dashView, "\n")
+		if len(dashLines) != dim.h {
+			t.Errorf("dim %dx%d: expected Dashboard line count %d, got %d", dim.w, dim.h, dim.h, len(dashLines))
+		}
+		lastDashLine := dashLines[len(dashLines)-1]
+		if !strings.Contains(lastDashLine, "claude") {
+			t.Errorf("dim %dx%d: expected Dashboard bottom line to be footer with 'claude', got: %q", dim.w, dim.h, lastDashLine)
+		}
+
+		// 2. Detail view with description: footer must be on bottom line
+		recallCmd := m.recallDossierCmd("dos1")
+		newM, _ = m.Update(recallCmd())
+		detailM := newM.(Model)
+
+		detailView1 := detailM.View()
+		detailLines1 := strings.Split(detailView1, "\n")
+		if len(detailLines1) != dim.h {
+			t.Errorf("dim %dx%d with summary: expected Detail line count %d, got %d", dim.w, dim.h, dim.h, len(detailLines1))
+		}
+		lastDetailLine1 := detailLines1[len(detailLines1)-1]
+		if !strings.Contains(lastDetailLine1, "back") && !strings.Contains(lastDetailLine1, "claude") {
+			t.Errorf("dim %dx%d with summary: expected Detail bottom line to be footer, got: %q", dim.w, dim.h, lastDetailLine1)
+		}
+
+		// 3. Detail view without description: footer must also be on bottom line
+		recallCmd2 := m.recallDossierCmd("dos2")
+		newM, _ = m.Update(recallCmd2())
+		detailM2 := newM.(Model)
+
+		detailView2 := detailM2.View()
+		detailLines2 := strings.Split(detailView2, "\n")
+		if len(detailLines2) != dim.h {
+			t.Errorf("dim %dx%d without summary: expected Detail line count %d, got %d", dim.w, dim.h, dim.h, len(detailLines2))
+		}
+		lastDetailLine2 := detailLines2[len(detailLines2)-1]
+		if !strings.Contains(lastDetailLine2, "back") && !strings.Contains(lastDetailLine2, "claude") {
+			t.Errorf("dim %dx%d without summary: expected Detail bottom line to be footer, got: %q", dim.w, dim.h, lastDetailLine2)
+		}
+
+		// Return to dashboard
+		newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		m = newM.(Model)
+	}
+}
+
+func TestTUI_TableHeaderColorMatchesDetailLabels(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	defer lipgloss.SetColorProfile(termenv.Ascii)
+
+	store := newTestStore()
+	store.dossiers["dos1"] = &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:     "dos1",
+			Name:   "Test Item",
+			Status: core.StatusActive,
+		},
+	}
+	svc := setupTestService(store)
+	m := NewModel(svc)
+	m.width = 100
+	m.height = 40
+	listMsg := m.listDossiersCmd()()
+	newM, _ := m.Update(listMsg)
+	m = newM.(Model)
+	m.recalculateTableLayout()
+
+	viewStr := m.View()
+	// Check that color 99 (purple) is used for rendering the table header row
+	// lipgloss emits \x1b[...38;5;99...m for Foreground(purple)
+	lines := strings.Split(viewStr, "\n")
+	foundHeaderWithPurple := false
+	for _, l := range lines {
+		if strings.Contains(stripANSI(l), "Name") && strings.Contains(stripANSI(l), "Lead") {
+			if strings.Contains(l, "38;5;99") {
+				foundHeaderWithPurple = true
+				break
+			}
+		}
+	}
+	if !foundHeaderWithPurple {
+		t.Errorf("expected table header row to be styled with purple foreground (color 99), view:\n%s", viewStr)
 	}
 }

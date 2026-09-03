@@ -375,6 +375,7 @@ func NewModel(svc *core.Service) Model {
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(darkGray).
 		BorderBottom(true).
+		Foreground(purple).
 		Bold(true)
 	s.Selected = s.Selected.
 		Foreground(lipgloss.Color("#FFFFFF")). // Force crisp white text on purple bg
@@ -1879,7 +1880,8 @@ func (m *Model) populateTableRows() {
 // and flexes to absorb the leftover width, while the fixed-width columns are
 // revealed progressively as the terminal widens.
 func (m *Model) recalculateTableLayout() {
-	tableHeight := m.height - 7
+	footerH := m.footerHeight(ViewDashboard)
+	tableHeight := m.height - 4 - footerH
 	if tableHeight < 3 {
 		tableHeight = 3
 	}
@@ -1907,14 +1909,11 @@ func (m *Model) recalculateTableLayout() {
 		numCols++
 	}
 
-	// Per-column padding plus inner borders consume the same space in every row.
-	overhead := (numCols * 2) + (numCols - 1)
+	// Per-column padding consumes space in every row (1 char left, 1 char right per column).
+	overhead := numCols * 2
 	nameWidth := m.width - fixedUsed - overhead
 	if nameWidth < minNameWidth {
 		nameWidth = minNameWidth
-	}
-	if nameWidth > 40 {
-		nameWidth = 40
 	}
 
 	cols := []table.Column{
@@ -1930,18 +1929,32 @@ func (m *Model) recalculateTableLayout() {
 	if showDue {
 		cols = append(cols, table.Column{Title: "Due", Width: widthDue})
 	}
+
+	tableWidth := nameWidth + fixedUsed + overhead
+	m.table.SetWidth(tableWidth)
+
+	cursor := m.table.Cursor()
 	m.table.SetRows(nil) // prevent bubbles/table looping old rows against new columns
 	m.table.SetColumns(cols)
 	m.populateTableRows()
+	if cursor >= 0 {
+		m.table.SetCursor(cursor)
+	}
 }
 
 // recalculateViewportLayout fits the viewport to the screen.
 func (m *Model) recalculateViewportLayout() {
 	m.viewport.Width = m.width
-	m.viewport.Height = m.height - 13
-	if m.viewport.Height < 3 {
-		m.viewport.Height = 3
+	metaH := 0
+	if m.recallResult.Frontmatter.ID != "" {
+		metaH = lipgloss.Height(m.renderDetailMetadata())
 	}
+	footerH := m.footerHeight(ViewDetail)
+	viewportHeight := m.height - 4 - metaH - footerH
+	if viewportHeight < 3 {
+		viewportHeight = 3
+	}
+	m.viewport.Height = viewportHeight
 	m.viewport.SetYOffset(m.viewport.YOffset)
 }
 
@@ -1949,10 +1962,12 @@ func (m *Model) recalculateViewportLayout() {
 // chrome. It is separate from the detail viewport both for sizing and state.
 func (m *Model) recalculateArtifactViewportLayout() {
 	m.artifactViewport.Width = m.width
-	m.artifactViewport.Height = m.height - 7
-	if m.artifactViewport.Height < 3 {
-		m.artifactViewport.Height = 3
+	footerH := m.footerHeight(ViewArtifactContent)
+	artifactHeight := m.height - 4 - footerH
+	if artifactHeight < 3 {
+		artifactHeight = 3
 	}
+	m.artifactViewport.Height = artifactHeight
 	m.artifactViewport.SetYOffset(m.artifactViewport.YOffset)
 }
 
@@ -2295,6 +2310,135 @@ func (m Model) renderMergeConflictResolver() string {
 	return editorBoxStyle.Render(sb.String())
 }
 
+func (m Model) renderDetailMetadata() string {
+	fm := m.recallResult.Frontmatter
+	if fm.ID == "" {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	lblStyle := metaLabelStyle.Copy().
+		Width(12).
+		Align(lipgloss.Right).
+		MarginRight(1)
+
+	valWidth := m.width - 14
+	if valWidth < 10 {
+		valWidth = 10
+	}
+	valStyle := metaValueStyle.Copy().Width(valWidth)
+
+	renderRow := func(label, value string) string {
+		return lipgloss.JoinHorizontal(lipgloss.Top,
+			lblStyle.Render(label),
+			valStyle.Render(value),
+		) + "\n"
+	}
+
+	col1ValWidth := 20
+	col1ValStyle := metaValueStyle.Copy().Width(col1ValWidth)
+
+	col2ValWidth := m.width - 14 - 13 - col1ValWidth
+	if col2ValWidth < 10 {
+		col2ValWidth = 10
+	}
+	col2ValStyle := metaValueStyle.Copy().Width(col2ValWidth)
+
+	renderTwoCols := func(l1, v1, l2, v2 string) string {
+		if m.width < 90 {
+			return renderRow(l1, v1) + renderRow(l2, v2)
+		}
+		col1 := lipgloss.JoinHorizontal(lipgloss.Top,
+			lblStyle.Render(l1),
+			col1ValStyle.Render(v1),
+		)
+		col2 := lipgloss.JoinHorizontal(lipgloss.Top,
+			lblStyle.Render(l2),
+			col2ValStyle.Render(v2),
+		)
+		return lipgloss.JoinHorizontal(lipgloss.Top, col1, col2) + "\n"
+	}
+
+	leadLabel := fm.Lead
+	if leadLabel == "" {
+		leadLabel = "Unassigned (Me)"
+	}
+
+	sb.WriteString(renderRow("Dossier:", fm.Name))
+	if fm.Description != "" {
+		sb.WriteString(renderRow("Summary:", fm.Description))
+	}
+	sb.WriteString(renderTwoCols(
+		"Status:", string(fm.Status),
+		"Lead:", leadLabel,
+	))
+	sb.WriteString(renderRow("Priority:", string(fm.Priority)))
+	sb.WriteString(renderRow("Interfaces:", strings.Join(fm.Interfaces, ", ")))
+	sb.WriteString(renderRow("Tokens:", fmt.Sprintf("%d", m.recallResult.TokenEstimate)))
+	sb.WriteString(renderRow("Next:", fm.NextAction))
+
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	sb.WriteString(lipgloss.NewStyle().Foreground(darkGray).Render(strings.Repeat("─", w)))
+
+	return sb.String()
+}
+
+func (m Model) footerContent(v View) string {
+	var footerParts []string
+	if len(m.warnings) > 0 {
+		for _, w := range m.warnings {
+			footerParts = append(footerParts, warningStyle.Render(fmt.Sprintf("⚠ %s", w)))
+		}
+	}
+
+	keyHelp := "↑/↓: select • f: filters • s: status • l: lead • p: priority • n: next action • k: link • m: merge • c: claude"
+	switch v {
+	case ViewLeadSelector:
+		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
+	case ViewDetail:
+		keyHelp = "↑/↓/pgup/pgdn: scroll • s: status • l: lead • p: priority • n: next action • a: artifacts • c: claude • esc: back"
+	case ViewArtifactIndex:
+		keyHelp = "↑/↓: select • enter: view artifact • esc: back"
+	case ViewArtifactContent:
+		keyHelp = "↑/↓/pgup/pgdn: scroll • esc: back"
+	case ViewStatusPicker:
+		keyHelp = "↑/↓: select status • esc: cancel"
+	case ViewNextActionEditor:
+		keyHelp = "esc: cancel"
+	case ViewLeadEditor:
+		keyHelp = "esc: cancel"
+	case ViewPriorityEditor:
+		keyHelp = "↑/↓: focus • ←/→: cycle priority • esc: cancel"
+	case ViewLinkInput:
+		keyHelp = "esc: cancel"
+	case ViewLinkSelector:
+		keyHelp = "↑/↓: select target dossier • esc: cancel"
+	case ViewMergeSelector:
+		keyHelp = "↑/↓: select target dossier • esc: cancel"
+	case ViewMergeConflictResolver:
+		keyHelp = "↑/↓/pgup/pgdn: scroll diff • tab: switch button • esc: cancel"
+	}
+	footerParts = append(footerParts, keyHelp)
+
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	return footerStyle.Width(w).Render(strings.Join(footerParts, " │ "))
+}
+
+func (m Model) footerHeight(v View) int {
+	h := lipgloss.Height(m.footerContent(v))
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
 // View renders the screen based on state.
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
@@ -2340,70 +2484,7 @@ func (m Model) View() string {
 		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Recall Detail"))
 		sb.WriteString("\n\n")
 
-		fm := m.recallResult.Frontmatter
-
-		lblStyle := metaLabelStyle.Copy().
-			Width(10).
-			Align(lipgloss.Right).
-			MarginRight(1)
-
-		valWidth := m.width - 12
-		if valWidth < 10 {
-			valWidth = 10
-		}
-		valStyle := metaValueStyle.Copy().Width(valWidth)
-
-		renderRow := func(label, value string) string {
-			return lipgloss.JoinHorizontal(lipgloss.Top,
-				lblStyle.Render(label),
-				valStyle.Render(value),
-			) + "\n"
-		}
-
-		col1ValWidth := 20
-		col1ValStyle := metaValueStyle.Copy().Width(col1ValWidth)
-
-		col2ValWidth := m.width - 12 - 11 - col1ValWidth
-		if col2ValWidth < 10 {
-			col2ValWidth = 10
-		}
-		col2ValStyle := metaValueStyle.Copy().Width(col2ValWidth)
-
-		renderTwoCols := func(l1, v1, l2, v2 string) string {
-			if m.width < 90 {
-				return renderRow(l1, v1) + renderRow(l2, v2)
-			}
-			col1 := lipgloss.JoinHorizontal(lipgloss.Top,
-				lblStyle.Render(l1),
-				col1ValStyle.Render(v1),
-			)
-			col2 := lipgloss.JoinHorizontal(lipgloss.Top,
-				lblStyle.Render(l2),
-				col2ValStyle.Render(v2),
-			)
-			return lipgloss.JoinHorizontal(lipgloss.Top, col1, col2) + "\n"
-		}
-
-		// Metadata Block
-		leadLabel := fm.Lead
-		if leadLabel == "" {
-			leadLabel = "Unassigned (Me)"
-		}
-
-		sb.WriteString(renderRow("Dossier:", fm.Name))
-		if fm.Description != "" {
-			sb.WriteString(renderRow("Summary:", fm.Description))
-		}
-		sb.WriteString(renderTwoCols(
-			"Status:", string(fm.Status),
-			"Lead:", leadLabel,
-		))
-		sb.WriteString(renderRow("Priority:", string(fm.Priority)))
-		sb.WriteString(renderRow("Interfaces:", strings.Join(fm.Interfaces, ", ")))
-		sb.WriteString(renderRow("Tokens:", fmt.Sprintf("%d", m.recallResult.TokenEstimate)))
-		sb.WriteString(renderRow("Next:", fm.NextAction))
-
-		sb.WriteString(lipgloss.NewStyle().Foreground(darkGray).Render(strings.Repeat("─", m.width)))
+		sb.WriteString(m.renderDetailMetadata())
 		sb.WriteString("\n")
 
 		// Scrollable viewport
@@ -2496,43 +2577,7 @@ func (m Model) View() string {
 
 	// 3. Footer / Help area
 	sb.WriteString("\n")
-	var footerParts []string
-	if len(m.warnings) > 0 {
-		for _, w := range m.warnings {
-			footerParts = append(footerParts, warningStyle.Render(fmt.Sprintf("⚠ %s", w)))
-		}
-	}
-
-	keyHelp := "↑/↓: select • f: filters • s: status • l: lead • p: priority • n: next action • k: link • m: merge • c: claude"
-	switch m.currentView {
-	case ViewLeadSelector:
-		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
-	case ViewDetail:
-		keyHelp = "a: artifacts • c: claude • ↑/↓/pgup/pgdn: scroll • s: status • l: lead • p: priority • n: next action • esc: back"
-	case ViewArtifactIndex:
-		keyHelp = "↑/↓: select • enter: view artifact • esc: back"
-	case ViewArtifactContent:
-		keyHelp = "↑/↓/pgup/pgdn: scroll • esc: back"
-	case ViewStatusPicker:
-		keyHelp = "↑/↓: select status • esc: cancel"
-	case ViewNextActionEditor:
-		keyHelp = "esc: cancel"
-	case ViewLeadEditor:
-		keyHelp = "esc: cancel"
-	case ViewPriorityEditor:
-		keyHelp = "↑/↓: focus • ←/→: cycle priority • esc: cancel"
-	case ViewLinkInput:
-		keyHelp = "esc: cancel"
-	case ViewLinkSelector:
-		keyHelp = "↑/↓: select target dossier • esc: cancel"
-	case ViewMergeSelector:
-		keyHelp = "↑/↓: select target dossier • esc: cancel"
-	case ViewMergeConflictResolver:
-		keyHelp = "↑/↓/pgup/pgdn: scroll diff • tab: switch button • esc: cancel"
-	}
-	footerParts = append(footerParts, keyHelp)
-
-	sb.WriteString(footerStyle.Width(m.width).Render(strings.Join(footerParts, " │ ")))
+	sb.WriteString(m.footerContent(m.currentView))
 
 	return sb.String()
 }
