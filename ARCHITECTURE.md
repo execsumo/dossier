@@ -238,6 +238,8 @@ Implements SPEC §12. The non-negotiables:
 
 **Audit Log**: Sharded by sanitized author slug (`audit/<author>.log`). `O_APPEND` single-line JSONL writes (atomic for lines < `PIPE_BUF` on POSIX), under a short-held dir lock. Read = parse all shards line-by-line plus legacy `audit.log`, sort globally by `ts`.
 
+**Artifact vs. file namespaces**: `<slug>/artifacts/` is parsed, not scanned — `listArtifactsInternal` skips anything `parseArtifactFrontmatterOnly` rejects. A hand-written file there is therefore absent from the evidence index, uncitable, and outside the revision hash, yet still findable by `dossier search`: it reads as captured evidence while being none, and before the `Store.ValidateArtifactFiles` check `doctor` reported the store healthy over it. Loose deliverables, scratch, and user attachments belong in `<slug>/files/` (created with the dossier); `dossier link --from-file` is what promotes one into a real artifact, minting the id, provenance, and line count that `[src:]` resolves against. `context/instructions.md` states this contract to agents.
+
 **Session Stash**: Transcripts are written to `<slug>/sessions/<author>/<session-id>.md` upon session end to provide an uncompressed author-specific history independent of distillation. The stash is **write-only and machine-local**: nothing in the codebase reads it back, and it is gitignored (`*/sessions/`) so it never reaches a team remote. Depth a teammate can reach lives in the compiled transcript artifact, which is line-stable and citable.
 
 **IDs / slugs** (`ids.go`): ULID with prefixes `dos_ art_ sess_ rev_ conf_`. Slug per SPEC §12.2; on collision append `-` + last 6 chars of the ULID (Crockford base32).

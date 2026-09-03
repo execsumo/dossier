@@ -144,6 +144,10 @@ func (s *testStore) ValidateAuditShards(dossierID string) []string {
 	return nil
 }
 
+func (s *testStore) ValidateArtifactFiles(dossierID string) []string {
+	return nil
+}
+
 func (s *testStore) EnsureAuditDir(dossierID string) error {
 	return nil
 }

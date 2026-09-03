@@ -450,6 +450,10 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 			addAdvisory(fmt.Sprintf("Dossier %s: %s", fm.ID, msg))
 		}
 
+		for _, issue := range s.store.ValidateArtifactFiles(fm.ID) {
+			addIssue("%s", issue)
+		}
+
 		for _, issue := range s.store.ValidateAuditShards(fm.ID) {
 			addIssue("%s", issue)
 		}

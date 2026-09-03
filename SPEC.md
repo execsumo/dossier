@@ -77,6 +77,8 @@ Store layout:
       <artifact-id>.md
       <artifact-id>.json
       <artifact-id>.txt
+    files/
+      <loose-file>
     conflicts/
       <conflict-id>.md
     audit/
@@ -86,6 +88,8 @@ Store layout:
         <session-id>.md
     audit.log
 ```
+
+`<slug>/artifacts/` is a **frontmatter-only namespace**: it is parsed, not scanned. A file without valid artifact frontmatter is skipped by the evidence index, carries no `art_` id to cite, and never enters the revision hash — while still surfacing in `dossier search`, so it reads as captured evidence while being none. `dossier doctor` reports such a file as an issue. `<slug>/files/` is the namespace for loose deliverables, scratch, and user attachments; promote one to evidence with `dossier link --from-file`.
 
 `config.yaml` records install settings, user-configurable interface and lead vocabularies, global token warning ceiling (`token_limit`, defaulting to 100,000), detected harness capabilities, and optional team-sync settings. New installs include the legacy seven interface defaults; older configs that omit `interfaces` inherit those defaults. An empty `leads` list preserves free-form lead assignment. Readers also accept the retired `token_target` key from pre-simplification configs (mapping it to `token_limit`) and `schema_version` (ignoring its value), omitting them on the next normal config write. All other unknown config keys remain errors.
 

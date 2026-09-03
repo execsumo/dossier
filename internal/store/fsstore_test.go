@@ -236,6 +236,83 @@ Still active.
 	}
 }
 
+// artifacts/ is a frontmatter-only namespace. A working file hand-written there
+// is skipped by the evidence index, so ValidateArtifactFiles is what stops the
+// store from reporting healthy over evidence that was silently never captured.
+// files/ and dotfiles are legitimate and must not be flagged.
+func TestFSStoreValidateArtifactFiles(t *testing.T) {
+	tempHome := t.TempDir()
+	store := NewFSStore(tempHome)
+	if err := store.Init(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	now := time.Now().Truncate(time.Second)
+	d := &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID: "dos_loose", Name: "Loose Files", Slug: "loose-files",
+			CreatedAt: now, UpdatedAt: now,
+			Status: core.StatusActive, Priority: core.PriorityHigh,
+		},
+		DistilledState: core.DistilledState{Body: "# Loose files"},
+	}
+	if _, err := store.Write(d, ""); err != nil {
+		t.Fatalf("write dossier: %v", err)
+	}
+
+	// A real artifact, written through the store, must never be flagged.
+	if err := store.WriteArtifact("dos_loose", &core.Artifact{
+		Type:          core.ArtifactTypeSourceSnapshot,
+		Title:         "Real artifact",
+		ContentFormat: core.ContentFormatText,
+		Provenance:    core.Provenance{Origin: "test"},
+		Content:       "line one\n",
+	}); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+
+	// files/ is created for the dossier and is the correct home for loose work.
+	filesDir := filepath.Join(tempHome, "loose-files", "files")
+	if _, err := os.Stat(filesDir); err != nil {
+		t.Fatalf("expected files/ to exist for a new dossier: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(filesDir, "scratch.md"), []byte("scratch\n"), 0644); err != nil {
+		t.Fatalf("write files/scratch.md: %v", err)
+	}
+
+	if issues := store.ValidateArtifactFiles("dos_loose"); len(issues) != 0 {
+		t.Fatalf("clean artifacts/ reported issues: %v", issues)
+	}
+
+	// Now simulate the failure mode: a working file dropped into artifacts/.
+	artifactsDir := filepath.Join(tempHome, "loose-files", "artifacts")
+	if err := os.WriteFile(filepath.Join(artifactsDir, "benchmark-notes.md"),
+		[]byte("# Benchmark results\nlatency p99 = 412ms\n"), 0644); err != nil {
+		t.Fatalf("write loose file: %v", err)
+	}
+	// Dotfiles are skipped by the listing too, so they are not false positives.
+	if err := os.WriteFile(filepath.Join(artifactsDir, ".DS_Store"), []byte("junk"), 0644); err != nil {
+		t.Fatalf("write dotfile: %v", err)
+	}
+
+	issues := store.ValidateArtifactFiles("dos_loose")
+	if len(issues) != 1 {
+		t.Fatalf("ValidateArtifactFiles() = %d issues, want 1: %v", len(issues), issues)
+	}
+	if !strings.Contains(issues[0], "benchmark-notes.md") {
+		t.Errorf("issue does not name the offending file: %q", issues[0])
+	}
+
+	// And confirm the premise: the listing really does not see it.
+	arts, err := store.ListArtifacts("dos_loose")
+	if err != nil {
+		t.Fatalf("list artifacts: %v", err)
+	}
+	if len(arts) != 1 {
+		t.Errorf("ListArtifacts() = %d, want 1 (the loose file must not register)", len(arts))
+	}
+}
+
 func TestFSStoreArtifacts(t *testing.T) {
 	tempHome, err := os.MkdirTemp("", "dossier-test-artifacts-*")
 	if err != nil {

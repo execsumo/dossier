@@ -21,6 +21,10 @@ type Store interface {
 	AppendAudit(dossierID string, e AuditEvent) error
 	ReadAuditLog(dossierID string) ([]AuditEvent, error)
 	ValidateAuditShards(dossierID string) []string
+	// ValidateArtifactFiles reports files in artifacts/ that are not artifacts.
+	// artifacts/ is frontmatter-only, so such a file is uncitable and absent
+	// from the evidence index while still being findable by search.
+	ValidateArtifactFiles(dossierID string) []string
 	EnsureAuditDir(dossierID string) error
 	WriteSessionStash(dossierID string, author string, sessionID string, content string) error
 

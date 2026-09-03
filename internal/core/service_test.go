@@ -104,14 +104,15 @@ func (m *mockClock) Now() time.Time {
 }
 
 type localFakeStore struct {
-	dossiers         map[string]*Dossier
-	revisions        map[string]Revision
-	artifacts        map[string][]Artifact
-	audits           map[string][]AuditEvent
-	sessions         map[string]*SessionBinding
-	conflicts        map[string]*Conflict
-	history          map[Revision]*Dossier
-	auditShardIssues []string
+	dossiers           map[string]*Dossier
+	revisions          map[string]Revision
+	artifacts          map[string][]Artifact
+	audits             map[string][]AuditEvent
+	sessions           map[string]*SessionBinding
+	conflicts          map[string]*Conflict
+	history            map[Revision]*Dossier
+	auditShardIssues   []string
+	artifactFileIssues []string
 }
 
 func newLocalFakeStore() *localFakeStore {
@@ -212,6 +213,7 @@ func (f *localFakeStore) AppendAudit(id string, e AuditEvent) error {
 }
 func (f *localFakeStore) ReadAuditLog(id string) ([]AuditEvent, error)                  { return f.audits[id], nil }
 func (f *localFakeStore) ValidateAuditShards(id string) []string                        { return f.auditShardIssues }
+func (f *localFakeStore) ValidateArtifactFiles(id string) []string                      { return f.artifactFileIssues }
 func (f *localFakeStore) EnsureAuditDir(id string) error                                { return nil }
 func (f *localFakeStore) WriteSessionStash(id, author, sessionID, content string) error { return nil }
 func (f *localFakeStore) SaveSessionBinding(b *SessionBinding) error {
@@ -663,6 +665,46 @@ func TestServiceListSorting(t *testing.T) {
 		if items[i].ID != expectedID {
 			t.Errorf("at index %d: expected %s, got %s", i, expectedID, items[i].ID)
 		}
+	}
+}
+
+// A file sitting in artifacts/ without artifact frontmatter is invisible to the
+// evidence index but findable by search, so it reads as captured evidence while
+// being none. Doctor must surface it rather than report the store healthy.
+func TestDoctorReportsNonArtifactFilesInArtifactsDir(t *testing.T) {
+	fakeStore := newLocalFakeStore()
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{}, nil)
+
+	fakeStore.dossiers["d1"] = &Dossier{
+		Frontmatter: Frontmatter{ID: "d1", Slug: "d1", Status: StatusActive},
+	}
+	fakeStore.revisions["d1"] = "rev1"
+
+	const issue = "Dossier d1: benchmark-notes.md sits in artifacts/ but is not an artifact"
+	fakeStore.artifactFileIssues = []string{issue}
+
+	res, err := svc.Doctor(context.Background())
+	if err != nil {
+		t.Fatalf("Doctor failed: %v", err)
+	}
+
+	report, ok := res.Data.(DoctorReport)
+	if !ok {
+		t.Fatalf("Doctor data = %T, want DoctorReport", res.Data)
+	}
+	found := false
+	for _, got := range report.Issues {
+		if got == issue {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("doctor did not report the non-artifact file; issues = %v", report.Issues)
+	}
+	// It must count as damage, not an advisory: otherwise the store still reports healthy.
+	if len(report.Issues) == 0 {
+		t.Errorf("non-artifact file was recorded as an advisory, not an issue")
 	}
 }
 

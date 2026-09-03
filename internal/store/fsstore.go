@@ -234,6 +234,14 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 	if err := os.MkdirAll(filepath.Join(dossierDir, "artifacts"), 0755); err != nil {
 		return "", err
 	}
+	// files/ is the loose-file namespace: deliverables, scratch, and user
+	// attachments that are not (yet) registered evidence. It exists so that
+	// artifacts/ can stay frontmatter-only — a hand-written file there parses as
+	// nothing and is skipped by the evidence index, which is why writing working
+	// files into artifacts/ silently loses them.
+	if err := os.MkdirAll(filepath.Join(dossierDir, "files"), 0755); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(filepath.Join(dossierDir, "conflicts"), 0755); err != nil {
 		return "", err
 	}
@@ -565,6 +573,43 @@ func (s *FSStore) ReadAuditLog(dossierID string) ([]core.AuditEvent, error) {
 	})
 
 	return allEntries, nil
+}
+
+// ValidateArtifactFiles reports files sitting in a dossier's artifacts/ that are
+// not artifacts. artifacts/ is a frontmatter-only namespace: listArtifactsInternal
+// skips anything parseArtifactFrontmatterOnly rejects, so a hand-written file
+// there is absent from the evidence index, carries no art_ id to cite, and never
+// enters the revision hash — while still being findable by search, which makes it
+// read as captured evidence when it is not. Doctor surfaces these rather than
+// letting the store report "healthy" over them.
+func (s *FSStore) ValidateArtifactFiles(dossierID string) []string {
+	dossierDir, err := s.findDossierDir(dossierID)
+	if err != nil {
+		return []string{fmt.Sprintf("could not find dossier %s", dossierID)}
+	}
+	artifactsDir := filepath.Join(dossierDir, "artifacts")
+	entries, err := os.ReadDir(artifactsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return []string{fmt.Sprintf("could not read artifacts dir for %s", dossierID)}
+	}
+
+	var issues []string
+	for _, entry := range entries {
+		// Directories and dotfiles are ignored by the artifact listing too, so
+		// they are not evidence pretending to be evidence.
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		if _, _, err := parseArtifactFrontmatterOnly(filepath.Join(artifactsDir, entry.Name())); err != nil {
+			issues = append(issues, fmt.Sprintf(
+				"Dossier %s: %s sits in artifacts/ but is not an artifact (no valid frontmatter) — it is uncitable and absent from the evidence index. Register it with `dossier link --from-file`, or move it to files/.",
+				dossierID, entry.Name()))
+		}
+	}
+	return issues
 }
 
 // ValidateAuditShards checks shard filenames and readability.
