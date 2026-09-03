@@ -189,3 +189,94 @@ func TestConfigRejectsInvalidValueLists(t *testing.T) {
 		}
 	})
 }
+
+func TestTokenLimitConfig(t *testing.T) {
+	t.Run("default is 100000", func(t *testing.T) {
+		cfg := Default()
+		if cfg.TokenLimit != 100000 {
+			t.Fatalf("Default().TokenLimit = %d, want 100000", cfg.TokenLimit)
+		}
+		coreCfg := cfg.ToCoreConfig()
+		if coreCfg.TokenLimit != 100000 {
+			t.Fatalf("ToCoreConfig().TokenLimit = %d, want 100000", coreCfg.TokenLimit)
+		}
+	})
+
+	t.Run("loads custom token_limit and round trips", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		content := "dossier_home: /tmp/dossiers\nauthor: user\ntoken_limit: 50000\n"
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.TokenLimit != 50000 {
+			t.Fatalf("cfg.TokenLimit = %d, want 50000", cfg.TokenLimit)
+		}
+		coreCfg := cfg.ToCoreConfig()
+		if coreCfg.TokenLimit != 50000 {
+			t.Fatalf("coreCfg.TokenLimit = %d, want 50000", coreCfg.TokenLimit)
+		}
+
+		savePath := filepath.Join(t.TempDir(), "saved.yaml")
+		if err := cfg.Save(savePath); err != nil {
+			t.Fatalf("Save() error: %v", err)
+		}
+		data, err := os.ReadFile(savePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), "token_limit: 50000") {
+			t.Fatalf("saved config missing token_limit: 50000:\n%s", string(data))
+		}
+	})
+
+	t.Run("accepts legacy token_target", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		content := "dossier_home: /tmp/dossiers\nauthor: user\ntoken_target: 75000\n"
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.TokenLimit != 75000 {
+			t.Fatalf("cfg.TokenLimit = %d, want 75000", cfg.TokenLimit)
+		}
+	})
+
+	t.Run("token_limit takes precedence over token_target", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		content := "dossier_home: /tmp/dossiers\nauthor: user\ntoken_limit: 60000\ntoken_target: 80000\n"
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.TokenLimit != 60000 {
+			t.Fatalf("cfg.TokenLimit = %d, want 60000", cfg.TokenLimit)
+		}
+	})
+
+	t.Run("rejects negative token_limit", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		content := "dossier_home: /tmp/dossiers\nauthor: user\ntoken_limit: -10\n"
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "token_limit must not be negative") {
+			t.Fatalf("Load() error = %v, want negative token_limit error", err)
+		}
+
+		cfg := Default()
+		cfg.TokenLimit = -5
+		if err := cfg.Save(filepath.Join(t.TempDir(), "out.yaml")); err == nil || !strings.Contains(err.Error(), "token_limit must not be negative") {
+			t.Fatalf("Save() error = %v, want negative token_limit error", err)
+		}
+	})
+}

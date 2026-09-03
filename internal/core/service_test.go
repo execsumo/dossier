@@ -819,3 +819,63 @@ func TestServiceDoctorSync(t *testing.T) {
 		t.Errorf("expected valid SyncStatus, got %+v", report.SyncStatus)
 	}
 }
+
+func TestRecallConfiguredTokenLimit(t *testing.T) {
+	fakeStore := newLocalFakeStore()
+	d := &Dossier{
+		Frontmatter: Frontmatter{
+			ID:     "dos_1",
+			Name:   "Token Test",
+			Slug:   "token-test",
+			Status: StatusActive,
+		},
+		DistilledState: DistilledState{
+			Body: "one two three four five",
+		},
+	}
+	fakeStore.Write(d, "init")
+
+	t.Run("warning produced when exceeding configured limit", func(t *testing.T) {
+		svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{
+			TokenLimit: 3,
+		}, nil)
+
+		res, err := svc.Recall(context.Background(), RecallReq{ID: "dos_1"})
+		if err != nil {
+			t.Fatalf("Recall failed: %v", err)
+		}
+		found := false
+		for _, w := range res.Warnings {
+			if strings.Contains(string(w), "Distilled State exceeds token target (5 > 3 tokens)") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected token warning, got warnings: %v", res.Warnings)
+		}
+	})
+
+	t.Run("no warning when under configured limit", func(t *testing.T) {
+		svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{
+			TokenLimit: 10,
+		}, nil)
+
+		res, err := svc.Recall(context.Background(), RecallReq{ID: "dos_1"})
+		if err != nil {
+			t.Fatalf("Recall failed: %v", err)
+		}
+		for _, w := range res.Warnings {
+			if strings.Contains(string(w), "Distilled State exceeds token target") {
+				t.Errorf("unexpected token warning: %v", w)
+			}
+		}
+	})
+
+	t.Run("defaults to DefaultTokenLimit when unspecified", func(t *testing.T) {
+		svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{}, nil)
+		if svc.TokenLimit() != DefaultTokenLimit {
+			t.Errorf("expected TokenLimit() = %d, got %d", DefaultTokenLimit, svc.TokenLimit())
+		}
+	})
+}

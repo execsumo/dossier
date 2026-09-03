@@ -13,12 +13,16 @@ import (
 	"time"
 )
 
+// DefaultTokenLimit is the default warning ceiling for Distilled State tokens.
+const DefaultTokenLimit = 100000
+
 // Config holds the service-level configurations used by the core logic.
 type Config struct {
 	DossierHome string
 	Author      string
 	Interfaces  []string
 	Leads       []string
+	TokenLimit  int
 }
 
 // Service orchestrates Dossier domain use-cases over the port interfaces.
@@ -103,6 +107,9 @@ func NewService(store Store, search Searcher, tok Tokenizer, hreg HarnessRegistr
 		cfg.Interfaces = append([]string{}, cfg.Interfaces...)
 	}
 	cfg.Leads = append([]string{}, cfg.Leads...)
+	if cfg.TokenLimit <= 0 {
+		cfg.TokenLimit = DefaultTokenLimit
+	}
 	return &Service{
 		store:  store,
 		search: search,
@@ -123,6 +130,14 @@ func (s *Service) Interfaces() []string {
 // preserves free-form lead assignment for backwards compatibility.
 func (s *Service) Leads() []string {
 	return append([]string{}, s.cfg.Leads...)
+}
+
+// TokenLimit returns the configured token limit for distilled state.
+func (s *Service) TokenLimit() int {
+	if s.cfg.TokenLimit <= 0 {
+		return DefaultTokenLimit
+	}
+	return s.cfg.TokenLimit
 }
 
 // InitReq represents the request parameters for service initialization.
@@ -1440,7 +1455,7 @@ func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
 	tokens := s.tok.Estimate(d.DistilledState.Body)
 
 	var warnings []Warning
-	const target = 100000
+	target := s.TokenLimit()
 	if tokens > target {
 		warnings = append(warnings, Warning(fmt.Sprintf("Distilled State exceeds token target (%d > %d tokens). Consider condensing.", tokens, target)))
 	}

@@ -25,18 +25,19 @@ type Config struct {
 	Interfaces  []string   `yaml:"interfaces"`
 	Leads       []string   `yaml:"leads"`
 	Team        TeamConfig `yaml:"team,omitempty"`
+	TokenLimit  int        `yaml:"token_limit,omitempty"`
 }
 
 // configFile is the strict read schema. TokenTarget and SchemaVersion are
-// accepted only so stores written by pre-simplification releases remain
-// readable; Config.Save deliberately cannot emit them.
+// accepted for backward compatibility with pre-simplification configs.
 type configFile struct {
 	DossierHome   string     `yaml:"dossier_home"`
 	Author        string     `yaml:"author"`
 	Interfaces    []string   `yaml:"interfaces"`
 	Leads         []string   `yaml:"leads"`
 	Team          TeamConfig `yaml:"team,omitempty"`
-	TokenTarget   int        `yaml:"token_target,omitempty"`
+	TokenLimit    *int       `yaml:"token_limit,omitempty"`
+	TokenTarget   *int       `yaml:"token_target,omitempty"`
 	SchemaVersion int        `yaml:"schema_version,omitempty"`
 }
 
@@ -67,6 +68,7 @@ func Default() *Config {
 		DossierHome: homePath,
 		Author:      author,
 		Interfaces:  core.DefaultDiscussionInterfaces(),
+		TokenLimit:  core.DefaultTokenLimit,
 	}
 }
 
@@ -97,6 +99,11 @@ func Load(path string) (*Config, error) {
 	cfg.Interfaces = wire.Interfaces
 	cfg.Leads = wire.Leads
 	cfg.Team = wire.Team
+	if wire.TokenLimit != nil {
+		cfg.TokenLimit = *wire.TokenLimit
+	} else if wire.TokenTarget != nil {
+		cfg.TokenLimit = *wire.TokenTarget
+	}
 	if err := cfg.validateValues(); err != nil {
 		return nil, err
 	}
@@ -119,6 +126,9 @@ func (c *Config) Save(path string) error {
 }
 
 func (c *Config) validateValues() error {
+	if c.TokenLimit < 0 {
+		return fmt.Errorf("token_limit must not be negative")
+	}
 	for _, vocabulary := range []struct {
 		label  string
 		values []string
@@ -162,5 +172,6 @@ func (c *Config) ToCoreConfig() core.Config {
 		Author:      c.Author,
 		Interfaces:  append([]string{}, c.Interfaces...),
 		Leads:       append([]string{}, c.Leads...),
+		TokenLimit:  c.TokenLimit,
 	}
 }
