@@ -356,6 +356,150 @@ func TestFSStoreListArtifactsDoesNotLoadBodies(t *testing.T) {
 	}
 }
 
+func TestFSStoreListArtifactsStreamCountsLegacyLinesWithoutMutation(t *testing.T) {
+	tempHome := t.TempDir()
+	store := NewFSStore(tempHome)
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	now := time.Now().Truncate(time.Second)
+	dossier := &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID: "dos_legacy_lines", Name: "Legacy Lines", Slug: "legacy-lines",
+			CreatedAt: now, UpdatedAt: now, Status: core.StatusActive, Priority: core.PriorityHigh,
+		},
+		DistilledState: core.DistilledState{Body: "## Findings\n- [observed] trailing blank exists. [src:art_legacy_lines#L2]"},
+	}
+	if _, err := store.Write(dossier, ""); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	// The final newline terminates the second (blank) line; it does not create
+	// a third. The very long first line also guards against Scanner-sized body
+	// buffering in the legacy fallback.
+	content := strings.Repeat("x", 128*1024) + "\n\n"
+	artifact := &core.Artifact{
+		ID: "art_legacy_lines", Type: core.ArtifactTypeDecisionEvidence, Title: "Legacy evidence",
+		ContentFormat: core.ContentFormatText, Content: content,
+		Provenance: core.Provenance{Origin: "legacy fixture"}, CapturedAt: now, RefreshedAt: now,
+	}
+	if err := store.WriteArtifact(dossier.Frontmatter.ID, artifact); err != nil {
+		t.Fatalf("WriteArtifact() error = %v", err)
+	}
+
+	artifactPath := filepath.Join(tempHome, dossier.Frontmatter.Slug, "artifacts", artifact.ID+".txt")
+	modernBytes, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	legacyBytes := []byte(strings.Replace(string(modernBytes), "lines: 2\n", "", 1))
+	if string(legacyBytes) == string(modernBytes) {
+		t.Fatal("fixture did not remove lines metadata")
+	}
+	if err := os.Chmod(artifactPath, 0644); err != nil {
+		t.Fatalf("Chmod writable fixture: %v", err)
+	}
+	if err := os.WriteFile(artifactPath, legacyBytes, 0444); err != nil {
+		t.Fatalf("write legacy fixture: %v", err)
+	}
+
+	artifacts, err := store.ListArtifacts(dossier.Frontmatter.ID)
+	if err != nil {
+		t.Fatalf("ListArtifacts() error = %v", err)
+	}
+	if len(artifacts) != 1 || artifacts[0].Lines != core.ArtifactLineCount(content) {
+		t.Fatalf("legacy line count = %+v, want %d", artifacts, core.ArtifactLineCount(content))
+	}
+	if artifacts[0].Content != "" {
+		t.Fatalf("legacy listing loaded body into memory: %d bytes", len(artifacts[0].Content))
+	}
+	after, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatalf("ReadFile() after listing error = %v", err)
+	}
+	if string(after) != string(legacyBytes) {
+		t.Fatal("ListArtifacts mutated immutable legacy artifact metadata")
+	}
+
+	// Doctor must consume the streamed metadata count for citation ranges,
+	// rather than reading the huge body again or treating missing lines as 0.
+	if err := store.AppendAudit(dossier.Frontmatter.ID, core.AuditEvent{
+		TS: now, Event: core.AuditEventCreate, DossierID: dossier.Frontmatter.ID,
+	}); err != nil {
+		t.Fatalf("AppendAudit() error = %v", err)
+	}
+	svc := core.NewService(store, nil, nil, nil, nil, core.Config{DossierHome: tempHome}, nil)
+	result, err := svc.Doctor(context.Background())
+	if err != nil {
+		t.Fatalf("Doctor() error = %v", err)
+	}
+	if !result.OK {
+		t.Fatalf("Doctor() rejected valid legacy range: warnings=%v", result.Warnings)
+	}
+}
+
+func TestFSStoreLegacyLineCountMakesDoctorRejectOutOfRange(t *testing.T) {
+	tempHome := t.TempDir()
+	store := NewFSStore(tempHome)
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	now := time.Now().Truncate(time.Second)
+	dossier := &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID: "dos_legacy_range", Name: "Legacy Range", Slug: "legacy-range",
+			CreatedAt: now, UpdatedAt: now, Status: core.StatusActive, Priority: core.PriorityHigh,
+		},
+		DistilledState: core.DistilledState{Body: "## Findings\n- [observed] impossible line. [src:art_legacy_range#L3]"},
+	}
+	if _, err := store.Write(dossier, ""); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	artifact := &core.Artifact{
+		ID: "art_legacy_range", Type: core.ArtifactTypeDecisionEvidence, Title: "Two lines",
+		ContentFormat: core.ContentFormatText, Content: "first\n\n",
+		Provenance: core.Provenance{Origin: "legacy fixture"}, CapturedAt: now, RefreshedAt: now,
+	}
+	if err := store.WriteArtifact(dossier.Frontmatter.ID, artifact); err != nil {
+		t.Fatalf("WriteArtifact() error = %v", err)
+	}
+	artifactPath := filepath.Join(tempHome, dossier.Frontmatter.Slug, "artifacts", artifact.ID+".txt")
+	data, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	data = []byte(strings.Replace(string(data), "lines: 2\n", "", 1))
+	if err := os.Chmod(artifactPath, 0644); err != nil {
+		t.Fatalf("Chmod writable fixture: %v", err)
+	}
+	if err := os.WriteFile(artifactPath, data, 0444); err != nil {
+		t.Fatalf("write legacy fixture: %v", err)
+	}
+	if err := store.AppendAudit(dossier.Frontmatter.ID, core.AuditEvent{
+		TS: now, Event: core.AuditEventCreate, DossierID: dossier.Frontmatter.ID,
+	}); err != nil {
+		t.Fatalf("AppendAudit() error = %v", err)
+	}
+
+	svc := core.NewService(store, nil, nil, nil, nil, core.Config{DossierHome: tempHome}, nil)
+	result, err := svc.Doctor(context.Background())
+	if err != nil {
+		t.Fatalf("Doctor() error = %v", err)
+	}
+	if result.OK || !strings.Contains(strings.Join(warningsAsStrings(result.Warnings), "\n"), "has only 2 line(s)") {
+		t.Fatalf("Doctor() did not reject range past streamed legacy count: ok=%v warnings=%v", result.OK, result.Warnings)
+	}
+}
+
+func warningsAsStrings(warnings []core.Warning) []string {
+	out := make([]string, len(warnings))
+	for i, warning := range warnings {
+		out[i] = string(warning)
+	}
+	return out
+}
+
 func TestFSStoreArtifactWriteAdvancesRevisionAndPreservesHistory(t *testing.T) {
 	tempHome, err := os.MkdirTemp("", "dossier-test-artifact-revision-*")
 	if err != nil {

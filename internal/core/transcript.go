@@ -147,14 +147,14 @@ func CompileTranscript(raw string) (string, ContentFormat, []Warning) {
 		}
 		sort.Strings(types)
 		warnings = append(warnings, Warning(fmt.Sprintf(
-			"Transcript compile: %d content block(s) of unrecognized type were dropped [%s].", total, strings.Join(types, " "))))
+			"Transcript compile: %d content block(s) of unrecognized type were preserved as raw JSON [%s].", total, strings.Join(types, " "))))
 	}
 
 	return renderTranscript(nodes, recordCount, nonContent, unknownBlock), ContentFormatMarkdown, warnings
 }
 
 // recordNodes lowers one JSONL record into zero or more IR nodes, plus a
-// tally of block types it could not render (keyed by block type).
+// tally of block types that required a raw-JSON representation.
 func recordNodes(rec transcriptRecord) ([]TranscriptNode, map[string]int) {
 	content := rec.Content
 	role := rec.Type
@@ -168,7 +168,9 @@ func recordNodes(rec transcriptRecord) ([]TranscriptNode, map[string]int) {
 		return nil, nil
 	}
 
-	// Content is either a bare string or an array of typed blocks.
+	// Content is either a bare string or an array of typed blocks. Decode the
+	// array as RawMessages first so unknown fields and nested non-text payloads
+	// can be rendered losslessly instead of disappearing during struct decode.
 	var text string
 	if err := json.Unmarshal(content, &text); err == nil {
 		if strings.TrimSpace(text) == "" {
@@ -177,37 +179,44 @@ func recordNodes(rec transcriptRecord) ([]TranscriptNode, map[string]int) {
 		return []TranscriptNode{{Role: normalizeRole(role), Lines: splitLines(text)}}, nil
 	}
 
-	var blocks []transcriptBlock
-	if err := json.Unmarshal(content, &blocks); err != nil {
+	var rawBlocks []json.RawMessage
+	if err := json.Unmarshal(content, &rawBlocks); err != nil {
 		return []TranscriptNode{{Role: TranscriptRoleUnparsed, Lines: splitLines(string(content))}}, nil
 	}
 
 	var nodes []TranscriptNode
 	unknown := map[string]int{}
-	for _, b := range blocks {
-		if n, ok := blockNode(b, role); ok {
-			nodes = append(nodes, n)
-		} else {
-			unknown[b.Type]++
+	for _, rawBlock := range rawBlocks {
+		var b transcriptBlock
+		if err := json.Unmarshal(rawBlock, &b); err != nil {
+			unknown["invalid"]++
+			nodes = append(nodes, rawContentNode("content_block invalid", rawBlock))
+			continue
 		}
+		n, blockUnknown, ok := blockNode(b, role, rawBlock)
+		if ok {
+			nodes = append(nodes, n)
+		}
+		addTranscriptCounts(unknown, blockUnknown)
 	}
 	return nodes, unknown
 }
 
-// blockNode lowers a single content block into an IR node.
-func blockNode(b transcriptBlock, parentRole string) (TranscriptNode, bool) {
+// blockNode lowers a single content block into an IR node. Unknown blocks are
+// still nodes: their exact JSON value is the visible, lossless representation.
+func blockNode(b transcriptBlock, parentRole string, raw json.RawMessage) (TranscriptNode, map[string]int, bool) {
 	switch b.Type {
 	case "text":
 		if strings.TrimSpace(b.Text) == "" {
-			return TranscriptNode{}, false
+			return TranscriptNode{}, nil, false
 		}
-		return TranscriptNode{Role: normalizeRole(parentRole), Lines: splitLines(b.Text)}, true
+		return TranscriptNode{Role: normalizeRole(parentRole), Lines: splitLines(b.Text)}, nil, true
 
 	case "thinking":
 		if strings.TrimSpace(b.Thinking) == "" {
-			return TranscriptNode{}, false
+			return TranscriptNode{}, nil, false
 		}
-		return TranscriptNode{Role: TranscriptRoleThinking, Lines: splitLines(b.Thinking)}, true
+		return TranscriptNode{Role: TranscriptRoleThinking, Lines: splitLines(b.Thinking)}, nil, true
 
 	case "tool_use":
 		return TranscriptNode{
@@ -215,16 +224,36 @@ func blockNode(b transcriptBlock, parentRole string) (TranscriptNode, bool) {
 			Label: b.Name,
 			Ref:   b.ID,
 			Lines: renderToolInput(b.Input),
-		}, true
+		}, nil, true
 
 	case "tool_result":
+		lines, unknown := renderToolResult(b.Content)
 		return TranscriptNode{
 			Role:  TranscriptRoleToolResult,
 			Ref:   b.ToolUseID,
-			Lines: renderToolResult(b.Content),
-		}, true
+			Lines: lines,
+		}, unknown, true
 	}
-	return TranscriptNode{}, false
+
+	blockType := b.Type
+	if blockType == "" {
+		blockType = "unknown"
+	}
+	return rawContentNode("content_block "+blockType, raw), map[string]int{blockType: 1}, true
+}
+
+func rawContentNode(label string, raw json.RawMessage) TranscriptNode {
+	return TranscriptNode{
+		Role:  TranscriptRoleUnparsed,
+		Label: label,
+		Lines: append([]string{"[raw JSON]"}, splitLines(string(raw))...),
+	}
+}
+
+func addTranscriptCounts(dst, src map[string]int) {
+	for kind, count := range src {
+		dst[kind] += count
+	}
 }
 
 // renderToolInput expands a tool call's arguments one key per line, keeping
@@ -263,28 +292,41 @@ func renderToolInput(input json.RawMessage) []string {
 }
 
 // renderToolResult flattens a tool result, which the harness encodes either as
-// a bare string or as a block array.
-func renderToolResult(content json.RawMessage) []string {
+// a bare string or as a block array. Non-text nested blocks remain visible as
+// their exact raw JSON and are tallied for the caller's warning/header.
+func renderToolResult(content json.RawMessage) ([]string, map[string]int) {
 	if len(content) == 0 {
-		return nil
+		return nil, nil
 	}
 	var s string
 	if err := json.Unmarshal(content, &s); err == nil {
-		return splitLines(s)
+		return splitLines(s), nil
 	}
-	var blocks []transcriptBlock
-	if err := json.Unmarshal(content, &blocks); err == nil {
+
+	var rawBlocks []json.RawMessage
+	if err := json.Unmarshal(content, &rawBlocks); err == nil {
 		var lines []string
-		for _, b := range blocks {
-			if b.Text != "" {
+		unknown := map[string]int{}
+		for _, rawBlock := range rawBlocks {
+			var b transcriptBlock
+			if err := json.Unmarshal(rawBlock, &b); err == nil && b.Type == "text" {
 				lines = append(lines, splitLines(b.Text)...)
+				continue
 			}
+			kind := b.Type
+			if kind == "" {
+				kind = "unknown"
+			}
+			unknown["tool_result/"+kind]++
+			lines = append(lines, fmt.Sprintf("[raw tool_result content block: %s]", kind))
+			lines = append(lines, splitLines(string(rawBlock))...)
 		}
-		if len(lines) > 0 {
-			return lines
-		}
+		return lines, unknown
 	}
-	return splitLines(string(content))
+
+	// A non-string, non-array value is still source. Keep it and make the
+	// fallback countable rather than quietly treating it as ordinary text.
+	return append([]string{"[raw tool_result content]"}, splitLines(string(content))...), map[string]int{"tool_result/unknown": 1}
 }
 
 func normalizeRole(role string) string {
@@ -336,7 +378,7 @@ func renderTranscript(nodes []TranscriptNode, recordCount int, nonContent, unkno
 		}
 		sort.Strings(types)
 		sb.WriteString(fmt.Sprintf(
-			"Unrecognized content block(s) dropped (not renderable in this view): %d [%s]. The raw trace is retained in the session stash.\n",
+			"Unrecognized content block(s) preserved as raw JSON: %d [%s]. The raw trace is retained separately.\n",
 			total, strings.Join(types, " ")))
 	}
 	sb.WriteString("Cite spans from this file as [src:<artifact_id>#L<start>-L<end>].\n")

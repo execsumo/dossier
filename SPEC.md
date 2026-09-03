@@ -636,7 +636,8 @@ Behavior:
 - If high ambiguity exists, return `ambiguous_target` with candidates.
 - Create Dossier if create intent is clear.
 - Store `session_content` as artifact if useful and provided.
-- Store `transcript` as `transcript` artifact if available.
+- Store `transcript` as a `transcript` artifact if available. When JSONL is compiled into a citable view, retain the byte-preserved raw input as a second `transcript` artifact and audit both; plain-text passthrough remains one artifact.
+- Preserve unknown/non-text transcript content blocks visibly as raw JSON in the compiled view and emit a counted warning.
 - Warn if transcript unavailable.
 
 ### 8.6 `dossier_link`

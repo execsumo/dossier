@@ -78,6 +78,13 @@ func (f *FakeStore) List(statusFilter string) ([]core.Frontmatter, error) {
 
 func (f *FakeStore) Write(d *core.Dossier, base core.Revision) (core.Revision, error) {
 	id := d.Frontmatter.ID
+	if id == "" {
+		id = fmt.Sprintf("dos_fake_%d", len(f.Dossiers)+1)
+		d.Frontmatter.ID = id
+		if d.Frontmatter.Slug == "" {
+			d.Frontmatter.Slug = id
+		}
+	}
 	currentRev := f.Revisions[id]
 	if currentRev != base {
 		return "", core.NewError(core.ErrConcurrentEdit, "concurrent edit detected")
@@ -98,6 +105,10 @@ func (f *FakeStore) Write(d *core.Dossier, base core.Revision) (core.Revision, e
 }
 
 func (f *FakeStore) WriteArtifact(dossierID string, a *core.Artifact) error {
+	if a.ID == "" {
+		a.ID = fmt.Sprintf("art_fake_%d", len(f.Artifacts[dossierID])+1)
+	}
+	a.DossierID = dossierID
 	f.Artifacts[dossierID] = append(f.Artifacts[dossierID], *a)
 	return nil
 }

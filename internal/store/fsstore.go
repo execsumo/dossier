@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -468,9 +469,20 @@ func (s *FSStore) listArtifactsInternal(dossierID string, dossierDir string) ([]
 			continue
 		}
 
-		art, err := parseArtifactFrontmatterOnly(filepath.Join(artifactsDir, entry.Name()))
+		artifactPath := filepath.Join(artifactsDir, entry.Name())
+		art, hasLineMetadata, err := parseArtifactFrontmatterOnly(artifactPath)
 		if err != nil {
 			continue
+		}
+		if !hasLineMetadata {
+			// Artifacts written before the lines field was introduced still need
+			// correct citation bounds. Count their body with a fixed-size buffer;
+			// do not rewrite the immutable artifact or materialize a potentially
+			// huge body. Modern artifacts never take this fallback path.
+			art.Lines, err = countArtifactBodyLines(artifactPath)
+			if err != nil {
+				return nil, fmt.Errorf("count legacy artifact %s lines: %w", art.ID, err)
+			}
 		}
 		list = append(list, *art)
 	}
@@ -909,10 +921,10 @@ func parseArtifactFile(content string) (*core.Artifact, error) {
 	return &art, nil
 }
 
-func parseArtifactFrontmatterOnly(filePath string) (*core.Artifact, error) {
+func parseArtifactFrontmatterOnly(filePath string) (*core.Artifact, bool, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer f.Close()
 
@@ -933,17 +945,82 @@ func parseArtifactFrontmatterOnly(filePath string) (*core.Artifact, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if dashCount < 2 {
-		return nil, fmt.Errorf("missing artifact frontmatter delimiters")
+		return nil, false, fmt.Errorf("missing artifact frontmatter delimiters")
 	}
 
+	yamlContent := []byte(strings.Join(fmLines, "\n"))
 	var art core.Artifact
-	if err := yaml.Unmarshal([]byte(strings.Join(fmLines, "\n")), &art); err != nil {
-		return nil, err
+	if err := yaml.Unmarshal(yamlContent, &art); err != nil {
+		return nil, false, err
 	}
-	return &art, nil
+	// A pointer distinguishes an omitted legacy field from a modern, valid
+	// lines: 0 value for an empty artifact.
+	var presence struct {
+		Lines *int `yaml:"lines"`
+	}
+	if err := yaml.Unmarshal(yamlContent, &presence); err != nil {
+		return nil, false, err
+	}
+	return &art, presence.Lines != nil, nil
+}
+
+// countArtifactBodyLines stream-counts a legacy artifact body using the same
+// semantics as core.ArtifactLineCount: empty content is zero lines, one final
+// newline terminates (rather than creates) a line, and preceding blank lines
+// remain addressable. It never changes the artifact and retains only a fixed
+// buffer regardless of body size.
+func countArtifactBodyLines(filePath string) (int, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	r := bufio.NewReader(f)
+	delimiters := 0
+	for delimiters < 2 {
+		line, readErr := r.ReadString('\n')
+		if strings.HasPrefix(strings.TrimSuffix(line, "\n"), "---") {
+			delimiters++
+		}
+		if readErr != nil {
+			if readErr == io.EOF && delimiters == 2 {
+				break
+			}
+			if readErr == io.EOF {
+				return 0, fmt.Errorf("missing artifact frontmatter delimiters")
+			}
+			return 0, readErr
+		}
+	}
+
+	buf := make([]byte, 64*1024)
+	var bytesRead, newlines int64
+	var last byte
+	for {
+		n, readErr := r.Read(buf)
+		if n > 0 {
+			bytesRead += int64(n)
+			last = buf[n-1]
+			newlines += int64(bytes.Count(buf[:n], []byte{'\n'}))
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return 0, readErr
+		}
+	}
+	if bytesRead == 0 {
+		return 0, nil
+	}
+	if last == '\n' {
+		return int(newlines), nil
+	}
+	return int(newlines + 1), nil
 }
 
 func formatArtifactFile(a *core.Artifact) (string, error) {

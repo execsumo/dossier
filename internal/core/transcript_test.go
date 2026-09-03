@@ -58,25 +58,58 @@ func TestCompileTranscriptPreservesUnparsableLines(t *testing.T) {
 	}
 }
 
-func TestCompileTranscriptTalliesUnrecognizedBlocksRatherThanDroppingSilently(t *testing.T) {
+func TestCompileTranscriptPreservesAndTalliesUnrecognizedBlocks(t *testing.T) {
 	trace := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"See the attached screenshot."},{"type":"image","source":{"type":"base64","data":"..."}}]}}`
 	out, _, warnings := CompileTranscript(trace)
 
 	if !strings.Contains(out, "image=1") {
-		t.Errorf("compiled transcript did not tally the dropped image block:\n%s", out)
+		t.Errorf("compiled transcript did not tally the preserved image block:\n%s", out)
 	}
-	if !strings.Contains(out, "Unrecognized content block(s) dropped") {
-		t.Errorf("compiled transcript did not surface the elision:\n%s", out)
+	if !strings.Contains(out, "Unrecognized content block(s) preserved as raw JSON") {
+		t.Errorf("compiled transcript did not surface the raw representation:\n%s", out)
+	}
+	if !strings.Contains(out, `{"type":"image","source":{"type":"base64","data":"..."}}`) {
+		t.Errorf("compiled transcript dropped unknown block bytes:\n%s", out)
 	}
 
 	var found bool
 	for _, w := range warnings {
-		if strings.Contains(string(w), "image") {
+		if strings.Contains(string(w), "image") && strings.Contains(string(w), "preserved as raw JSON") {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("warnings = %v, want one naming the dropped image block", warnings)
+		t.Errorf("warnings = %v, want one naming the preserved image block", warnings)
+	}
+}
+
+func TestCompileTranscriptPreservesNestedNonTextToolResultBlocks(t *testing.T) {
+	trace := `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_image","content":[{"type":"text","text":"OCR summary"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAECAw=="}},{"type":"future_result","payload":{"exact":[1,2,3]}}]}]}}`
+	out, _, warnings := CompileTranscript(trace)
+
+	for _, want := range []string{
+		"## [1] tool_result (toolu_image)",
+		"OCR summary",
+		"[raw tool_result content block: image]",
+		`{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAECAw=="}}`,
+		"[raw tool_result content block: future_result]",
+		`{"type":"future_result","payload":{"exact":[1,2,3]}}`,
+		"tool_result/image=1",
+		"tool_result/future_result=1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("compiled transcript missing %q:\n%s", want, out)
+		}
+	}
+
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %v, want one aggregate warning", warnings)
+	}
+	warning := string(warnings[0])
+	if !strings.Contains(warning, "2 content block(s)") ||
+		!strings.Contains(warning, "tool_result/image=1") ||
+		!strings.Contains(warning, "tool_result/future_result=1") {
+		t.Errorf("warning did not count both nested blocks: %q", warning)
 	}
 }
 

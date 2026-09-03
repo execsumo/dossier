@@ -365,11 +365,12 @@ func TestTUI_ArtifactFlowRestoresDistilledStateAndScroll(t *testing.T) {
 	store := newTestStore()
 	store.dossiers["dos1"] = &core.Dossier{
 		Frontmatter: core.Frontmatter{
-			ID:       "dos1",
-			Name:     "Project Alpha",
-			Slug:     "project-alpha",
-			Status:   core.StatusActive,
-			Priority: core.PriorityHigh,
+			ID:        "dos1",
+			Name:      "Project Alpha",
+			Slug:      "project-alpha",
+			Status:    core.StatusActive,
+			Priority:  core.PriorityHigh,
+			UpdatedAt: testClock{}.Now(),
 		},
 		DistilledState: core.DistilledState{
 			Body: "This is the distilled state of Alpha\n" + strings.Repeat("distilled detail line\n", 60),
@@ -1599,7 +1600,7 @@ func TestArtifactAndClaudeKeysCoexistWithDashboardNavigation(t *testing.T) {
 	m := claudeTestModel(t, store)
 	m.width = 140 // Keep the key label on one line as other footer actions grow.
 
-	if got := stripANSI(m.View()); !strings.Contains(got, "c: claude") {
+	if got := stripANSI(m.View()); !strings.Contains(strings.Join(strings.Fields(got), " "), "c: claude") {
 		t.Errorf("dashboard footer should advertise 'c: claude', got:\n%s", got)
 	}
 	// 'a' remains detail-only; it must not resurrect the removed dashboard

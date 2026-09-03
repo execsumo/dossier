@@ -404,27 +404,28 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 		if err != nil {
 			addIssue("Dossier %s artifacts could not be listed: %v", fm.ID, err)
 		}
+		artifactLines := make(map[string]int, len(artifacts))
 		for _, art := range artifacts {
 			report.ArtifactsChecked++
-			fullArt, err := s.store.ReadArtifact(fm.ID, art.ID)
-			if err != nil {
-				addIssue("Dossier %s artifact %s could not be read: %v", fm.ID, art.ID, err)
-				continue
-			}
-			if err := fullArt.Validate(); err != nil {
+			if err := art.Validate(); err != nil {
 				addIssue("Dossier %s artifact %s is invalid: %v", fm.ID, art.ID, err)
 			}
-			if strings.TrimSpace(fullArt.Provenance.Origin) == "" {
+			if strings.TrimSpace(art.Provenance.Origin) == "" {
 				addIssue("Dossier %s artifact %s is missing provenance.origin", fm.ID, art.ID)
 			}
+			lineCount := art.Lines
+			// In-memory/third-party Store implementations may still return a body.
+			// The filesystem store returns metadata only and stream-populates Lines
+			// for legacy artifacts, so Doctor never has to load huge bodies.
+			if lineCount == 0 && art.Content != "" {
+				lineCount = artifactLineCount(art.Content)
+			}
+			artifactLines[art.ID] = lineCount
 		}
 
 		for _, issue := range validateDistilledStateProvenance(d.DistilledState.Body, fm.ID, func(artifactID string) (int, bool) {
-			art, err := s.store.ReadArtifact(fm.ID, artifactID)
-			if err != nil {
-				return 0, false
-			}
-			return artifactLineCount(art.Content), true
+			lineCount, ok := artifactLines[artifactID]
+			return lineCount, ok
 		}) {
 			addIssue("%s", issue)
 		}
@@ -657,43 +658,89 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 
 	newRevision := saveRes.Data.(Revision)
 	fms, err := s.store.List("all")
+	if err != nil {
+		return Result{}, fmt.Errorf("locate promoted dossier for artifact capture: %w", err)
+	}
 	var newID string
-	if err == nil {
-		for _, fm := range fms {
-			if fm.Name == req.Name {
-				newID = fm.ID
-				break
-			}
+	for _, fm := range fms {
+		if fm.Name != req.Name {
+			continue
 		}
+		_, rev, readErr := s.store.Read(fm.ID)
+		if readErr != nil {
+			return Result{}, fmt.Errorf("read promoted dossier candidate %s: %w", fm.ID, readErr)
+		}
+		// Force-promote permits duplicate display names. The just-created
+		// revision, unlike the name, identifies the dossier that must receive
+		// this transcript.
+		if rev == newRevision {
+			newID = fm.ID
+			break
+		}
+	}
+	if newID == "" {
+		return Result{}, NewError(ErrInternal, "could not locate the newly promoted dossier for artifact capture")
 	}
 
 	var warnings []Warning
 	if req.Content != "" && newID != "" {
 		compiled, compiledFormat, compileWarnings := CompileTranscript(req.Content)
-		for _, w := range compileWarnings {
-			warnings = append(warnings, w)
-		}
-		art := Artifact{
-			DossierID:     newID,
-			Type:          ArtifactTypeTranscript,
-			Title:         "Captured Session Transcript",
-			Provenance:    Provenance{Origin: "promote session content"},
-			ContentFormat: compiledFormat,
-			Content:       compiled,
-			CapturedAt:    now,
-			RefreshedAt:   now,
-		}
-		_ = s.store.WriteArtifact(newID, &art)
+		warnings = append(warnings, compileWarnings...)
 
-		_ = s.store.AppendAudit(newID, AuditEvent{
-			TS:             now,
-			Event:          AuditEventSave,
-			Author:         s.cfg.Author,
-			DossierID:      newID,
-			BeforeRevision: string(newRevision),
-			AfterRevision:  string(newRevision),
-			ArtifactsAdded: []string{art.ID},
-		})
+		// Compilation is a view, never a replacement for source. If it changes
+		// the supplied bytes, archive the raw JSONL first so a later compiled or
+		// audit write failure still cannot destroy the only lossless copy.
+		if compiled != req.Content {
+			raw := Artifact{
+				DossierID:     newID,
+				Type:          ArtifactTypeTranscript,
+				Title:         "Raw Captured Session Transcript (JSONL)",
+				Provenance:    Provenance{Origin: "promote session content (raw JSONL, byte-preserved)"},
+				ContentFormat: ContentFormatText,
+				Content:       req.Content,
+				CapturedAt:    now,
+				RefreshedAt:   now,
+			}
+			var writeErr error
+			newRevision, writeErr = s.writePromoteTranscriptArtifact(newID, newRevision, &raw,
+				"Archived byte-preserved raw promote session transcript before compilation.")
+			if writeErr != nil {
+				return Result{}, writeErr
+			}
+
+			compiledArt := Artifact{
+				DossierID:     newID,
+				Type:          ArtifactTypeTranscript,
+				Title:         "Compiled Captured Session Transcript",
+				Provenance:    Provenance{Origin: fmt.Sprintf("promote session content (compiled citable view of %s)", raw.ID)},
+				ContentFormat: compiledFormat,
+				Content:       compiled,
+				CapturedAt:    now,
+				RefreshedAt:   now,
+			}
+			newRevision, writeErr = s.writePromoteTranscriptArtifact(newID, newRevision, &compiledArt,
+				fmt.Sprintf("Archived compiled citable transcript view derived from raw artifact %s.", raw.ID))
+			if writeErr != nil {
+				return Result{}, writeErr
+			}
+		} else {
+			art := Artifact{
+				DossierID:     newID,
+				Type:          ArtifactTypeTranscript,
+				Title:         "Captured Session Transcript",
+				Provenance:    Provenance{Origin: "promote session content (verbatim plain-text passthrough)"},
+				ContentFormat: compiledFormat,
+				Content:       compiled,
+				CapturedAt:    now,
+				RefreshedAt:   now,
+			}
+			var writeErr error
+			newRevision, writeErr = s.writePromoteTranscriptArtifact(newID, newRevision, &art,
+				"Archived verbatim plain-text promote session transcript.")
+			if writeErr != nil {
+				return Result{}, writeErr
+			}
+		}
 	}
 
 	harnesses := s.hreg.All()
@@ -717,6 +764,32 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 		Data:     newID,
 		Warnings: warnings,
 	}, nil
+}
+
+// writePromoteTranscriptArtifact persists and audits one promote capture. Each
+// source/view write is audited independently so a partial failure remains
+// legible, and every store error is returned rather than silently ignored.
+func (s *Service) writePromoteTranscriptArtifact(dossierID string, before Revision, art *Artifact, message string) (Revision, error) {
+	if err := s.store.WriteArtifact(dossierID, art); err != nil {
+		return before, fmt.Errorf("archive promote transcript %q: %w", art.Title, err)
+	}
+	_, after, err := s.store.Read(dossierID)
+	if err != nil {
+		return before, fmt.Errorf("read revision after archiving promote transcript %s: %w", art.ID, err)
+	}
+	if err := s.store.AppendAudit(dossierID, AuditEvent{
+		TS:             s.clock.Now(),
+		Event:          AuditEventSave,
+		Author:         s.cfg.Author,
+		DossierID:      dossierID,
+		BeforeRevision: string(before),
+		AfterRevision:  string(after),
+		ArtifactsAdded: []string{art.ID},
+		Message:        message,
+	}); err != nil {
+		return after, fmt.Errorf("audit promote transcript artifact %s: %w", art.ID, err)
+	}
+	return after, nil
 }
 
 type SaveReq struct {
