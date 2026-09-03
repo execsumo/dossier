@@ -36,8 +36,7 @@ const (
 	ViewLinkSelector
 	ViewMergeSelector
 	ViewMergeConflictResolver
-	// ViewLeadSelector is the startup landing screen: pick a lead to scope the
-	// dashboard to before a meeting, with search-as-you-type.
+	// ViewLeadSelector scopes the dashboard by lead, with search-as-you-type.
 	ViewLeadSelector
 )
 
@@ -239,7 +238,7 @@ type Model struct {
 	extrasCount  int             // resolved/archived items matching leadFilter but excluded from visibleItems while collapsed
 	recallResult core.RecallResult
 
-	// Lead landing screen state
+	// Lead selector state
 	leadFilter      leadFilter      // active dashboard scope (defaults to All)
 	leadSearch      textinput.Model // search-as-you-type box
 	leadOptions     []leadOption    // every selectable lead, counts included
@@ -378,7 +377,7 @@ func NewModel(svc *core.Service) Model {
 
 	return Model{
 		svc:              svc,
-		currentView:      ViewLeadSelector,
+		currentView:      ViewDashboard,
 		table:            t,
 		viewport:         vp,
 		conflictViewport: cvp,
@@ -435,8 +434,8 @@ func (m Model) Init() tea.Cmd {
 // listDossiersCmd fetches the dossier list asynchronously.
 func (m Model) listDossiersCmd() tea.Cmd {
 	return func() tea.Msg {
-		// Fetch every status: the lead landing screen is for meeting prep, so a
-		// lead's resolved/archived dossiers must be on hand, not just active work.
+		// Fetch every status so resolved/archived dossiers are available for meeting
+		// prep and can be surfaced when the dashboard's extras are expanded.
 		res, err := m.svc.List(context.Background(), core.ListReq{Status: "all"})
 		if err != nil {
 			return errMsg(err)
@@ -586,7 +585,7 @@ func (m Model) getTargetDossier() (targetDossier, bool) {
 	return targetDossier{}, false
 }
 
-// deriveLeadOptions builds the lead landing screen's rows from the full dossier
+// deriveLeadOptions builds the lead selector's rows from the full dossier
 // list: "All" and "Unassigned" pinned first, then each distinct lead in
 // case-insensitive alphabetical order, every row annotated with its dossier
 // count. Counts reflect only live (tier-0) work, matching the dashboard's
@@ -703,7 +702,7 @@ func (m *Model) rowToItemIndex(idx int) (itemIdx int, isToggle bool) {
 	return idx - 1, false
 }
 
-// openLeadSelector enters the landing screen with a fresh search, the option list
+// openLeadSelector enters the lead selector with a fresh search, the option list
 // rebuilt from current data, and the cursor parked on the active filter.
 func (m *Model) openLeadSelector() {
 	m.previousView = m.currentView

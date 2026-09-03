@@ -19,9 +19,8 @@ func stripANSI(str string) string {
 	return ansiRegex.ReplaceAllString(str, "")
 }
 
-// enterDashboard advances a model sitting on the startup lead-selector landing
-// screen into the dashboard by selecting the pre-focused "All" option, mirroring
-// what a user does after the list loads.
+// enterDashboard keeps tests that explicitly construct a lead-selector model
+// compatible with the dashboard-focused startup behavior.
 func enterDashboard(t *testing.T, m Model) Model {
 	t.Helper()
 	if m.currentView != ViewLeadSelector {
@@ -253,10 +252,13 @@ func TestTUI_Dashboard(t *testing.T) {
 		t.Fatal("expected Init cmd to not be nil")
 	}
 
-	// Verify the startup landing screen shows a loading indicator before items load
+	// The TUI now opens directly on the dashboard while the list loads.
+	if m.currentView != ViewDashboard {
+		t.Fatalf("expected startup view to be ViewDashboard, got %v", m.currentView)
+	}
 	viewStr := m.View()
-	if !strings.Contains(viewStr, "Loading leads") {
-		t.Errorf("expected landing view to contain loading indicator, got:\n%s", viewStr)
+	if !strings.Contains(viewStr, "Loading dossiers") {
+		t.Errorf("expected dashboard view to contain loading indicator, got:\n%s", viewStr)
 	}
 
 	// Perform the async load manually
@@ -271,8 +273,9 @@ func TestTUI_Dashboard(t *testing.T) {
 		t.Fatalf("expected 1 item, got %d", len(updatedModel.items))
 	}
 
-	// Select "All" on the landing screen to reach the dashboard
-	updatedModel = enterDashboard(t, updatedModel)
+	if updatedModel.currentView != ViewDashboard {
+		t.Fatalf("expected loaded startup view to remain ViewDashboard, got %v", updatedModel.currentView)
+	}
 
 	// Trigger a mock window resize to initialize columns and height
 	newM, _ = updatedModel.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
@@ -1077,7 +1080,8 @@ func TestEnterRecallsFilteredDossier(t *testing.T) {
 	newM, _ := m.Update(listMsg)
 	m = newM.(Model)
 
-	// On the landing screen, search for "Bob" and select the lead.
+	// Open the lead selector, search for "Bob", and select the lead.
+	m.openLeadSelector()
 	for _, r := range "Bob" {
 		newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		m = newM.(Model)
@@ -1106,7 +1110,7 @@ func TestEnterRecallsFilteredDossier(t *testing.T) {
 	}
 }
 
-// TestLeadSelectorWindowing verifies the lead landing screen scrolls a long
+// TestLeadSelectorWindowing verifies the lead selector scrolls a long
 // option list: only a height-bounded window renders, the cursor row is always
 // visible, and "more above/below" indicators appear when content is clipped.
 func TestLeadSelectorWindowing(t *testing.T) {
