@@ -359,6 +359,21 @@ func TestTUI_Detail(t *testing.T) {
 		t.Errorf("expected view to contain 'Interfaces: Pricing WBR, 1:1' on one line without wrapped colon, got:\n%s", cleanView)
 	}
 
+	// Verify field sequence aligns with viewDashboard: Dossier -> Priority -> Stage -> Lead -> Due
+	dossierIdx := strings.Index(cleanView, "Dossier:")
+	priorityIdx := strings.Index(cleanView, "Priority:")
+	stageIdx := strings.Index(cleanView, "Stage:")
+	leadIdx := strings.Index(cleanView, "Lead:")
+	interfacesIdx := strings.Index(cleanView, "Interfaces:")
+
+	if dossierIdx == -1 || priorityIdx == -1 || stageIdx == -1 || leadIdx == -1 || interfacesIdx == -1 {
+		t.Fatalf("expected all metadata labels in detail view, got view:\n%s", cleanView)
+	}
+	if !(dossierIdx < priorityIdx && priorityIdx < stageIdx && stageIdx < leadIdx && leadIdx < interfacesIdx) {
+		t.Errorf("expected field order Dossier < Priority < Stage < Lead < Interfaces, got indices: Dossier=%d, Priority=%d, Stage=%d, Lead=%d, Interfaces=%d",
+			dossierIdx, priorityIdx, stageIdx, leadIdx, interfacesIdx)
+	}
+
 	// Press esc to go back
 	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = newM.(Model)
@@ -2041,5 +2056,55 @@ func TestTUI_TableColumnSequence(t *testing.T) {
 		if row[i] != expected {
 			t.Errorf("cell %d: expected %q, got %q", i, expected, row[i])
 		}
+	}
+}
+
+func TestTUI_DetailFieldSequenceWithDueDate(t *testing.T) {
+	store := newTestStore()
+	store.dossiers["dos1"] = &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:         "dos1",
+			Name:       "Project Beta",
+			Slug:       "project-beta",
+			Status:     core.StatusActive,
+			Priority:   core.PriorityHigh,
+			Lead:       "Bob",
+			DueDate:    "2026-11-20",
+			Interfaces: []string{"Architecture Review"},
+		},
+		DistilledState: core.DistilledState{
+			Body: "Distilled state for Beta",
+		},
+	}
+	svc := setupTestService(store)
+	m := NewModel(svc)
+	m.width = 100
+	m.height = 40
+	m.recalculateTableLayout()
+
+	listMsg := m.listDossiersCmd()()
+	newM, _ := m.Update(listMsg)
+	m = newM.(Model)
+
+	recallCmd := m.recallDossierCmd("dos1")
+	newM, _ = m.Update(recallCmd())
+	detailM := newM.(Model)
+
+	cleanView := stripANSI(detailM.View())
+
+	dossierIdx := strings.Index(cleanView, "Dossier:")
+	priorityIdx := strings.Index(cleanView, "Priority:")
+	stageIdx := strings.Index(cleanView, "Stage:")
+	leadIdx := strings.Index(cleanView, "Lead:")
+	dueIdx := strings.Index(cleanView, "Due:")
+	interfacesIdx := strings.Index(cleanView, "Interfaces:")
+
+	if dossierIdx == -1 || priorityIdx == -1 || stageIdx == -1 || leadIdx == -1 || dueIdx == -1 || interfacesIdx == -1 {
+		t.Fatalf("expected all labels including Due: in detail view, got:\n%s", cleanView)
+	}
+
+	if !(dossierIdx < priorityIdx && priorityIdx < stageIdx && stageIdx < leadIdx && leadIdx < dueIdx && dueIdx < interfacesIdx) {
+		t.Errorf("expected sequence Dossier < Priority < Stage < Lead < Due < Interfaces, got: %d, %d, %d, %d, %d, %d",
+			dossierIdx, priorityIdx, stageIdx, leadIdx, dueIdx, interfacesIdx)
 	}
 }
