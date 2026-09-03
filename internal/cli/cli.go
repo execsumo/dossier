@@ -1209,10 +1209,13 @@ func NewRootCmd() *cobra.Command {
 				fmt.Print(resText)
 
 			case "session-end", "pre-compaction":
-				err := svc.SessionEnd(context.Background(), sessID, payload.DistilledState, transcript)
+				warnings, err := svc.SessionEnd(context.Background(), sessID, payload.DistilledState, transcript)
 				if err != nil {
 					fmt.Printf("Session end hook failed: %v\n", err)
 					os.Exit(1)
+				}
+				for _, w := range warnings {
+					fmt.Printf("Warning: %s\n", w)
 				}
 				fmt.Println("Session hook completed successfully.")
 

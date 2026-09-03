@@ -64,6 +64,12 @@ func ParseProvenanceRef(artifactID, fragment string) (ProvenanceRef, error) {
 // so a cited range can be bounds-checked.
 type ArtifactInfo func(artifactID string) (lineCount int, ok bool)
 
+// contentLine pairs a 1-indexed body line number with its trimmed text.
+type contentLine struct {
+	Number int
+	Text   string
+}
+
 // bodyContentLines walks the Distilled State body and yields the 1-indexed
 // lines that are expected to carry provenance: prose and list items, but not
 // headings, fences, fenced content, blockquotes, or separators.
@@ -75,8 +81,8 @@ type ArtifactInfo func(artifactID string) (lineCount int, ok bool)
 //     itself is circular), so its lines are excluded.
 //   - A [assumed] line is by definition "believed but unverified" (guide
 //     §3) — it has nothing to cite by design.
-func bodyContentLines(body string) map[int]string {
-	out := map[int]string{}
+func bodyContentLines(body string) []contentLine {
+	var out []contentLine
 	inFence := false
 	inEvidenceSection := false
 	for i, line := range strings.Split(body, "\n") {
@@ -99,7 +105,7 @@ func bodyContentLines(body string) map[int]string {
 			strings.Contains(trimmed, "[assumed]") {
 			continue
 		}
-		out[i+1] = trimmed
+		out = append(out, contentLine{Number: i + 1, Text: trimmed})
 	}
 	return out
 }
@@ -117,20 +123,13 @@ func isEvidenceHeading(trimmed string) bool {
 func validateDistilledStateProvenance(body string, dossierID string, info ArtifactInfo) []string {
 	var issues []string
 
-	lines := bodyContentLines(body)
-	numbers := make([]int, 0, len(lines))
-	for n := range lines {
-		numbers = append(numbers, n)
-	}
-	sortInts(numbers)
-
-	for _, n := range numbers {
-		trimmed := lines[n]
-		if strings.Contains(trimmed, "[src:") && !provenanceRefRE.MatchString(trimmed) {
+	for _, cl := range bodyContentLines(body) {
+		n, trimmed := cl.Number, cl.Text
+		refs := provenanceRefRE.FindAllStringSubmatch(trimmed, -1)
+		if strings.Count(trimmed, "[src:") != len(refs) {
 			issues = append(issues, fmt.Sprintf("Dossier %s line %d has malformed provenance reference", dossierID, n))
 			continue
 		}
-		refs := provenanceRefRE.FindAllStringSubmatch(trimmed, -1)
 		if len(refs) == 0 {
 			issues = append(issues, fmt.Sprintf("Dossier %s line %d is missing provenance", dossierID, n))
 			continue
@@ -220,12 +219,4 @@ func uncitedArtifactWarning(body string, artifacts []Artifact) string {
 	return fmt.Sprintf(
 		"%d archived artifact(s) are not cited by the Distilled State: %s%s. Archived evidence the curated view never points at is unreachable in practice; add [src:] citations or record why it is not material.",
 		len(ids), strings.Join(shown, ", "), suffix)
-}
-
-func sortInts(v []int) {
-	for i := 1; i < len(v); i++ {
-		for j := i; j > 0 && v[j] < v[j-1]; j-- {
-			v[j], v[j-1] = v[j-1], v[j]
-		}
-	}
 }

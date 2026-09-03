@@ -88,6 +88,11 @@ func TestValidateDistilledStateProvenanceChecksLineRanges(t *testing.T) {
 			wantSub: "references missing artifact art_gone",
 		},
 		{
+			name:    "a malformed citation is not masked by a valid one on the same line",
+			body:    "## Findings\n- [observed] Finding. [src:art-1] and [src:art_ok]",
+			wantSub: "has malformed provenance reference",
+		},
+		{
 			name:    "uncited claim",
 			body:    "## Findings\n- [observed] Lock contention.",
 			wantSub: "is missing provenance",

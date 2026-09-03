@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -210,6 +211,40 @@ func TestReadArtifactUnknownArtifactIsNotFound(t *testing.T) {
 	}
 }
 
+// corruptArtifactStore wraps localFakeStore so ReadArtifact fails with a
+// plain I/O-style error rather than the domain ErrNotFound, simulating a
+// damaged-but-present artifact file.
+type corruptArtifactStore struct {
+	*localFakeStore
+}
+
+func (s *corruptArtifactStore) ReadArtifact(id string, artID string) (*Artifact, error) {
+	return nil, errors.New("read /artifacts/art_evidence.txt: input/output error")
+}
+
+func TestReadArtifactDoesNotMaskStoreErrorsAsNotFound(t *testing.T) {
+	store := newLocalFakeStore()
+	svc := NewService(&corruptArtifactStore{store}, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()},
+		Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100000}, nil)
+
+	if _, err := svc.Save(context.Background(), SaveReq{FrontmatterUpdates: map[string]any{"name": "Billing lock"}}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	_, err := svc.ReadArtifact(context.Background(), ReadArtifactReq{
+		DossierID: "dos_fake_id", ArtifactID: "art_evidence",
+	})
+	if err == nil {
+		t.Fatal("ReadArtifact() error = nil, want the underlying I/O error surfaced")
+	}
+	if strings.Contains(err.Error(), string(ErrNotFound)) {
+		t.Errorf("ReadArtifact() error = %v, an I/O error must not be reported as not_found", err)
+	}
+	if !strings.Contains(err.Error(), "input/output error") {
+		t.Errorf("ReadArtifact() error = %v, want the underlying I/O error preserved", err)
+	}
+}
+
 func TestRecallReturnsEvidenceIndexAndFlagsUncited(t *testing.T) {
 	svc, store := newDossierWithArtifact(t, "## Findings\n- [observed] X. [src:art_evidence#L1-L2]", numberedBody(6))
 
@@ -278,6 +313,35 @@ func TestSaveWarnsOnUncitedEvidence(t *testing.T) {
 	}
 }
 
+func TestSessionEndReturnsCompileWarningsRatherThanBurryingThemInAuditOnly(t *testing.T) {
+	store := newLocalFakeStore()
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()},
+		Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100000}, nil)
+
+	if _, err := svc.Save(context.Background(), SaveReq{FrontmatterUpdates: map[string]any{"name": "Billing lock"}}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	if err := store.SaveSessionBinding(&SessionBinding{SessionBindingID: "sess_1", DossierID: "dos_fake_id", Harness: "claude-code"}); err != nil {
+		t.Fatalf("SaveSessionBinding() error = %v", err)
+	}
+
+	transcript := `{"type":"user","message":{"role":"user","content":"hi"}}` + "\nnot json at all"
+	warnings, err := svc.SessionEnd(context.Background(), "sess_1", "", transcript)
+	if err != nil {
+		t.Fatalf("SessionEnd() error = %v", err)
+	}
+
+	var found bool
+	for _, w := range warnings {
+		if strings.Contains(string(w), "not valid JSONL") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("SessionEnd() warnings = %v, want one about the unparsed transcript line", warnings)
+	}
+}
+
 func TestSessionEndArchivesCompiledTranscript(t *testing.T) {
 	store := newLocalFakeStore()
 	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()},
@@ -290,7 +354,7 @@ func TestSessionEndArchivesCompiledTranscript(t *testing.T) {
 		t.Fatalf("SaveSessionBinding() error = %v", err)
 	}
 
-	if err := svc.SessionEnd(context.Background(), "sess_1", "", sampleTrace); err != nil {
+	if _, err := svc.SessionEnd(context.Background(), "sess_1", "", sampleTrace); err != nil {
 		t.Fatalf("SessionEnd() error = %v", err)
 	}
 
@@ -309,6 +373,34 @@ func TestSessionEndArchivesCompiledTranscript(t *testing.T) {
 	}
 	if arts[0].ContentFormat != ContentFormatMarkdown {
 		t.Errorf("ContentFormat = %q, want %q", arts[0].ContentFormat, ContentFormatMarkdown)
+	}
+}
+
+func TestSessionEndPlainTextTranscriptIsNotMislabeledMarkdown(t *testing.T) {
+	store := newLocalFakeStore()
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()},
+		Config{DossierHome: "/tmp/dossier-test", TokenTarget: 100000}, nil)
+
+	if _, err := svc.Save(context.Background(), SaveReq{FrontmatterUpdates: map[string]any{"name": "Billing lock"}}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	if err := store.SaveSessionBinding(&SessionBinding{SessionBindingID: "sess_1", DossierID: "dos_fake_id", Harness: "claude-code"}); err != nil {
+		t.Fatalf("SaveSessionBinding() error = %v", err)
+	}
+
+	if _, err := svc.SessionEnd(context.Background(), "sess_1", "", "A plain text transcript.\nSecond line."); err != nil {
+		t.Fatalf("SessionEnd() error = %v", err)
+	}
+
+	arts, err := store.ListArtifacts("dos_fake_id")
+	if err != nil {
+		t.Fatalf("ListArtifacts() error = %v", err)
+	}
+	if len(arts) != 1 {
+		t.Fatalf("archived %d artifacts, want 1", len(arts))
+	}
+	if arts[0].ContentFormat != ContentFormatText {
+		t.Errorf("ContentFormat = %q, want %q for a plain-text pass-through transcript", arts[0].ContentFormat, ContentFormatText)
 	}
 }
 

@@ -419,7 +419,7 @@ func TestCLIMilestone6(t *testing.T) {
 	}
 
 	// 5. Run SessionEnd hook with new distilled state and transcript
-	err = svc.SessionEnd(context.Background(), sessionID, "# Updated Distilled State", "This is the final transcript of the session.")
+	_, err = svc.SessionEnd(context.Background(), sessionID, "# Updated Distilled State", "This is the final transcript of the session.")
 	if err != nil {
 		t.Fatalf("SessionEnd failed: %v", err)
 	}

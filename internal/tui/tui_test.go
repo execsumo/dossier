@@ -361,6 +361,98 @@ func TestTUI_Detail(t *testing.T) {
 	}
 }
 
+func TestTUI_ArtifactFlow(t *testing.T) {
+	store := newTestStore()
+	store.dossiers["dos1"] = &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:            "dos1",
+			Name:          "Project Alpha",
+			Slug:          "project-alpha",
+			Status:        core.StatusActive,
+			LastTouchedAt: testClock{}.Now(),
+		},
+		DistilledState: core.DistilledState{
+			Body: "This is the distilled state of Alpha",
+		},
+	}
+	store.artifacts["dos1"] = []core.Artifact{
+		{
+			ID:            "art_evidence",
+			DossierID:     "dos1",
+			Type:          core.ArtifactTypeDecisionEvidence,
+			Title:         "Lock latency benchmark",
+			ContentFormat: core.ContentFormatText,
+			Content:       "line one\nline two\n",
+			CapturedAt:    testClock{}.Now(),
+		},
+	}
+	svc := setupTestService(store)
+	m := NewModel(svc)
+	m.width = 100
+	m.height = 40
+	m.recalculateTableLayout()
+
+	listMsg := m.listDossiersCmd()()
+	newM, _ := m.Update(listMsg)
+	m = newM.(Model)
+	m = enterDashboard(t, m)
+	m.table.MoveDown(1)
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(Model)
+	recallMsg := cmd()
+	newM, _ = m.Update(recallMsg)
+	m = newM.(Model)
+	if m.currentView != ViewDetail {
+		t.Fatalf("expected view to be ViewDetail, got %v", m.currentView)
+	}
+
+	// 'a' from the detail view opens the artifact index.
+	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = newM.(Model)
+	if cmd == nil {
+		t.Fatal("expected 'a' to return a listArtifacts command")
+	}
+	indexMsg := cmd()
+	newM, _ = m.Update(indexMsg)
+	m = newM.(Model)
+	if m.currentView != ViewArtifactIndex {
+		t.Fatalf("expected view to be ViewArtifactIndex, got %v", m.currentView)
+	}
+	if len(m.artifactIndex) != 1 || m.artifactIndex[0].ID != "art_evidence" {
+		t.Fatalf("expected artifact index to contain art_evidence, got %+v", m.artifactIndex)
+	}
+
+	// Enter on the artifact fetches its content.
+	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(Model)
+	if cmd == nil {
+		t.Fatal("expected enter to return a readArtifact command")
+	}
+	contentMsg := cmd()
+	newM, _ = m.Update(contentMsg)
+	m = newM.(Model)
+	if m.currentView != ViewArtifactContent {
+		t.Fatalf("expected view to be ViewArtifactContent, got %v", m.currentView)
+	}
+	viewStr := stripANSI(m.View())
+	if !strings.Contains(viewStr, "line one") {
+		t.Errorf("expected artifact content in view, got:\n%s", viewStr)
+	}
+
+	// Esc steps back index -> detail.
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = newM.(Model)
+	if m.currentView != ViewArtifactIndex {
+		t.Fatalf("expected esc from content to return to ViewArtifactIndex, got %v", m.currentView)
+	}
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = newM.(Model)
+	if m.currentView != ViewDetail {
+		t.Fatalf("expected esc from index to return to ViewDetail, got %v", m.currentView)
+	}
+}
+
 func TestTUI_InlineEditing(t *testing.T) {
 	store := newTestStore()
 	store.dossiers["dos1"] = &core.Dossier{

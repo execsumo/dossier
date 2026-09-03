@@ -367,7 +367,7 @@ func TestSessionEndCapturesTranscriptWithoutDistilledState(t *testing.T) {
 		t.Fatalf("binding failed: %v", err)
 	}
 
-	if err := svc.SessionEnd(ctx, "sess_test", "", "transcript payload"); err != nil {
+	if _, err := svc.SessionEnd(ctx, "sess_test", "", "transcript payload"); err != nil {
 		t.Fatalf("SessionEnd failed: %v", err)
 	}
 
@@ -674,7 +674,7 @@ func TestSessionEndMissingTranscriptEmitsWarning(t *testing.T) {
 		t.Fatalf("binding failed: %v", err)
 	}
 
-	if err := svc.SessionEnd(ctx, "sess_missing", "new state", ""); err != nil {
+	if _, err := svc.SessionEnd(ctx, "sess_missing", "new state", ""); err != nil {
 		t.Fatalf("SessionEnd failed: %v", err)
 	}
 
@@ -732,7 +732,7 @@ func TestSessionBoundarySyncs(t *testing.T) {
 	}
 
 	// SessionEnd
-	err = svc.SessionEnd(context.Background(), "test", "", "")
+	_, err = svc.SessionEnd(context.Background(), "test", "", "")
 	if err != nil {
 		t.Fatalf("SessionEnd error: %v", err)
 	}
@@ -746,7 +746,7 @@ func TestSessionBoundarySyncs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SessionStart error should be ignored: %v", err)
 	}
-	err = svc.SessionEnd(context.Background(), "test", "", "")
+	_, err = svc.SessionEnd(context.Background(), "test", "", "")
 	if err != nil {
 		t.Fatalf("SessionEnd error should be ignored: %v", err)
 	}

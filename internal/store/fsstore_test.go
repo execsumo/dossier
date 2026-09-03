@@ -561,10 +561,10 @@ func TestTwoAuthorSimulation(t *testing.T) {
 
 	ctx := context.Background()
 	_, _ = svcAlice.Save(ctx, core.SaveReq{ID: "dos_sim", BaseRevision: "rev_fake_1", DistilledStateMarkdown: "# Alice"})
-	_ = svcAlice.SessionEnd(ctx, "sess-alice", "", "alice transcript")
+	_, _ = svcAlice.SessionEnd(ctx, "sess-alice", "", "alice transcript")
 
 	_, _ = svcBob.Save(ctx, core.SaveReq{ID: "dos_sim", BaseRevision: "rev_fake_2", DistilledStateMarkdown: "# Bob"})
-	_ = svcBob.SessionEnd(ctx, "sess-bob", "", "bob transcript")
+	_, _ = svcBob.SessionEnd(ctx, "sess-bob", "", "bob transcript")
 
 	aliceAuditPath := filepath.Join(tempHome, "dos-sim", "audit", "alice.log")
 	bobAuditPath := filepath.Join(tempHome, "dos-sim", "audit", "bob.log")

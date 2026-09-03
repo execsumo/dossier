@@ -12,7 +12,7 @@ const sampleTrace = `{"type":"mode","mode":"normal","sessionId":"s1"}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Timeout is too low."}]}}`
 
 func TestCompileTranscriptTagsRolesAndKeepsValues(t *testing.T) {
-	out, warnings := CompileTranscript(sampleTrace)
+	out, _, warnings := CompileTranscript(sampleTrace)
 	if len(warnings) != 0 {
 		t.Fatalf("CompileTranscript() warnings = %v, want none", warnings)
 	}
@@ -39,7 +39,7 @@ func TestCompileTranscriptTagsRolesAndKeepsValues(t *testing.T) {
 }
 
 func TestCompileTranscriptCountsBookkeepingRatherThanDroppingSilently(t *testing.T) {
-	out, _ := CompileTranscript(sampleTrace)
+	out, _, _ := CompileTranscript(sampleTrace)
 	if !strings.Contains(out, "mode=1") {
 		t.Errorf("compiled transcript did not account for the elided bookkeeping record:\n%s", out)
 	}
@@ -49,7 +49,7 @@ func TestCompileTranscriptCountsBookkeepingRatherThanDroppingSilently(t *testing
 }
 
 func TestCompileTranscriptPreservesUnparsableLines(t *testing.T) {
-	out, warnings := CompileTranscript(`{"type":"user","message":{"role":"user","content":"hi"}}` + "\nnot json at all")
+	out, _, warnings := CompileTranscript(`{"type":"user","message":{"role":"user","content":"hi"}}` + "\nnot json at all")
 	if !strings.Contains(out, "not json at all") {
 		t.Errorf("unparsable line was dropped:\n%s", out)
 	}
@@ -60,7 +60,7 @@ func TestCompileTranscriptPreservesUnparsableLines(t *testing.T) {
 
 func TestCompileTranscriptTalliesUnrecognizedBlocksRatherThanDroppingSilently(t *testing.T) {
 	trace := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"See the attached screenshot."},{"type":"image","source":{"type":"base64","data":"..."}}]}}`
-	out, warnings := CompileTranscript(trace)
+	out, _, warnings := CompileTranscript(trace)
 
 	if !strings.Contains(out, "image=1") {
 		t.Errorf("compiled transcript did not tally the dropped image block:\n%s", out)
@@ -82,17 +82,20 @@ func TestCompileTranscriptTalliesUnrecognizedBlocksRatherThanDroppingSilently(t 
 
 func TestCompileTranscriptPassesThroughPlainText(t *testing.T) {
 	raw := "A plain text transcript.\nSecond line."
-	out, warnings := CompileTranscript(raw)
+	out, format, warnings := CompileTranscript(raw)
 	if out != raw {
 		t.Errorf("plain text transcript = %q, want unchanged %q", out, raw)
 	}
 	if len(warnings) != 0 {
 		t.Errorf("warnings = %v, want none", warnings)
 	}
+	if format != ContentFormatText {
+		t.Errorf("format = %v, want text for plain-text pass-through", format)
+	}
 }
 
 func TestCompileTranscriptLineNumbersAreCitable(t *testing.T) {
-	out, _ := CompileTranscript(sampleTrace)
+	out, _, _ := CompileTranscript(sampleTrace)
 	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
 
 	var target int

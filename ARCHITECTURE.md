@@ -335,7 +335,7 @@ The Distilled State is a *view* over the Archive, not the record. That framing o
 
 **The low-end signal.** The token target is a ceiling; `uncitedArtifactWarning` supplies the missing floor. `Save`, `Recall`, and `doctor` all surface archived artifacts the Distilled State never cites, since evidence the curated view does not point at is unreachable in practice. It is an advisory in `doctor` (a distillation smell, not store damage) and a warning elsewhere.
 
-`dossier_artifact` / `dossier_artifacts` (MCP) and `dossier artifact <dossier> [<artifact>] [-L a-b]` (CLI) are the two surfaces over the same `Service` methods.
+`dossier_artifact` / `dossier_artifacts` (MCP), `dossier artifact <dossier> [<artifact>] [-L a-b]` (CLI), and the `a` key from the TUI's detail view (evidence index, then enter to fetch one artifact's content) are the three surfaces over the same `Service` methods.
 
 ---
 

@@ -39,6 +39,12 @@ const (
 	ViewMergeConflictResolver
 	// ViewLeadSelector scopes the dashboard by lead, with search-as-you-type.
 	ViewLeadSelector
+	// ViewArtifactIndex lists a dossier's archived artifacts, mirroring
+	// `dossier artifact <slug>` so a [src:] citation can be followed from the TUI.
+	ViewArtifactIndex
+	// ViewArtifactContent shows one artifact's line-numbered content, mirroring
+	// `dossier artifact <slug> <artifact-id>`.
+	ViewArtifactContent
 )
 
 // leadFilterKind enumerates the three ways the dashboard can be scoped by lead.
@@ -205,6 +211,17 @@ type mergeResultMsg struct {
 	sourceID string
 	targetID string
 }
+type artifactIndexMsg struct {
+	dossierID string
+	index     []core.ArtifactSummary
+	err       error
+}
+type artifactContentMsg struct {
+	content  core.ArtifactContent
+	warnings []core.Warning
+	err      error
+}
+
 type errMsg error
 
 type dossierUpdatedMsg struct{}
@@ -306,6 +323,11 @@ type Model struct {
 	mergeCursor            int
 	mergeConflict          *core.Conflict
 	conflictResolverCursor int // 0 = Resolve/Force, 1 = Cancel
+
+	// Artifact index / content view state
+	artifactIndex   []core.ArtifactSummary
+	artifactCursor  int
+	artifactContent core.ArtifactContent
 
 	watcher      *fsnotify.Watcher
 	updateChan   chan string
@@ -478,6 +500,38 @@ func (m Model) recallDossierCmd(id string) tea.Cmd {
 			result:   recallRes,
 			warnings: res.Warnings,
 		}
+	}
+}
+
+// listArtifactsCmd fetches a dossier's evidence index, mirroring
+// `dossier artifact <slug>`.
+func (m Model) listArtifactsCmd(dossierID string) tea.Cmd {
+	return func() tea.Msg {
+		res, err := m.svc.ListArtifacts(context.Background(), core.ListArtifactsReq{DossierID: dossierID})
+		if err != nil {
+			return artifactIndexMsg{dossierID: dossierID, err: err}
+		}
+		index, ok := res.Data.([]core.ArtifactSummary)
+		if !ok {
+			return artifactIndexMsg{dossierID: dossierID, err: fmt.Errorf("invalid artifact index data type")}
+		}
+		return artifactIndexMsg{dossierID: dossierID, index: index}
+	}
+}
+
+// readArtifactCmd fetches one artifact's line-numbered content, mirroring
+// `dossier artifact <slug> <artifact-id>`.
+func (m Model) readArtifactCmd(dossierID, artifactID string) tea.Cmd {
+	return func() tea.Msg {
+		res, err := m.svc.ReadArtifact(context.Background(), core.ReadArtifactReq{DossierID: dossierID, ArtifactID: artifactID})
+		if err != nil {
+			return artifactContentMsg{err: err}
+		}
+		content, ok := res.Data.(core.ArtifactContent)
+		if !ok {
+			return artifactContentMsg{err: fmt.Errorf("invalid artifact content data type")}
+		}
+		return artifactContentMsg{content: content, warnings: res.Warnings}
 	}
 }
 
@@ -1199,6 +1253,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.conflictViewport, cmd = m.conflictViewport.Update(msg)
 			return m, cmd
 
+		case ViewArtifactIndex:
+			switch msg.String() {
+			case "esc":
+				m.currentView = ViewDetail
+				m.err = nil
+				return m, nil
+			case "up", "k":
+				if len(m.artifactIndex) > 0 {
+					m.artifactCursor = (m.artifactCursor - 1 + len(m.artifactIndex)) % len(m.artifactIndex)
+				}
+			case "down", "j":
+				if len(m.artifactIndex) > 0 {
+					m.artifactCursor = (m.artifactCursor + 1) % len(m.artifactIndex)
+				}
+			case "enter":
+				if m.artifactCursor >= 0 && m.artifactCursor < len(m.artifactIndex) {
+					m.loading = true
+					m.err = nil
+					return m, m.readArtifactCmd(m.recallResult.Frontmatter.ID, m.artifactIndex[m.artifactCursor].ID)
+				}
+			}
+			return m, nil
+
+		case ViewArtifactContent:
+			switch msg.String() {
+			case "esc":
+				m.currentView = ViewArtifactIndex
+				m.err = nil
+				return m, nil
+			}
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
+
 		case ViewNextActionEditor:
 			switch msg.String() {
 			case "esc":
@@ -1387,6 +1474,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.openInClaude(t)
 				}
 			}
+		case "a":
+			if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
+				m.loading = true
+				m.err = nil
+				return m, m.listArtifactsCmd(m.recallResult.Frontmatter.ID)
+			}
 		case "f":
 			if m.currentView == ViewDashboard {
 				m.openLeadSelector()
@@ -1424,6 +1517,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
 			m.viewport.SetContent(m.renderMarkdown(m.recallResult.DistilledState))
+		}
+		if m.currentView == ViewArtifactContent && m.artifactContent.ID != "" {
+			header := fmt.Sprintf("Artifact: %s (%s)\nType: %s  Lines: %d-%d of %d\n\n",
+				m.artifactContent.Title, m.artifactContent.ID, m.artifactContent.Type, m.artifactContent.StartLine, m.artifactContent.EndLine, m.artifactContent.Lines)
+			m.viewport.SetContent(header + m.artifactContent.Content)
 		}
 		if m.currentView == ViewMergeConflictResolver && m.mergeConflict != nil {
 			diffMd := fmt.Sprintf("```diff\n%s\n```", m.mergeConflict.DiffAgainstCurrent)
@@ -1511,6 +1609,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			watchPaths = append(watchPaths, m.recallResult.Path)
 			m.syncWatches(watchPaths)
+		}
+
+	case artifactIndexMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+		} else {
+			m.currentView = ViewArtifactIndex
+			m.artifactIndex = msg.index
+			m.artifactCursor = 0
+			m.err = nil
+		}
+
+	case artifactContentMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+		} else {
+			m.currentView = ViewArtifactContent
+			m.artifactContent = msg.content
+			m.warnings = msg.warnings
+			header := fmt.Sprintf("Artifact: %s (%s)\nType: %s  Lines: %d-%d of %d\n\n",
+				msg.content.Title, msg.content.ID, msg.content.Type, msg.content.StartLine, msg.content.EndLine, msg.content.Lines)
+			m.viewport.SetContent(header + msg.content.Content)
+			m.recalculateViewportLayout()
+			m.viewport.YOffset = 0
+			m.err = nil
 		}
 
 	case linkResultMsg:
@@ -2226,6 +2351,33 @@ func (m Model) View() string {
 		sb.WriteString(m.viewport.View())
 		sb.WriteString("\n")
 
+	case ViewArtifactIndex:
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" Durable memory layer for agentic workflows — Evidence Index: %s", m.recallResult.Frontmatter.Name)))
+		sb.WriteString("\n\n")
+		if len(m.artifactIndex) == 0 {
+			sb.WriteString(" No artifacts archived for this dossier.\n")
+		} else {
+			for i, a := range m.artifactIndex {
+				cited := "uncited"
+				if a.Cited {
+					cited = "cited"
+				}
+				row := fmt.Sprintf("%-28s %-18s %6d lines  %-8s %s", a.ID, a.Type, a.Lines, cited, a.Title)
+				if i == m.artifactCursor {
+					sb.WriteString(focusedItemStyle.Render("> " + row))
+				} else {
+					sb.WriteString("  " + row)
+				}
+				sb.WriteString("\n")
+			}
+		}
+
+	case ViewArtifactContent:
+		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Artifact"))
+		sb.WriteString("\n\n")
+		sb.WriteString(m.viewport.View())
+		sb.WriteString("\n")
+
 	case ViewStatusPicker:
 		sb.WriteString(subtitleStyle.Render(" Durable memory layer for agentic workflows — Update Status"))
 		sb.WriteString("\n\n")
@@ -2289,7 +2441,11 @@ func (m Model) View() string {
 	case ViewLeadSelector:
 		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
 	case ViewDetail:
-		keyHelp = "↑/↓/pgup/pgdn: scroll • s: status • l: lead • p: priority • n: next action • c: claude • esc: back"
+		keyHelp = "↑/↓/pgup/pgdn: scroll • s: status • l: lead • p: priority • n: next action • a: artifacts • c: claude • esc: back"
+	case ViewArtifactIndex:
+		keyHelp = "↑/↓: select • enter: view artifact • esc: back"
+	case ViewArtifactContent:
+		keyHelp = "↑/↓/pgup/pgdn: scroll • esc: back"
 	case ViewStatusPicker:
 		keyHelp = "↑/↓: select status • esc: cancel"
 	case ViewNextActionEditor:

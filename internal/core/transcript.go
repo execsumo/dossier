@@ -84,10 +84,12 @@ var nonContentRecordTypes = map[string]bool{
 // and artifact fetches share one coordinate system.
 //
 // Input that is not JSONL is returned unchanged: a plain-text transcript is
-// already a usable full view.
-func CompileTranscript(raw string) (string, []Warning) {
+// already a usable full view. The returned ContentFormat reflects which case
+// occurred, since a plain-text pass-through is not markdown and must not be
+// filed with a .md extension.
+func CompileTranscript(raw string) (string, ContentFormat, []Warning) {
 	if strings.TrimSpace(raw) == "" {
-		return "", nil
+		return "", ContentFormatText, nil
 	}
 
 	rawLines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
@@ -128,7 +130,7 @@ func CompileTranscript(raw string) (string, []Warning) {
 	// A trace with records but no recognizable JSONL envelope is almost
 	// certainly a plain-text transcript. Pass it through untouched.
 	if recordCount == 0 {
-		return raw, nil
+		return raw, ContentFormatText, nil
 	}
 
 	var warnings []Warning
@@ -148,7 +150,7 @@ func CompileTranscript(raw string) (string, []Warning) {
 			"Transcript compile: %d content block(s) of unrecognized type were dropped [%s].", total, strings.Join(types, " "))))
 	}
 
-	return renderTranscript(nodes, recordCount, nonContent, unknownBlock), warnings
+	return renderTranscript(nodes, recordCount, nonContent, unknownBlock), ContentFormatMarkdown, warnings
 }
 
 // recordNodes lowers one JSONL record into zero or more IR nodes, plus a

@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -668,7 +669,7 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 
 	var warnings []Warning
 	if req.Content != "" && newID != "" {
-		compiled, compileWarnings := CompileTranscript(req.Content)
+		compiled, compiledFormat, compileWarnings := CompileTranscript(req.Content)
 		for _, w := range compileWarnings {
 			warnings = append(warnings, w)
 		}
@@ -677,7 +678,7 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 			Type:          ArtifactTypeTranscript,
 			Title:         "Captured Session Transcript",
 			Provenance:    Provenance{Origin: "promote session content"},
-			ContentFormat: ContentFormatMarkdown,
+			ContentFormat: compiledFormat,
 			Content:       compiled,
 			CapturedAt:    now,
 			RefreshedAt:   now,
@@ -1501,7 +1502,11 @@ func (s *Service) ReadArtifact(ctx context.Context, req ReadArtifactReq) (Result
 
 	art, err := s.store.ReadArtifact(dossierID, req.ArtifactID)
 	if err != nil {
-		return Result{}, NewError(ErrNotFound, fmt.Sprintf("artifact %s not found in dossier %s", req.ArtifactID, dossierID))
+		var domainErr *DomainError
+		if errors.As(err, &domainErr) {
+			return Result{}, domainErr
+		}
+		return Result{}, WrapError(ErrInternal, fmt.Sprintf("failed to read artifact %s in dossier %s", req.ArtifactID, dossierID), err)
 	}
 
 	start, end := req.StartLine, req.EndLine
@@ -2029,14 +2034,15 @@ func (s *Service) GetInstructions() string {
 }
 
 // SessionEnd saves state and appends the transcript artifact on session completion.
-func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledState string, transcript string) error {
+func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledState string, transcript string) ([]Warning, error) {
 	binding, err := s.store.GetSessionBinding(sessionID)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 
 	now := s.clock.Now()
 	finalRevision := Revision(binding.LastSeenRevision)
+	var warnings []Warning
 
 	if distilledState != "" {
 		saveRes, err := s.Save(ctx, SaveReq{
@@ -2046,7 +2052,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 			SessionID:              sessionID,
 		})
 		if err != nil {
-			return err
+			return warnings, err
 		}
 		finalRevision = saveRes.Data.(Revision)
 	}
@@ -2055,8 +2061,9 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 		// The stash keeps the raw trace byte-for-byte; the artifact stores the
 		// compiled full view, whose physical line numbers are stable enough to
 		// cite. A range into raw JSONL lands mid-record and cites nothing.
-		compiled, compileWarnings := CompileTranscript(transcript)
+		compiled, compiledFormat, compileWarnings := CompileTranscript(transcript)
 		for _, w := range compileWarnings {
+			warnings = append(warnings, w)
 			_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 				TS:        now,
 				Event:     AuditEventSave,
@@ -2083,17 +2090,17 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 			Type:          ArtifactTypeTranscript,
 			Title:         binding.Harness + " Session Transcript",
 			Provenance:    Provenance{Origin: binding.Harness + " session transcript (compiled)", Harness: binding.Harness},
-			ContentFormat: ContentFormatMarkdown,
+			ContentFormat: compiledFormat,
 			Content:       compiled,
 			CapturedAt:    now,
 			RefreshedAt:   now,
 		}
 		if err := s.store.WriteArtifact(binding.DossierID, &art); err != nil {
-			return err
+			return warnings, err
 		}
 		_, refreshedRev, err := s.store.Read(binding.DossierID)
 		if err != nil {
-			return err
+			return warnings, err
 		}
 		_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 			TS:             now,
@@ -2139,7 +2146,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 		_, _ = s.Sync(syncCtx) // Best-effort bounded push
 	}
 
-	return nil
+	return warnings, nil
 }
 
 // Sync orchestrates the dossier team sync.
