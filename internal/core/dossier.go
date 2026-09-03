@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"time"
+	"unicode/utf8"
 )
 
 // Status represents the lifecycle state of a Dossier.
@@ -58,6 +59,17 @@ func (i Interface) IsValid() bool {
 	return false
 }
 
+// MaxNextActionLength is the maximum number of Unicode characters allowed in
+// the concise current action stored in frontmatter.
+const MaxNextActionLength = 140
+
+func validateNextActionLength(nextAction string) error {
+	if utf8.RuneCountInString(nextAction) > MaxNextActionLength {
+		return fmt.Errorf("next_action must be at most %d characters", MaxNextActionLength)
+	}
+	return nil
+}
+
 // Frontmatter represents the parsed metadata block of a Dossier.
 // In conformance with BUILD-DECISIONS, base_revision is session-side, not in frontmatter.
 type Frontmatter struct {
@@ -97,6 +109,9 @@ func (f *Frontmatter) Validate() error {
 	}
 	if !f.Priority.IsValid() {
 		return fmt.Errorf("invalid priority: %q", f.Priority)
+	}
+	if err := validateNextActionLength(f.NextAction); err != nil {
+		return err
 	}
 	for _, interfaceName := range f.Interfaces {
 		if !Interface(interfaceName).IsValid() {

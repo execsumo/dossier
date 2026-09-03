@@ -999,6 +999,10 @@ func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 		d.DistilledState.Body = req.DistilledStateMarkdown
 	}
 
+	if err := validateNextActionLength(d.Frontmatter.NextAction); err != nil {
+		return Result{}, WrapError(ErrInvalidFrontmatter, "invalid frontmatter details", err)
+	}
+
 	var warnings []Warning
 	newRev, err := s.store.Write(d, baseRev)
 	if err != nil {

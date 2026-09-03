@@ -138,6 +138,8 @@ Optional fields:
 - `interfaces`
 - `due_date`
 
+`next_action` must be no more than 140 Unicode characters. The limit is enforced by the core service and does not truncate existing or submitted values.
+
 Valid enums:
 
 - `status`: `active`, `waiting`, `blocked`, `resolved`, `archived`

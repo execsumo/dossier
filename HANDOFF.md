@@ -48,7 +48,7 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 
 All features (CLI, MCP, and Rich TUI) are fully operational, tested, and integrated.
 
-> **Schema simplification (2026-09-02):** New Dossiers use only canonical frontmatter: `priority` and optional `description`; `last_touched_at`, configurable token settings, numeric priority scores, and frontmatter `open_questions` are removed; recall retains only the fixed 100k-token warning threshold. Open questions belong in the body under `## Open Questions`. This is an intentional breaking schema change; the application does not migrate legacy frontmatter.
+> **Schema simplification (2026-09-02):** New Dossiers use only canonical frontmatter: `priority` and optional `description`; `last_touched_at`, configurable token settings, numeric priority scores, and frontmatter `open_questions` are removed; recall retains only the fixed 100k-token warning threshold. Open questions belong in the body under `## Open Questions`. `next_action` is limited to 140 Unicode characters and is validated centrally without truncation. This is an intentional breaking schema change; the application does not migrate legacy frontmatter.
 
 ## Pi integration (Dossier ships its own extension as of 2026-08-04)
 

@@ -397,6 +397,9 @@ func TestTUI_InlineEditing(t *testing.T) {
 	if m.currentView != ViewNextActionEditor {
 		t.Fatalf("expected view ViewNextActionEditor, got %v", m.currentView)
 	}
+	if m.nextActionInput.CharLimit != core.MaxNextActionLength {
+		t.Fatalf("expected next action character limit %d, got %d", core.MaxNextActionLength, m.nextActionInput.CharLimit)
+	}
 	m.nextActionInput.SetValue("New Next Action")
 	// Press enter
 	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})

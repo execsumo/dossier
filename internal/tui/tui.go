@@ -760,7 +760,10 @@ func (m *Model) startEditNextAction(t targetDossier) {
 	m.targetBaseRevision = t.baseRevision
 
 	m.nextActionInput = textinput.New()
+	// Set the existing value before applying the limit so legacy overlong
+	// actions are not silently truncated; the user can edit them down to size.
 	m.nextActionInput.SetValue(t.nextAction)
+	m.nextActionInput.CharLimit = core.MaxNextActionLength
 	m.nextActionInput.Focus()
 	m.nextActionInput.Width = 60
 }
