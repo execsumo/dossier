@@ -87,7 +87,7 @@ Store layout:
     audit.log
 ```
 
-`config.yaml` records install settings, detected harness capabilities, and optional team-sync settings.
+`config.yaml` records install settings, user-configurable interface and lead vocabularies, detected harness capabilities, and optional team-sync settings. New installs include the legacy seven interface defaults; older configs that omit `interfaces` inherit those defaults. An empty `leads` list preserves free-form lead assignment.
 
 `context/library.md` is the generated open-work context file for harnesses without deterministic hooks.
 
@@ -144,7 +144,8 @@ Valid enums:
 
 - `status`: `active`, `waiting`, `blocked`, `resolved`, `archived`
 - `priority`: `low`, `medium`, `high`, `max`
-- `interfaces`: `Pricing WBR`, `1:1`, `OLG Standup`, `Growth Standup`, `Steerco`, `Solutioning`, `OpsRev` (multi-select)
+
+Interface and lead values are configured in machine-local `config.yaml`. Interface assignments must use configured values. When `leads` is nonempty, new lead assignments must use a configured value (or empty to clear); when it is empty, lead assignment remains free-form. Removing a configured value does not invalidate existing Dossiers or unrelated edits. TUI selectors and MCP schemas read these lists at process startup.
 
 `description` is a short progressive-disclosure summary shown in library/list
 surfaces before loading the full Distilled State.

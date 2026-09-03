@@ -51,6 +51,20 @@ That single `init` does everything:
 
 It's idempotent and non-clobbering: your existing MCP servers, hooks, and extensions are preserved, and every file is backed up before editing. Re-run it anytime, and check things with `dossier doctor` or `dossier harness list`.
 
+Discussion interfaces and lead choices are configured in `~/.dossier/config.yaml`:
+
+```yaml
+interfaces:
+  - Pricing WBR
+  - "1:1"
+  - Steerco
+leads:
+  - Alice
+  - Bob
+```
+
+Interface and lead selectors follow the configured order after restarting Dossier. Existing configs that omit `interfaces` retain the original seven defaults. An empty `leads` list keeps lead entry free-form; once leads are listed, new assignments must use one of them. The file remains machine-local and is never team-synced.
+
 ## Using it
 
 ### Inside Claude Code (the main way)

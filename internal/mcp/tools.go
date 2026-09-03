@@ -29,7 +29,15 @@ type mcpErrorObject struct {
 	Details map[string]any `json:"details,omitempty"`
 }
 
-func getToolDefinitions() []ToolDefinition {
+func getToolDefinitions(configured ...[]string) []ToolDefinition {
+	interfaces := core.DefaultDiscussionInterfaces()
+	var leads []string
+	if len(configured) > 0 {
+		interfaces = configured[0]
+	}
+	if len(configured) > 1 {
+		leads = configured[1]
+	}
 	return []ToolDefinition{
 		{
 			Name:        "dossier_list",
@@ -41,10 +49,7 @@ func getToolDefinitions() []ToolDefinition {
 						"type":        "string",
 						"description": "Filter by status (active|waiting|blocked|resolved|archived|all)",
 					},
-					"interfaces": map[string]any{
-						"type": "array", "items": map[string]any{"type": "string", "enum": interfaceEnumStrings()},
-						"description": "Filter by discussion interface; matches dossiers assigned to any supplied interface",
-					},
+					"interfaces": configuredStringListSchema(interfaces, "Filter by discussion interface; matches dossiers assigned to any supplied interface"),
 				},
 			},
 		},
@@ -184,8 +189,8 @@ func getToolDefinitions() []ToolDefinition {
 					"description":              map[string]any{"type": "string", "description": "Optional short progressive-disclosure summary"},
 					"priority":                 map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "max"}},
 					"from_file_path":           map[string]any{"type": "string"},
-					"lead":                     map[string]any{"type": "string"},
-					"interfaces":               map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": interfaceEnumStrings()}},
+					"lead":                     configuredLeadSchema(leads, "Lead assignee; available values come from config.yaml"),
+					"interfaces":               configuredStringListSchema(interfaces, "Discussion interfaces; available values come from config.yaml"),
 				},
 				"required": []string{"name", "distilled_state_markdown"},
 			},
@@ -234,11 +239,11 @@ func getToolDefinitions() []ToolDefinition {
 					"name":        map[string]any{"type": "string", "description": "Replace the display name (omit to leave unchanged). The slug/directory is the durable identifier and does NOT change on rename."},
 					"description": map[string]any{"type": "string", "description": "Replace the optional progressive-disclosure summary (omit to leave unchanged)"},
 					"status":      map[string]any{"type": "string", "description": "Replace the current status: active|waiting|blocked|resolved|archived (omit to leave unchanged)"},
-					"lead":        map[string]any{"type": "string", "description": "Replace the lead assignee (omit to leave unchanged)"},
+					"lead":        configuredLeadSchema(leads, "Replace the lead assignee (omit to leave unchanged; empty clears)"),
 					"next_action": map[string]any{"type": "string", "description": "Replace the current next action (omit to leave unchanged)"},
 					"priority":    map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "max"}, "description": "low|medium|high|max (omit to leave unchanged)"},
 					"due_date":    map[string]any{"type": "string", "description": "ISO 8601 date or empty string to clear (omit to leave unchanged)"},
-					"interfaces":  map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": interfaceEnumStrings()}, "description": "Replace the discussion interface list (omit to leave unchanged)"},
+					"interfaces":  configuredStringListSchema(interfaces, "Replace the discussion interface list (omit to leave unchanged)"),
 				},
 				"required": []string{"id"},
 			},
@@ -246,12 +251,25 @@ func getToolDefinitions() []ToolDefinition {
 	}
 }
 
-func interfaceEnumStrings() []string {
-	values := make([]string, 0, len(core.Interfaces))
-	for _, value := range core.Interfaces {
-		values = append(values, string(value))
+func configuredStringListSchema(values []string, description string) map[string]any {
+	schema := map[string]any{
+		"type":        "array",
+		"description": description,
 	}
-	return values
+	if len(values) == 0 {
+		schema["maxItems"] = 0
+		return schema
+	}
+	schema["items"] = map[string]any{"type": "string", "enum": append([]string{}, values...)}
+	return schema
+}
+
+func configuredLeadSchema(values []string, description string) map[string]any {
+	schema := map[string]any{"type": "string", "description": description}
+	if len(values) > 0 {
+		schema["enum"] = append([]string{""}, values...)
+	}
+	return schema
 }
 
 func (s *Server) handleToolCall(ctx context.Context, id any, name string, args json.RawMessage) {

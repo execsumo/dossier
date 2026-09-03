@@ -93,6 +93,15 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			homeDir := resolveHomeDir()
+			cfgPath := filepath.Join(homeDir, "config.yaml")
+			if _, statErr := os.Stat(cfgPath); os.IsNotExist(statErr) {
+				cfg := config.Default()
+				cfg.DossierHome = homeDir
+				if err := cfg.Save(cfgPath); err != nil {
+					fmt.Printf("Error writing config: %v\n", err)
+					os.Exit(1)
+				}
+			}
 			svc, err := wire(homeDir)
 			if err != nil {
 				fmt.Printf("Error wiring service: %v\n", err)
@@ -911,7 +920,7 @@ func NewRootCmd() *cobra.Command {
 
 	leadCmd := &cobra.Command{
 		Use:   "lead <slug-or-id> <lead-name>",
-		Short: "Update lead of a dossier",
+		Short: "Update a dossier lead (available values come from config.yaml)",
 		Args:  cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
 			homeDir := resolveHomeDir()
@@ -955,9 +964,9 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	interfaceCmd := &cobra.Command{
-		Use:   "interface <slug-or-id> <interface>...",
-		Short: "Set the discussion interface(s) of a dossier",
-		Args:  cobra.MinimumNArgs(2),
+		Use:   "interface <slug-or-id> [interface]...",
+		Short: "Set configured discussion interfaces, or omit them to clear",
+		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			svc, err := wire(resolveHomeDir())
 			if err != nil {

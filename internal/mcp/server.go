@@ -173,7 +173,7 @@ func (s *Server) handleRequest(ctx context.Context, req JSONRPCRequest) {
 		s.sendResult(req.ID, map[string]any{})
 
 	case "tools/list":
-		tools := getToolDefinitions()
+		tools := getToolDefinitions(s.svc.Interfaces(), s.svc.Leads())
 		s.sendResult(req.ID, map[string]any{"tools": tools})
 
 	case "tools/call":

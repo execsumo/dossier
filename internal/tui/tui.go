@@ -241,12 +241,14 @@ type Model struct {
 	recallResult core.RecallResult
 
 	// Lead selector state
-	leadFilter      leadFilter      // active dashboard scope (defaults to All)
-	leadSearch      textinput.Model // search-as-you-type box
-	leadOptions     []leadOption    // every selectable lead, counts included
-	leadResults     []leadOption    // leadOptions narrowed by the search box
-	leadCursor      int
-	interfaceFilter interfaceFilter
+	leadFilter           leadFilter      // active dashboard scope (defaults to All)
+	leadSearch           textinput.Model // search-as-you-type box
+	leadOptions          []leadOption    // every selectable lead, counts included
+	leadResults          []leadOption    // leadOptions narrowed by the search box
+	leadCursor           int
+	interfaceFilter      interfaceFilter
+	configuredLeads      []string
+	configuredInterfaces []string
 
 	// extrasExpanded controls the dashboard's "Show More... / Hide Extras..." row:
 	// when false (the default), resolved/archived dossiers are collapsed out of
@@ -384,19 +386,21 @@ func NewModel(svc *core.Service) Model {
 	}
 
 	return Model{
-		svc:              svc,
-		currentView:      ViewDashboard,
-		table:            t,
-		viewport:         vp,
-		conflictViewport: cvp,
-		loading:          true,
-		statusOptions:    statusOptions,
-		leadSearch:       leadSearch,
-		watcher:          watcher,
-		updateChan:       updateChan,
-		watchedPaths:     map[string]bool{},
-		claudeBin:        harness.ClaudeBin,
-		execProcess:      tea.ExecProcess,
+		svc:                  svc,
+		currentView:          ViewDashboard,
+		table:                t,
+		viewport:             vp,
+		conflictViewport:     cvp,
+		loading:              true,
+		statusOptions:        statusOptions,
+		leadSearch:           leadSearch,
+		configuredLeads:      svc.Leads(),
+		configuredInterfaces: svc.Interfaces(),
+		watcher:              watcher,
+		updateChan:           updateChan,
+		watchedPaths:         map[string]bool{},
+		claudeBin:            harness.ClaudeBin,
+		execProcess:          tea.ExecProcess,
 	}
 }
 
@@ -663,7 +667,7 @@ func (m Model) openInClaude(t targetDossier) (tea.Model, tea.Cmd) {
 // default collapsed view; resolved/archived dossiers are surfaced per-lead via
 // the dashboard's own "Show More..." row, not counted here. Pure: depends only
 // on items.
-func deriveLeadOptions(items []core.ListItem) []leadOption {
+func deriveLeadOptions(items []core.ListItem, configured ...[]string) []leadOption {
 	var all, unassigned int
 	counts := make(map[string]int)
 	for _, item := range items {
@@ -682,12 +686,26 @@ func deriveLeadOptions(items []core.ListItem) []leadOption {
 	}
 
 	names := make([]string, 0, len(counts))
-	for name := range counts {
-		names = append(names, name)
+	seen := make(map[string]bool)
+	if len(configured) > 0 {
+		for _, name := range configured[0] {
+			name = strings.TrimSpace(name)
+			if name != "" && !seen[name] {
+				names = append(names, name)
+				seen[name] = true
+			}
+		}
 	}
-	sort.Slice(names, func(i, j int) bool {
-		return strings.ToLower(names[i]) < strings.ToLower(names[j])
+	var observed []string
+	for name := range counts {
+		if !seen[name] {
+			observed = append(observed, name)
+		}
+	}
+	sort.Slice(observed, func(i, j int) bool {
+		return strings.ToLower(observed[i]) < strings.ToLower(observed[j])
 	})
+	names = append(names, observed...)
 
 	opts := make([]leadOption, 0, len(names)+3)
 	opts = append(opts,
@@ -784,7 +802,7 @@ func (m *Model) openLeadSelector() {
 	m.leadSearch.Focus()
 	m.leadSearch.Width = 40
 
-	m.leadOptions = deriveLeadOptions(m.items)
+	m.leadOptions = deriveLeadOptions(m.items, m.configuredLeads)
 	m.leadResults = m.leadOptions
 	m.leadCursor = 0
 	for i, o := range m.leadResults {
@@ -842,7 +860,7 @@ func (m *Model) startEditNextAction(t targetDossier) {
 // leadAutocomplete returns unique previously used lead names that begin with query,
 // sorted case-insensitively. It is intentionally prefix-only: Tab/Enter can accept
 // the first suggestion without surprising the user with fuzzy replacements.
-func leadAutocomplete(items []core.ListItem, query string) []string {
+func leadAutocomplete(items []core.ListItem, query string, configured ...[]string) []string {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil
@@ -850,13 +868,24 @@ func leadAutocomplete(items []core.ListItem, query string) []string {
 	lowerQuery := strings.ToLower(query)
 	seen := make(map[string]bool)
 	var names []string
-	for _, item := range items {
-		name := strings.TrimSpace(item.Lead)
-		if name == "" || seen[name] || !strings.HasPrefix(strings.ToLower(name), lowerQuery) {
-			continue
+	if len(configured) > 0 && len(configured[0]) > 0 {
+		for _, configuredLead := range configured[0] {
+			name := strings.TrimSpace(configuredLead)
+			if name == "" || seen[name] || !strings.HasPrefix(strings.ToLower(name), lowerQuery) {
+				continue
+			}
+			seen[name] = true
+			names = append(names, name)
 		}
-		seen[name] = true
-		names = append(names, name)
+	} else {
+		for _, item := range items {
+			name := strings.TrimSpace(item.Lead)
+			if name == "" || seen[name] || !strings.HasPrefix(strings.ToLower(name), lowerQuery) {
+				continue
+			}
+			seen[name] = true
+			names = append(names, name)
+		}
 	}
 	sort.SliceStable(names, func(i, j int) bool {
 		return strings.ToLower(names[i]) < strings.ToLower(names[j])
@@ -881,7 +910,7 @@ func (m *Model) startEditLead(t targetDossier) {
 }
 
 func (m *Model) updateLeadSuggestions() {
-	m.leadSuggestions = leadAutocomplete(m.items, m.leadInput.Value())
+	m.leadSuggestions = leadAutocomplete(m.items, m.leadInput.Value(), m.configuredLeads)
 	m.leadSuggestionText = ""
 	if len(m.leadSuggestions) > 0 && !strings.EqualFold(m.leadSuggestions[0], m.leadInput.Value()) {
 		m.leadSuggestionText = m.leadSuggestions[0]
@@ -1365,7 +1394,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "i":
 			if m.currentView == ViewDashboard {
-				m.interfaceFilter = nextInterfaceFilter(m.interfaceFilter)
+				m.interfaceFilter = nextInterfaceFilter(m.interfaceFilter, m.configuredInterfaces)
 				m.applyLeadFilter()
 				m.populateTableRows()
 				m.table.SetCursor(0)
@@ -1433,7 +1462,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Re-derive lead options on every refresh so newly-assigned leads appear,
 		// while preserving the active filter (and the search box) across hot-reloads.
-		m.leadOptions = deriveLeadOptions(m.items)
+		m.leadOptions = deriveLeadOptions(m.items, m.configuredLeads)
 		m.leadResults = filterLeadOptions(m.leadOptions, m.leadSearch.Value())
 		if m.leadCursor >= len(m.leadResults) {
 			m.leadCursor = len(m.leadResults) - 1
@@ -1889,10 +1918,14 @@ func (m Model) renderPriorityEditor() string {
 	return editorBoxStyle.Render(sb.String())
 }
 
-func nextInterfaceFilter(current interfaceFilter) interfaceFilter {
-	options := make([]interfaceFilter, 0, len(core.Interfaces)+1)
+func nextInterfaceFilter(current interfaceFilter, configured ...[]string) interfaceFilter {
+	values := core.DefaultDiscussionInterfaces()
+	if len(configured) > 0 {
+		values = configured[0]
+	}
+	options := make([]interfaceFilter, 0, len(values)+1)
 	options = append(options, "")
-	for _, value := range core.Interfaces {
+	for _, value := range values {
 		options = append(options, interfaceFilter(value))
 	}
 	for i, option := range options {

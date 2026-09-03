@@ -218,7 +218,7 @@ func TestInterfaceFilter(t *testing.T) {
 
 func TestNextInterfaceFilterCyclesCanonicalOrder(t *testing.T) {
 	current := interfaceFilter("")
-	for _, want := range core.Interfaces {
+	for _, want := range core.DefaultDiscussionInterfaces() {
 		current = nextInterfaceFilter(current)
 		if current != interfaceFilter(want) {
 			t.Fatalf("next filter = %q, want %q", current, want)
@@ -226,6 +226,20 @@ func TestNextInterfaceFilterCyclesCanonicalOrder(t *testing.T) {
 	}
 	if nextInterfaceFilter(current) != "" {
 		t.Fatal("expected interface filter cycle to return to All")
+	}
+
+	custom := []string{"Planning", "Customer Review"}
+	if got := nextInterfaceFilter("", custom); got != "Planning" {
+		t.Fatalf("custom interface cycle started at %q", got)
+	}
+	if got := nextInterfaceFilter("Planning", custom); got != "Customer Review" {
+		t.Fatalf("custom interface cycle continued at %q", got)
+	}
+	if got := nextInterfaceFilter("Customer Review", custom); got != "" {
+		t.Fatalf("custom interface cycle ended at %q, want All", got)
+	}
+	if got := nextInterfaceFilter("", []string{}); got != "" {
+		t.Fatalf("empty interface list produced %q, want All", got)
 	}
 }
 
@@ -689,6 +703,9 @@ func TestLeadAutocomplete(t *testing.T) {
 	if got := leadAutocomplete(items, "Ryan"); fmt.Sprint(got) != "[Ryan]" {
 		t.Fatalf("exact lead autocomplete = %v, want [Ryan]", got)
 	}
+	if got := leadAutocomplete(items, "r", []string{"Rosa", "Alice"}); fmt.Sprint(got) != "[Rosa]" {
+		t.Fatalf("configured lead autocomplete = %v, want [Rosa]", got)
+	}
 }
 
 func TestDeriveLeadOptions(t *testing.T) {
@@ -734,6 +751,11 @@ func TestDeriveLeadOptionsEmpty(t *testing.T) {
 	}
 	if got[1].filter.kind != filterUnassigned || got[1].count != 0 {
 		t.Errorf("expected Unassigned with count 0, got %+v", got[1])
+	}
+
+	configured := deriveLeadOptions(nil, []string{"Alice", "Bob"})
+	if len(configured) != 4 || configured[2].filter.name != "Alice" || configured[2].count != 0 || configured[3].filter.name != "Bob" {
+		t.Fatalf("configured zero-count leads = %+v", configured)
 	}
 }
 

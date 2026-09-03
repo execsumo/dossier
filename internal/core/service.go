@@ -16,6 +16,8 @@ import (
 type Config struct {
 	DossierHome string
 	Author      string
+	Interfaces  []string
+	Leads       []string
 }
 
 // Service orchestrates Dossier domain use-cases over the port interfaces.
@@ -94,6 +96,12 @@ type DoctorReport struct {
 
 // NewService instantiates the core orchestration service.
 func NewService(store Store, search Searcher, tok Tokenizer, hreg HarnessRegistry, clock Clock, cfg Config, syncer Syncer) *Service {
+	if cfg.Interfaces == nil {
+		cfg.Interfaces = DefaultDiscussionInterfaces()
+	} else {
+		cfg.Interfaces = append([]string{}, cfg.Interfaces...)
+	}
+	cfg.Leads = append([]string{}, cfg.Leads...)
 	return &Service{
 		store:  store,
 		search: search,
@@ -103,6 +111,17 @@ func NewService(store Store, search Searcher, tok Tokenizer, hreg HarnessRegistr
 		cfg:    cfg,
 		syncer: syncer,
 	}
+}
+
+// Interfaces returns the configured discussion-interface vocabulary in display order.
+func (s *Service) Interfaces() []string {
+	return append([]string{}, s.cfg.Interfaces...)
+}
+
+// Leads returns the configured lead vocabulary in display order. An empty list
+// preserves free-form lead assignment for backwards compatibility.
+func (s *Service) Leads() []string {
+	return append([]string{}, s.cfg.Leads...)
 }
 
 // InitReq represents the request parameters for service initialization.
@@ -841,6 +860,61 @@ func interfaceNamesFromValue(value any) []string {
 	return names
 }
 
+func configuredValueAllowed(value string, allowed []string) bool {
+	for _, candidate := range allowed {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func strictStringSlice(value any) ([]string, bool) {
+	switch values := value.(type) {
+	case []string:
+		return append([]string{}, values...), true
+	case []any:
+		result := make([]string, 0, len(values))
+		for _, value := range values {
+			name, ok := value.(string)
+			if !ok {
+				return nil, false
+			}
+			result = append(result, name)
+		}
+		return result, true
+	default:
+		return nil, false
+	}
+}
+
+func (s *Service) validateConfiguredFrontmatterUpdates(updates map[string]any) error {
+	if updates == nil {
+		return nil
+	}
+	if value, ok := updates["interfaces"]; ok {
+		names, valid := strictStringSlice(value)
+		if !valid {
+			return fmt.Errorf("interfaces must be a list of strings")
+		}
+		for _, name := range names {
+			if !configuredValueAllowed(name, s.cfg.Interfaces) {
+				return fmt.Errorf("invalid interface: %q (configure available values in config.yaml)", name)
+			}
+		}
+	}
+	if value, ok := updates["lead"]; ok {
+		lead, valid := value.(string)
+		if !valid {
+			return fmt.Errorf("lead must be a string")
+		}
+		if lead != "" && len(s.cfg.Leads) > 0 && !configuredValueAllowed(lead, s.cfg.Leads) {
+			return fmt.Errorf("invalid lead: %q (configure available values in config.yaml)", lead)
+		}
+	}
+	return nil
+}
+
 // describeFrontmatterChanges returns a human-readable, audit-friendly summary of
 // which frontmatter fields changed between before and after.
 func describeFrontmatterChanges(before, after Frontmatter) string {
@@ -864,6 +938,10 @@ func describeFrontmatterChanges(before, after Frontmatter) string {
 }
 
 func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
+	if err := s.validateConfiguredFrontmatterUpdates(req.FrontmatterUpdates); err != nil {
+		return Result{}, WrapError(ErrInvalidFrontmatter, "invalid frontmatter details", err)
+	}
+
 	// An explicit priority is user input and must be one of the canonical values.
 	if value, ok := req.FrontmatterUpdates["priority"]; ok {
 		priority, validType := value.(string)

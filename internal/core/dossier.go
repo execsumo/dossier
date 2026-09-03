@@ -39,24 +39,18 @@ const (
 	InterfaceOpsRev        Interface = "OpsRev"
 )
 
-// Interfaces is the canonical enum order used by validation and selectors.
-var Interfaces = []Interface{
-	InterfacePricingWBR,
-	InterfaceOneOnOne,
-	InterfaceOLGStandup,
-	InterfaceGrowthStandup,
-	InterfaceSteerco,
-	InterfaceSolutioning,
-	InterfaceOpsRev,
-}
-
-func (i Interface) IsValid() bool {
-	for _, allowed := range Interfaces {
-		if i == allowed {
-			return true
-		}
+// DefaultDiscussionInterfaces returns the legacy interface vocabulary in its
+// display order. Callers receive a copy so configuration remains service-owned.
+func DefaultDiscussionInterfaces() []string {
+	return []string{
+		string(InterfacePricingWBR),
+		string(InterfaceOneOnOne),
+		string(InterfaceOLGStandup),
+		string(InterfaceGrowthStandup),
+		string(InterfaceSteerco),
+		string(InterfaceSolutioning),
+		string(InterfaceOpsRev),
 	}
-	return false
 }
 
 // MaxNextActionLength is the maximum number of Unicode characters allowed in
@@ -112,11 +106,6 @@ func (f *Frontmatter) Validate() error {
 	}
 	if err := validateNextActionLength(f.NextAction); err != nil {
 		return err
-	}
-	for _, interfaceName := range f.Interfaces {
-		if !Interface(interfaceName).IsValid() {
-			return fmt.Errorf("invalid interface: %q", interfaceName)
-		}
 	}
 	return nil
 }

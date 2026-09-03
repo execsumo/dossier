@@ -196,13 +196,14 @@ Why each is a port:
 
 ### Structured meeting interfaces
 
-`Frontmatter.Interfaces` is an optional, ordered multi-select field. The canonical
-values are `Pricing WBR`, `1:1`, `OLG Standup`, `Growth Standup`, `Steerco`,
-`Solutioning`, and `OpsRev`. `Service.List` applies interface filters with **ANY**
+`Frontmatter.Interfaces` is an optional, ordered multi-select field. Available
+interface and lead values come from machine-local `config.yaml` and enter core
+through `core.Config`; the service owns defensive copies and validates submitted
+metadata updates. Structural `Frontmatter.Validate` deliberately does not enforce
+that vocabulary, so removing a configured value never makes legacy Dossiers
+unreadable or blocks unrelated edits. The TUI selectors and MCP schemas use the
+same service-owned lists. `Service.List` applies interface filters with **ANY**
 semantics: a dossier is returned when it contains at least one requested value.
-This shared service behavior is exposed by the CLI (`ls --interface`), MCP
-(`dossier_list.interfaces`), and the TUI (`i`), while `Lead` remains the person
-filter used to answer queries such as “Marcus in my 1:1.”
 
 ---
 

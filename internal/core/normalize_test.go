@@ -27,14 +27,14 @@ func TestPriorityEnum(t *testing.T) {
 	}
 }
 
-func TestInterfaceEnum(t *testing.T) {
-	for _, allowed := range Interfaces {
-		if !allowed.IsValid() {
-			t.Errorf("canonical interface %q rejected", allowed)
-		}
+func TestDiscussionInterfacesAreConfigurable(t *testing.T) {
+	defaults := DefaultDiscussionInterfaces()
+	if len(defaults) != 7 {
+		t.Fatalf("default interfaces = %v, want seven legacy values", defaults)
 	}
-	if Interface("Weekly sync").IsValid() {
-		t.Fatal("unknown interface accepted")
+	defaults[0] = "mutated"
+	if DefaultDiscussionInterfaces()[0] == "mutated" {
+		t.Fatal("default interface slices share mutable storage")
 	}
 
 	now := time.Now()
@@ -42,14 +42,10 @@ func TestInterfaceEnum(t *testing.T) {
 		ID: "dos_interfaces", Name: "Interfaces", Slug: "interfaces",
 		CreatedAt: now, UpdatedAt: now,
 		Status: StatusActive, Priority: PriorityHigh,
-		Interfaces: []string{"1:1", "Pricing WBR"},
+		Interfaces: []string{"Custom Weekly Sync"},
 	}
 	if err := fm.Validate(); err != nil {
-		t.Fatalf("valid interfaces rejected: %v", err)
-	}
-	fm.Interfaces = []string{"weekly sync"}
-	if err := fm.Validate(); err == nil {
-		t.Fatal("invalid interface accepted")
+		t.Fatalf("structural validation rejected a configurable interface: %v", err)
 	}
 }
 
