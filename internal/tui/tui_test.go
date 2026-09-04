@@ -713,73 +713,93 @@ func TestTUI_InlineEditing(t *testing.T) {
 	// Move cursor down to select actual item
 	m.table.MoveDown(1)
 
-	// 1. Test Status Editing (press 's')
-	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	// One key, one form, one save: stage, priority, due date, lead and next
+	// action all move together instead of through four separate screens.
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
 	m = newM.(Model)
-	if m.currentView != ViewStatusPicker {
-		t.Fatalf("expected view ViewStatusPicker, got %v", m.currentView)
+	if m.currentView != ViewEdit {
+		t.Fatalf("expected view ViewEdit, got %v", m.currentView)
+	}
+	if m.editFocus != editFieldStage {
+		t.Errorf("editor opened focused on %v, want editFieldStage", m.editFocus)
 	}
 
-	// Press enter to confirm selection
+	// Stage cycles in place; the form does not leave to change a value.
+	before := m.editStatus
+	newM, _ = m.Update(key("right"))
+	m = newM.(Model)
+	if m.editStatus == before {
+		t.Errorf("right on the stage row did not change the stage from %q", before)
+	}
+	if m.currentView != ViewEdit {
+		t.Fatalf("changing the stage left the editor for %v", m.currentView)
+	}
+
+	// Down moves to priority, which cycles the same way.
+	newM, _ = m.Update(key("down"))
+	m = newM.(Model)
+	if m.editFocus != editFieldPriority {
+		t.Fatalf("down gave focus %v, want editFieldPriority", m.editFocus)
+	}
+	beforePriority := m.editPriority
+	newM, _ = m.Update(key("right"))
+	m = newM.(Model)
+	if m.editPriority == beforePriority {
+		t.Errorf("right on the priority row did not change the priority from %q", beforePriority)
+	}
+
+	// The three text rows take typed characters rather than acting as keys.
+	newM, _ = m.Update(key("down"))
+	m = newM.(Model)
+	m = typeString(t, m, "2026-12-01")
+	if got := m.dueDateInput.Value(); got != "2026-12-01" {
+		t.Errorf("due date input = %q, want the typed date", got)
+	}
+	newM, _ = m.Update(key("down"))
+	m = newM.(Model)
+	m = typeString(t, m, "Bea")
+	newM, _ = m.Update(key("down"))
+	m = newM.(Model)
+	m = typeString(t, m, "Draft the memo")
+	if got := m.nextActionInput.Value(); got != "Draft the memo" {
+		t.Errorf("next action input = %q, want the typed text", got)
+	}
+
 	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = newM.(Model)
 	if cmd == nil {
-		t.Fatal("expected status picker enter to return setStatus command")
+		t.Fatal("expected the editor to return a save command")
 	}
-	mutMsg := cmd()
-	newM, cmd = m.Update(mutMsg)
+	newM, _ = m.Update(cmd())
 	m = newM.(Model)
 	if m.currentView != ViewDashboard {
-		t.Errorf("expected to return to ViewDashboard after status update, got %v", m.currentView)
+		t.Errorf("expected to return to ViewDashboard after saving, got %v", m.currentView)
 	}
 
-	// 2. The next action is detail-only, so 'n' from the dashboard is inert.
-	// TestNextActionIsDetailOnly covers the editor itself.
-	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
-	m = newM.(Model)
-	if m.currentView != ViewDashboard {
-		t.Fatalf("'n' from the dashboard gave %v, want ViewDashboard", m.currentView)
+	saved := store.dossiers["dos1"].Frontmatter
+	if saved.DueDate != "2026-12-01" {
+		t.Errorf("saved due date = %q, want 2026-12-01", saved.DueDate)
 	}
-
-	// 3. Test Priority Editing (press 'p')
-	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
-	m = newM.(Model)
-	if m.currentView != ViewPriorityEditor {
-		t.Fatalf("expected view ViewPriorityEditor, got %v", m.currentView)
+	if saved.Lead != "Bea" {
+		t.Errorf("saved lead = %q, want Bea", saved.Lead)
 	}
-	// Focus is initially 0 (Priority). Hitting enter on Priority selects it and immediately triggers save.
-	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = newM.(Model)
-	if cmd == nil {
-		t.Fatal("expected priority enter to trigger immediate save command")
-	}
-	mutMsg = cmd()
-	newM, cmd = m.Update(mutMsg)
-	m = newM.(Model)
-	if m.currentView != ViewDashboard {
-		t.Errorf("expected to return to ViewDashboard after priority save, got %v", m.currentView)
+	if saved.NextAction != "Draft the memo" {
+		t.Errorf("saved next action = %q, want the typed text", saved.NextAction)
 	}
 }
 
-// TestStartEditPropagatesBaseRevision guards against a regression where
-// startEditStatus/startEditLead forgot to copy the target's base revision into
-// the model, leaving a stale (or empty) revision from whatever edit ran
-// previously. Against the real store that stale revision causes a spurious
-// concurrency-conflict on save, so the user's status/lead change is silently
-// rejected instead of applied.
+// TestStartEditPropagatesBaseRevision guards against a regression where the
+// edit path forgot to copy the target's base revision into the model, leaving a
+// stale (or empty) revision from whatever edit ran previously. Against the real
+// store that stale revision causes a spurious concurrency-conflict on save, so
+// the user's change is silently rejected instead of applied.
 func TestStartEditPropagatesBaseRevision(t *testing.T) {
 	target := targetDossier{id: "dos1", name: "Project Alpha", baseRevision: "rev_abc123"}
 
 	var m Model
-	m.startEditStatus(target)
+	m.startEdit(target)
 	if m.targetBaseRevision != "rev_abc123" {
-		t.Errorf("startEditStatus: targetBaseRevision = %q, want %q", m.targetBaseRevision, "rev_abc123")
-	}
-
-	m = Model{}
-	m.startEditLead(target)
-	if m.targetBaseRevision != "rev_abc123" {
-		t.Errorf("startEditLead: targetBaseRevision = %q, want %q", m.targetBaseRevision, "rev_abc123")
+		t.Errorf("startEdit: targetBaseRevision = %q, want %q", m.targetBaseRevision, "rev_abc123")
 	}
 }
 
@@ -1743,11 +1763,14 @@ func TestClaudeKeyDoesNotHijackTextInput(t *testing.T) {
 	spy := &claudeSpy{bin: "/usr/bin/claude"}
 	m = spy.install(m)
 
-	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
 	m = newM.(Model)
-	if m.currentView != ViewLeadEditor {
-		t.Fatalf("expected ViewLeadEditor, got %v", m.currentView)
+	if m.currentView != ViewEdit {
+		t.Fatalf("expected ViewEdit, got %v", m.currentView)
 	}
+	m.editFocus = editFieldLead
+	m.syncEditFocus()
+	m.leadInput.SetValue("")
 
 	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
 	m = newM.(Model)
@@ -1771,12 +1794,13 @@ func TestTUIStatusOptionsAndTiers(t *testing.T) {
 		core.StatusDone,
 	}
 
-	if len(m.statusOptions) != len(wantStatuses) {
-		t.Fatalf("expected %d status options, got %d", len(wantStatuses), len(m.statusOptions))
+	statusOptions := core.CanonicalStatuses()
+	if len(statusOptions) != len(wantStatuses) {
+		t.Fatalf("expected %d status options, got %d", len(wantStatuses), len(statusOptions))
 	}
 	for i, st := range wantStatuses {
-		if m.statusOptions[i] != st {
-			t.Errorf("statusOptions[%d] = %q, want %q", i, m.statusOptions[i], st)
+		if statusOptions[i] != st {
+			t.Errorf("statusOptions[%d] = %q, want %q", i, statusOptions[i], st)
 		}
 	}
 
@@ -1792,12 +1816,13 @@ func TestTUIStatusOptionsAndTiers(t *testing.T) {
 		}
 	}
 
-	// Verify renderStatusPicker produces valid view
-	m.startEditStatus(targetDossier{id: "dos_test", name: "Status Test"})
-	pickerView := m.renderStatusPicker()
+	// The editor's stage row offers every canonical stage, so a dossier can be
+	// moved to any of them without leaving the form.
+	m.startEdit(targetDossier{id: "dos_test", name: "Status Test"})
+	editorView := stripANSI(m.renderEditor())
 	for _, st := range wantStatuses {
-		if !strings.Contains(pickerView, string(st)) {
-			t.Errorf("renderStatusPicker() missing status %q", st)
+		if !strings.Contains(editorView, string(st)) {
+			t.Errorf("renderEditor() missing stage %q", st)
 		}
 	}
 }
@@ -1941,13 +1966,13 @@ func TestTUI_FooterSequenceConsistency(t *testing.T) {
 	}
 
 	dashView := stripANSI(m.View())
-	assertOrdered("dashboard", dashView, []string{"/: search", "f: filters", "s/p/l: edit", "k: link", "m: merge", "c: claude", "b: board", "?: help"})
-	assertAbsent("dashboard", dashView, []string{"n: next action", "↑/↓", "enter:", "esc:"})
+	assertOrdered("dashboard", dashView, []string{"/: search", "f: filters", "e: edit", "k: link", "m: merge", "c: claude", "b: board", "?: help"})
+	assertAbsent("dashboard", dashView, []string{"s: stage", "p: priority", "l: lead", "n: next action", "↑/↓", "enter:", "esc:"})
 
 	m.currentView = ViewKanban
 	m.listView = ViewKanban
 	boardView := stripANSI(m.View())
-	assertOrdered("board", boardView, []string{"/: search", "f: filters", "s/p/l: edit", "c: claude", "b: table", "?: help"})
+	assertOrdered("board", boardView, []string{"/: search", "f: filters", "e: edit", "c: claude", "b: table", "?: help"})
 	// Link and merge want a list to pick a target from; the board is not one.
 	assertAbsent("board", boardView, []string{"k: link", "m: merge", "n: next action"})
 
@@ -1963,7 +1988,7 @@ func TestTUI_FooterSequenceConsistency(t *testing.T) {
 	}
 
 	detailView := stripANSI(m.View())
-	assertOrdered("detail", detailView, []string{"s/p/l/n: edit", "a: artifacts", "e: editor", "c: claude", "?: help"})
+	assertOrdered("detail", detailView, []string{"e: edit", "a: artifacts", "o: editor", "c: claude", "?: help"})
 	// Filtering and the board toggle are list-surface verbs.
 	assertAbsent("detail", detailView, []string{"f: filters", "b: board", "/: search"})
 }
@@ -2290,39 +2315,87 @@ func detailModel(t *testing.T, store *testStore, id string, width, height int) M
 	return m
 }
 
-// TestNextActionIsDetailOnly pins the verb split the footers advertise: the next
-// action is free text that only makes sense once you have read the dossier, so
-// the key that edits it lives on the surface that shows one.
-func TestNextActionIsDetailOnly(t *testing.T) {
+// TestEditorReachableFromEverySurface pins the collapse: one key opens the same
+// form on all three surfaces, and the next action — which used to be a separate
+// detail-only screen — is a row in it like any other field.
+func TestEditorReachableFromEverySurface(t *testing.T) {
+	for _, surface := range []struct {
+		name string
+		open func(*testing.T, *testStore) Model
+	}{
+		{"dashboard", func(t *testing.T, s *testStore) Model { return dashboardModel(t, s, 120, 40) }},
+		{"board", func(t *testing.T, s *testStore) Model { return boardModel(t, s, 120, 40) }},
+		{"detail", func(t *testing.T, s *testStore) Model { return detailModel(t, s, "dos1", 120, 40) }},
+	} {
+		store := newTestStore()
+		seedDossier(store, "dos1", "Alpha", core.StatusSpark, func(fm *core.Frontmatter) {
+			fm.NextAction = "Old action"
+		})
+		origin := surface.open(t, store)
+		from := origin.currentView
+
+		m, _ := press(t, origin, "e")
+		if m.currentView != ViewEdit {
+			t.Fatalf("%s: 'e' gave %v, want ViewEdit", surface.name, m.currentView)
+		}
+		if m.nextActionInput.Value() != "Old action" {
+			t.Errorf("%s: editor did not load the existing next action, got %q", surface.name, m.nextActionInput.Value())
+		}
+		if m.nextActionInput.CharLimit != core.MaxNextActionLength {
+			t.Errorf("%s: next action character limit = %d, want %d", surface.name, m.nextActionInput.CharLimit, core.MaxNextActionLength)
+		}
+
+		m.editFocus = editFieldNextAction
+		m.syncEditFocus()
+		m.nextActionInput.SetValue("Draft the pricing memo")
+		newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m = newM.(Model)
+		if cmd == nil {
+			t.Fatalf("%s: expected the editor to return a save command", surface.name)
+		}
+		newM, _ = m.Update(cmd())
+		m = newM.(Model)
+		if m.currentView != from {
+			t.Errorf("%s: saving left the editor for %v, want %v", surface.name, m.currentView, from)
+		}
+		if got := store.dossiers["dos1"].Frontmatter.NextAction; got != "Draft the pricing memo" {
+			t.Errorf("%s: stored next action = %q, want the edited value", surface.name, got)
+		}
+	}
+}
+
+// TestEditorSavesOnlyChangedFields keeps the audit log honest: the form shows
+// five fields, but opening it and pressing enter is not a decision about any of
+// them, so it must not mint a revision.
+func TestEditorSavesOnlyChangedFields(t *testing.T) {
 	store := newTestStore()
-	seedDossier(store, "dos1", "Alpha", core.StatusSpark)
+	seedDossier(store, "dos1", "Alpha", core.StatusSpark, func(fm *core.Frontmatter) {
+		fm.Lead = "Alice"
+		fm.NextAction = "Old action"
+		fm.DueDate = "2026-10-01"
+	})
+	m := dashboardModel(t, store, 120, 40)
 
-	board := boardModel(t, store, 120, 40)
-	if m, _ := press(t, board, "n"); m.currentView != ViewKanban {
-		t.Errorf("'n' from the board gave %v, want ViewKanban", m.currentView)
+	opened, _ := press(t, m, "e")
+	if got := opened.editUpdates(); len(got) != 0 {
+		t.Errorf("an untouched form wants to write %v, want nothing", got)
+	}
+	saved, cmd := opened.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Error("an untouched form returned a save command")
+	}
+	if saved.(Model).currentView != ViewDashboard {
+		t.Errorf("enter on an untouched form gave %v, want ViewDashboard", saved.(Model).currentView)
 	}
 
-	m := detailModel(t, store, "dos1", 120, 40)
-	m, _ = press(t, m, "n")
-	if m.currentView != ViewNextActionEditor {
-		t.Fatalf("'n' from the detail view gave %v, want ViewNextActionEditor", m.currentView)
+	// Change one field; only that field may be written.
+	changed, _ := press(t, opened, "right")
+	updates := changed.editUpdates()
+	if len(updates) != 1 {
+		t.Fatalf("changing the stage wants to write %v, want only status", updates)
 	}
-	if m.nextActionInput.CharLimit != core.MaxNextActionLength {
-		t.Errorf("next action character limit = %d, want %d", m.nextActionInput.CharLimit, core.MaxNextActionLength)
-	}
-	m.nextActionInput.SetValue("Draft the pricing memo")
-	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = newM.(Model)
-	if cmd == nil {
-		t.Fatal("expected the next action editor to return a save command")
-	}
-	newM, _ = m.Update(cmd())
-	m = newM.(Model)
-	if m.currentView != ViewDetail {
-		t.Errorf("saving the next action left the detail view for %v", m.currentView)
-	}
-	if got := store.dossiers["dos1"].Frontmatter.NextAction; got != "Draft the pricing memo" {
-		t.Errorf("stored next action = %q, want the edited value", got)
+	if _, ok := updates["status"]; !ok {
+		t.Errorf("updates = %v, want a status key", updates)
 	}
 }
 
@@ -2375,7 +2448,7 @@ func TestHelpOverlay(t *testing.T) {
 
 		out := stripANSI(m.View())
 		// Every key that left a footer must be findable here.
-		for _, want := range []string{"i", "q", "r", "n", "k", "m", "e", "a", "b", "f", "/"} {
+		for _, want := range []string{"i", "q", "r", "k", "m", "e", "o", "a", "b", "f", "/"} {
 			if !strings.Contains(out, "  "+padCell(want, helpKeyWidth)) {
 				t.Errorf("%s: help overlay is missing the %q row:\n%s", surface.name, want, out)
 			}
@@ -2422,4 +2495,15 @@ func TestHelpOverlayFitsSmallTerminal(t *testing.T) {
 			}
 		}
 	}
+}
+
+// typeString feeds s to the model one rune at a time, the way a real keyboard
+// would, so a focused text input receives it as typing rather than as keys.
+func typeString(t *testing.T, m Model, s string) Model {
+	t.Helper()
+	for _, r := range s {
+		newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = newM.(Model)
+	}
+	return m
 }

@@ -29,10 +29,10 @@ type View int
 const (
 	ViewDashboard View = iota
 	ViewDetail
-	ViewStatusPicker
-	ViewNextActionEditor
-	ViewLeadEditor
-	ViewPriorityEditor
+	// ViewEdit is the combined editor: stage, priority, due date, lead and next
+	// action on one screen, saved together. It replaces the four single-field
+	// screens those fields used to have.
+	ViewEdit
 	ViewLinkInput
 	ViewLinkSelector
 	ViewMergeSelector
@@ -327,22 +327,17 @@ type Model struct {
 	targetName         string
 	targetBaseRevision core.Revision
 
-	// Status Picker view state
-	statusOptions []core.Status
-	statusCursor  int
-
-	// Next Action Editor view state
-	nextActionInput textinput.Model
-
-	// Lead Editor view state
+	// Combined editor view state. editOriginal is the dossier as it was when the
+	// form opened, so save can send only the fields that actually changed.
+	editOriginal       targetDossier
+	editFocus          editField
+	editStatus         core.Status
+	editPriority       core.Priority
+	dueDateInput       textinput.Model
 	leadInput          textinput.Model
 	leadSuggestions    []string
 	leadSuggestionText string
-
-	// Priority Editor view state
-	priorityFocus int // 0 = Priority, 1 = Due Date
-	editPriority  core.Priority
-	dueDateInput  textinput.Model
+	nextActionInput    textinput.Model
 
 	// Link view state
 	linkTextInput   textinput.Model
@@ -418,8 +413,6 @@ func NewModel(svc *core.Service) Model {
 	avp := viewport.New(0, 0)
 	cvp := viewport.New(0, 0)
 
-	statusOptions := core.CanonicalStatuses()
-
 	leadSearch := textinput.New()
 	leadSearch.Placeholder = "Type a lead's name to search…"
 	leadSearch.Focus()
@@ -456,7 +449,6 @@ func NewModel(svc *core.Service) Model {
 		artifactViewport:     avp,
 		conflictViewport:     cvp,
 		loading:              true,
-		statusOptions:        statusOptions,
 		leadSearch:           leadSearch,
 		searchInput:          searchInput,
 		configuredLeads:      svc.Leads(),
@@ -613,53 +605,6 @@ func (m Model) mergeCmd(sourceID, targetID string, resolved []string) tea.Cmd {
 			sourceID: sourceID,
 			targetID: targetID,
 		}
-	}
-}
-
-func (m Model) setStatusCmd(id string, baseRev core.Revision, status core.Status) tea.Cmd {
-	return func() tea.Msg {
-		_, err := m.svc.Save(context.Background(), core.SaveReq{
-			ID:                 id,
-			BaseRevision:       baseRev,
-			FrontmatterUpdates: map[string]any{"status": string(status)},
-		})
-		return mutationResultMsg{err: err, prevView: m.previousView, targetID: id}
-	}
-}
-
-func (m Model) saveNextActionCmd(id string, baseRev core.Revision, nextAction string) tea.Cmd {
-	return func() tea.Msg {
-		_, err := m.svc.Save(context.Background(), core.SaveReq{
-			ID:                 id,
-			BaseRevision:       baseRev,
-			FrontmatterUpdates: map[string]any{"next_action": nextAction},
-		})
-		return mutationResultMsg{err: err, prevView: m.previousView, targetID: id}
-	}
-}
-
-func (m Model) saveLeadCmd(id string, baseRev core.Revision, lead string) tea.Cmd {
-	return func() tea.Msg {
-		_, err := m.svc.Save(context.Background(), core.SaveReq{
-			ID:                 id,
-			BaseRevision:       baseRev,
-			FrontmatterUpdates: map[string]any{"lead": lead},
-		})
-		return mutationResultMsg{err: err, prevView: m.previousView, targetID: id}
-	}
-}
-
-func (m Model) savePriorityCmd(id string, baseRev core.Revision, priority core.Priority, dueDate string) tea.Cmd {
-	return func() tea.Msg {
-		_, err := m.svc.Save(context.Background(), core.SaveReq{
-			ID:           id,
-			BaseRevision: baseRev,
-			FrontmatterUpdates: map[string]any{
-				"priority": string(priority),
-				"due_date": dueDate,
-			},
-		})
-		return mutationResultMsg{err: err, prevView: m.previousView, targetID: id}
 	}
 }
 
@@ -992,38 +937,6 @@ func (m *Model) chooseLead() {
 	m.table.Focus()
 }
 
-func (m *Model) startEditStatus(t targetDossier) {
-	m.previousView = m.currentView
-	m.currentView = ViewStatusPicker
-	m.targetID = t.id
-	m.targetName = t.name
-	m.targetBaseRevision = t.baseRevision
-
-	m.statusCursor = 0
-	for i, o := range m.statusOptions {
-		if o == t.status {
-			m.statusCursor = i
-			break
-		}
-	}
-}
-
-func (m *Model) startEditNextAction(t targetDossier) {
-	m.previousView = m.currentView
-	m.currentView = ViewNextActionEditor
-	m.targetID = t.id
-	m.targetName = t.name
-	m.targetBaseRevision = t.baseRevision
-
-	m.nextActionInput = textinput.New()
-	// Set the existing value before applying the limit so legacy overlong
-	// actions are not silently truncated; the user can edit them down to size.
-	m.nextActionInput.SetValue(t.nextAction)
-	m.nextActionInput.CharLimit = core.MaxNextActionLength
-	m.nextActionInput.Focus()
-	m.nextActionInput.Width = 60
-}
-
 // leadAutocomplete returns unique previously used lead names that begin with query,
 // sorted case-insensitively. It is intentionally prefix-only: Tab/Enter can accept
 // the first suggestion without surprising the user with fuzzy replacements.
@@ -1060,22 +973,6 @@ func leadAutocomplete(items []core.ListItem, query string, configured ...[]strin
 	return names
 }
 
-func (m *Model) startEditLead(t targetDossier) {
-	m.previousView = m.currentView
-	m.currentView = ViewLeadEditor
-	m.targetID = t.id
-	m.targetName = t.name
-	m.targetBaseRevision = t.baseRevision
-
-	m.leadInput = textinput.New()
-	m.leadInput.Placeholder = "e.g. Alice"
-	m.leadInput.SetValue(t.lead)
-	m.leadInput.Focus()
-	m.leadInput.Width = 40
-	m.leadSuggestions = nil
-	m.leadSuggestionText = ""
-}
-
 func (m *Model) updateLeadSuggestions() {
 	m.leadSuggestions = leadAutocomplete(m.items, m.leadInput.Value(), m.configuredLeads)
 	m.leadSuggestionText = ""
@@ -1091,24 +988,6 @@ func (m *Model) acceptLeadSuggestion() bool {
 	m.leadInput.SetValue(m.leadSuggestionText)
 	m.updateLeadSuggestions()
 	return true
-}
-
-func (m *Model) startEditPriority(t targetDossier) {
-	m.previousView = m.currentView
-	m.currentView = ViewPriorityEditor
-	m.targetID = t.id
-	m.targetName = t.name
-	m.targetBaseRevision = t.baseRevision
-
-	m.editPriority = t.priority
-	if !m.editPriority.IsValid() {
-		m.editPriority = core.PriorityHigh
-	}
-
-	m.dueDateInput = textinput.New()
-	m.dueDateInput.Placeholder = "YYYY-MM-DD"
-	m.dueDateInput.SetValue(t.dueDate)
-	m.priorityFocus = 0
 }
 
 func (m *Model) startLinkInput() {
@@ -1502,101 +1381,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.artifactViewport, cmd = m.artifactViewport.Update(msg)
 			return m, cmd
 
-		case ViewNextActionEditor:
-			switch msg.String() {
-			case "esc":
-				m.currentView = m.previousView
-				return m, nil
-			case "enter":
-				m.loading = true
-				m.err = nil
-				return m, m.saveNextActionCmd(m.targetID, m.targetBaseRevision, m.nextActionInput.Value())
-			}
-			m.nextActionInput, cmd = m.nextActionInput.Update(msg)
-			return m, cmd
-
-		case ViewLeadEditor:
-			switch msg.String() {
-			case "esc":
-				m.currentView = m.previousView
-				return m, nil
-			case "tab":
-				if m.acceptLeadSuggestion() {
-					return m, nil
-				}
-			case "enter":
-				if m.acceptLeadSuggestion() {
-					return m, nil
-				}
-				m.loading = true
-				m.err = nil
-				return m, m.saveLeadCmd(m.targetID, m.targetBaseRevision, m.leadInput.Value())
-			}
-			m.leadInput, cmd = m.leadInput.Update(msg)
-			m.updateLeadSuggestions()
-			return m, cmd
-
-		case ViewStatusPicker:
-			switch msg.String() {
-			case "esc":
-				m.currentView = m.previousView
-				return m, nil
-			case "up", "k":
-				m.statusCursor = (m.statusCursor - 1 + len(m.statusOptions)) % len(m.statusOptions)
-			case "down", "j":
-				m.statusCursor = (m.statusCursor + 1) % len(m.statusOptions)
-			case "enter":
-				m.loading = true
-				m.err = nil
-				return m, m.setStatusCmd(m.targetID, m.targetBaseRevision, m.statusOptions[m.statusCursor])
-			}
-			return m, nil
-
-		case ViewPriorityEditor:
-			switch msg.String() {
-			case "esc":
-				m.currentView = m.previousView
-				return m, nil
-			case "up", "k":
-				m.priorityFocus = (m.priorityFocus - 1 + 2) % 2
-				if m.priorityFocus == 1 {
-					m.dueDateInput.Focus()
-				} else {
-					m.dueDateInput.Blur()
-				}
-			case "down", "j", "tab":
-				m.priorityFocus = (m.priorityFocus + 1) % 2
-				if m.priorityFocus == 1 {
-					m.dueDateInput.Focus()
-				} else {
-					m.dueDateInput.Blur()
-				}
-			case "shift+tab":
-				m.priorityFocus = (m.priorityFocus - 1 + 2) % 2
-				if m.priorityFocus == 1 {
-					m.dueDateInput.Focus()
-				} else {
-					m.dueDateInput.Blur()
-				}
-			case "left", "h":
-				if m.priorityFocus == 0 {
-					m.editPriority = cyclePriority(m.editPriority, false)
-				}
-			case "right", "l":
-				if m.priorityFocus == 0 {
-					m.editPriority = cyclePriority(m.editPriority, true)
-				}
-			case "enter":
-				m.loading = true
-				m.err = nil
-				return m, m.savePriorityCmd(m.targetID, m.targetBaseRevision, m.editPriority, m.dueDateInput.Value())
-			}
-
-			if m.priorityFocus == 1 {
-				m.dueDateInput, cmd = m.dueDateInput.Update(msg)
-				return m, cmd
-			}
-			return m, nil
+		case ViewEdit:
+			return m.updateEditor(msg)
 		}
 
 		// Global keys for Dashboard and Detail Views
@@ -1647,32 +1433,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.recallDossierCmd(dossierID)
 				}
 			}
-		case "s":
-			if t, ok := m.getTargetDossier(); ok {
-				m.startEditStatus(t)
-				return m, nil
-			}
-		case "p":
-			if t, ok := m.getTargetDossier(); ok && t.id != "" {
-				m.startEditPriority(t)
-				return m, nil
-			}
-		case "n":
-			// Detail only: the next action is free text that only makes sense
-			// once you have read the dossier it belongs to.
-			if m.currentView != ViewDetail {
-				return m, nil
-			}
-			if t, ok := m.getTargetDossier(); ok && t.id != "" {
-				m.startEditNextAction(t)
-				return m, nil
-			}
-		case "l":
-			if t, ok := m.getTargetDossier(); ok && t.id != "" {
-				m.startEditLead(t)
-				return m, nil
-			}
 		case "e":
+			// One key for every field a dossier is triaged by. The four
+			// single-field screens this replaced are gone, not hidden.
+			if t, ok := m.getTargetDossier(); ok && t.id != "" {
+				m.startEdit(t)
+				return m, nil
+			}
+		case "o":
 			if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
 				res, err := m.svc.Path(context.Background(), core.PathReq{ID: m.recallResult.Frontmatter.ID})
 				if err != nil {
@@ -2224,95 +1992,6 @@ func (m *Model) recalculateConflictViewportLayout() {
 	}
 }
 
-func (m Model) renderStatusPicker() string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Select new stage for %s:\n\n", m.targetName))
-
-	for i, opt := range m.statusOptions {
-		cursor := "  "
-		if i == m.statusCursor {
-			cursor = "> "
-		}
-
-		statusStr := string(opt)
-		style := stageStyle(opt)
-
-		if i == m.statusCursor {
-			sb.WriteString(focusedItemStyle.Render(fmt.Sprintf("%s%s", cursor, statusStr)))
-		} else {
-			sb.WriteString(fmt.Sprintf("%s%s", cursor, style.Render(statusStr)))
-		}
-		sb.WriteString("\n")
-	}
-
-	return editorBoxStyle.Render(sb.String())
-}
-
-func (m Model) renderNextActionEditor() string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Edit Next Action for %s:\n\n", m.targetName))
-	sb.WriteString(m.nextActionInput.View())
-	sb.WriteString("\n\n")
-	sb.WriteString("press enter to save • esc to cancel")
-	return editorBoxStyle.Render(sb.String())
-}
-
-func (m Model) renderLeadEditor() string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Assigning %s\n\n", lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true).Render(m.targetName)))
-	sb.WriteString("Lead (full name):\n")
-	sb.WriteString(m.leadInput.View())
-	if m.leadSuggestionText != "" {
-		sb.WriteString(fmt.Sprintf("  suggestion: %s (tab/enter)", mutedStyle.Render(m.leadSuggestionText)))
-	}
-	sb.WriteString("\n\n")
-	sb.WriteString("press enter to save • esc to cancel")
-	return editorBoxStyle.Render(sb.String())
-}
-
-func (m Model) renderPriorityEditor() string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Edit Priority & Due Date for %s:\n\n", m.targetName))
-
-	// Priority
-	sb.WriteString(" Priority: ")
-	var priorityOptions []string
-	for _, option := range []core.Priority{core.PriorityLow, core.PriorityMedium, core.PriorityHigh, core.PriorityMax} {
-		value := string(option)
-		if option == m.editPriority {
-			value = activeOptionStyle.Render("[" + value + "]")
-		} else {
-			value = " " + value + " "
-		}
-		priorityOptions = append(priorityOptions, value)
-	}
-	priorityRow := strings.Join(priorityOptions, " ")
-	if m.priorityFocus == 0 {
-		sb.WriteString(focusedItemStyle.Render(priorityRow))
-	} else {
-		sb.WriteString(priorityRow)
-	}
-	sb.WriteString("\n\n")
-
-	// Due Date
-	sb.WriteString(" Due Date:   ")
-	if m.priorityFocus == 1 {
-		sb.WriteString(m.dueDateInput.View())
-	} else {
-		val := m.dueDateInput.Value()
-		if val == "" {
-			val = "(empty)"
-		}
-		sb.WriteString(metaValueStyle.Render(val))
-	}
-	sb.WriteString("\n\n")
-
-	// Buttons
-	sb.WriteString("press enter to save • esc to cancel")
-
-	return editorBoxStyle.Render(sb.String())
-}
-
 func nextInterfaceFilter(current interfaceFilter, configured ...[]string) interfaceFilter {
 	values := core.DefaultDiscussionInterfaces()
 	if len(configured) > 0 {
@@ -2630,28 +2309,22 @@ func (m Model) footerContent(v View) string {
 
 	// The footers advertise verbs, not navigation: arrows, enter and esc are
 	// self-evident and every key they crowded out is one press away under ?.
-	keyHelp := "/: search • f: filters • s/p/l: edit • k: link • m: merge • c: claude • b: board • ?: help"
+	keyHelp := "/: search • f: filters • e: edit • k: link • m: merge • c: claude • b: board • ?: help"
 	switch v {
 	case ViewKanban:
-		keyHelp = "/: search • f: filters • s/p/l: edit • c: claude • b: table • ?: help"
+		keyHelp = "/: search • f: filters • e: edit • c: claude • b: table • ?: help"
 	case ViewHelp:
 		keyHelp = "any key: back"
 	case ViewLeadSelector:
 		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
 	case ViewDetail:
-		keyHelp = "s/p/l/n: edit • a: artifacts • e: editor • c: claude • ?: help"
+		keyHelp = "e: edit • a: artifacts • o: editor • c: claude • ?: help"
 	case ViewArtifactIndex:
 		keyHelp = "↑/↓: select • enter: view artifact • esc: back"
 	case ViewArtifactContent:
 		keyHelp = "↑/↓/pgup/pgdn: scroll • esc: back"
-	case ViewStatusPicker:
-		keyHelp = "↑/↓: select stage • esc: cancel"
-	case ViewNextActionEditor:
-		keyHelp = "esc: cancel"
-	case ViewLeadEditor:
-		keyHelp = "esc: cancel"
-	case ViewPriorityEditor:
-		keyHelp = "↑/↓: focus • ←/→: cycle priority • esc: cancel"
+	case ViewEdit:
+		keyHelp = "←/→: change • enter: save • esc: cancel"
 	case ViewLinkInput:
 		keyHelp = "esc: cancel"
 	case ViewLinkSelector:
@@ -2864,28 +2537,10 @@ func (m Model) View() string {
 		sb.WriteString(m.artifactViewport.View())
 		sb.WriteString("\n")
 
-	case ViewStatusPicker:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Update Stage", subheadline)))
+	case ViewEdit:
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Edit", subheadline)))
 		sb.WriteString("\n\n")
-		sb.WriteString(m.renderStatusPicker())
-		sb.WriteString("\n")
-
-	case ViewNextActionEditor:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Update Next Action", subheadline)))
-		sb.WriteString("\n\n")
-		sb.WriteString(m.renderNextActionEditor())
-		sb.WriteString("\n")
-
-	case ViewLeadEditor:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Update Lead", subheadline)))
-		sb.WriteString("\n\n")
-		sb.WriteString(m.renderLeadEditor())
-		sb.WriteString("\n")
-
-	case ViewPriorityEditor:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Update Priority", subheadline)))
-		sb.WriteString("\n\n")
-		sb.WriteString(m.renderPriorityEditor())
+		sb.WriteString(m.renderEditor())
 		sb.WriteString("\n")
 
 	case ViewLinkInput:

@@ -404,19 +404,21 @@ func TestKanbanToggleAndTextInputIsolation(t *testing.T) {
 		t.Fatalf("esc from the board gave %v", m.currentView)
 	}
 
-	// 'b' inside a text editor must type, not toggle. The lead editor is the
-	// board's text input — 'n' belongs to the detail view now.
+	// 'b' inside a text field must type, not toggle. The editor's lead row is
+	// the board's reachable text input.
 	m, _ = press(t, m, "b")
-	m, _ = press(t, m, "l")
-	if m.currentView != ViewLeadEditor {
-		t.Fatalf("expected ViewLeadEditor, got %v", m.currentView)
+	m, _ = press(t, m, "e")
+	if m.currentView != ViewEdit {
+		t.Fatalf("expected ViewEdit, got %v", m.currentView)
 	}
+	m.editFocus = editFieldLead
+	m.syncEditFocus()
 	m.leadInput.SetValue("")
 	m, _ = press(t, m, "b")
 	if got := m.leadInput.Value(); got != "b" {
 		t.Errorf("lead input = %q, want the typed character %q", got, "b")
 	}
-	if m.currentView != ViewLeadEditor {
+	if m.currentView != ViewEdit {
 		t.Fatalf("typing 'b' left the editor for %v", m.currentView)
 	}
 

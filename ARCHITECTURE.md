@@ -91,6 +91,9 @@ dossier/
     tui/                 # bubbletea models/views (fsnotify hot-refresh, glamour markdown) → core.Service
                          #   two home surfaces over one filtered set: dashboard table + kanban.go stage board
                          #   search-as-you-type ('/') is a mode over both surfaces, not a separate view
+                         #   editor.go — one combined form ('e') for stage/priority/due/lead/next action,
+                         #     saved as a single Save of only the changed fields
+                         #   help.go — the '?' key reference; footers advertise verbs, it holds the rest
   assets/                # go:embed — Distillation Guide, context templates, installables
     guide.md
     library.tmpl.md

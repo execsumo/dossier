@@ -19,9 +19,8 @@ type helpSection struct {
 // them would cost the overlay the height it needs to fit an 80x24 terminal.
 var helpSections = []helpSection{
 	{"Anywhere", [][2]string{
-		{"s", "set stage"},
-		{"p", "set priority"},
-		{"l", "set lead"},
+		{"e", "edit stage, priority,"},
+		{"", "due, lead, next action"},
 		{"c", "open in Claude"},
 		{"r", "reload from disk"},
 		{"q", "quit"},
@@ -38,9 +37,8 @@ var helpSections = []helpSection{
 		{"m", "merge into another dossier"},
 	}},
 	{"Detail only", [][2]string{
-		{"n", "set the next action"},
 		{"a", "browse archived artifacts"},
-		{"e", "open dossier.md in $EDITOR"},
+		{"o", "open dossier.md in $EDITOR"},
 	}},
 }
 
