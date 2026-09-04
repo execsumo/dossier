@@ -11,20 +11,28 @@ import (
 
 	lipglossv2 "charm.land/lipgloss/v2"
 	tea "github.com/charmbracelet/bubbletea"
+	lipgloss "github.com/charmbracelet/lipgloss"
 )
 
 var (
 	overlayPanelStyle = lipglossv2.NewStyle().
 				Border(lipglossv2.RoundedBorder()).
-				BorderForeground(lipglossv2.Color("99")).
-				Background(lipglossv2.Color("0")).
+				BorderForeground(lipglossv2.Color("#A78BFA")).
+				Background(lipglossv2.Color("#25243A")).
 				Padding(1, 2)
 	overlayTitleStyle = lipglossv2.NewStyle().
-				Foreground(lipglossv2.Color("99")).
+				Foreground(lipglossv2.Color("#B18CFF")).
 				Bold(true)
 	overlayLinkStyle = lipglossv2.NewStyle().
-				Foreground(lipglossv2.Color("99")).
+				Foreground(lipglossv2.Color("#B8A1FF")).
 				Underline(true)
+	overlayEmptyStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#D6D3F0")).
+				Italic(true)
+	overlayHintStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#B9B6D6"))
+	overlayMutedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#B9B6D6"))
 )
 
 func isOverlayView(v View) bool {
@@ -176,11 +184,11 @@ func (m Model) renderFilterOverlay() string {
 	sb.WriteString("\n\n")
 
 	if len(m.leadResults) == 0 {
-		sb.WriteString(subtitleStyle.Render("No leads match your search."))
+		sb.WriteString(overlayEmptyStyle.Render("No leads match your search."))
 	} else {
 		start, end := m.leadWindow()
 		if start > 0 {
-			sb.WriteString(subtitleStyle.Render(fmt.Sprintf("↑ %d more above", start)))
+			sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↑ %d more above", start)))
 			sb.WriteString("\n")
 		}
 		for i := start; i < end; i++ {
@@ -202,7 +210,7 @@ func (m Model) renderFilterOverlay() string {
 			sb.WriteString("\n")
 		}
 		if end < len(m.leadResults) {
-			sb.WriteString(subtitleStyle.Render(fmt.Sprintf("↓ %d more below", len(m.leadResults)-end)))
+			sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↓ %d more below", len(m.leadResults)-end)))
 			sb.WriteString("\n")
 		}
 	}
@@ -210,22 +218,22 @@ func (m Model) renderFilterOverlay() string {
 	sb.WriteString("\n")
 	sb.WriteString(fmt.Sprintf("Interface: %s", m.interfaceFilter.label()))
 	sb.WriteString("\n")
-	sb.WriteString(subtitleStyle.Render("type to search leads · tab change interface · enter apply · esc cancel"))
+	sb.WriteString(overlayHintStyle.Render("type to search leads · tab change interface · enter apply · esc cancel"))
 	return sb.String()
 }
 
 func (m Model) renderExternalLinks(links []core.ExternalLink, monitors bool) string {
 	if len(links) == 0 {
 		if monitors {
-			return subtitleStyle.Render("No active monitors recorded.")
+			return overlayEmptyStyle.Render("No active monitors recorded.")
 		}
-		return subtitleStyle.Render("No references recorded.")
+		return overlayEmptyStyle.Render("No references recorded.")
 	}
 
 	start, end := centeredWindow(len(links), m.externalLinkCursor, m.overlayListVisibleRows())
 	var sb strings.Builder
 	if start > 0 {
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf("↑ %d more above", start)))
+		sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↑ %d more above", start)))
 		sb.WriteString("\n")
 	}
 	for i := start; i < end; i++ {
@@ -241,17 +249,17 @@ func (m Model) renderExternalLinks(links []core.ExternalLink, monitors bool) str
 			line += " — " + link.Description
 		}
 		if monitors && link.LastPolled != "" {
-			line += "  " + mutedStyle.Render("Last polled: "+link.LastPolled)
+			line += "  " + overlayMutedStyle.Render("Last polled: "+link.LastPolled)
 		}
 		sb.WriteString(line)
 		sb.WriteString("\n")
 	}
 	if end < len(links) {
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf("↓ %d more below", len(links)-end)))
+		sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↓ %d more below", len(links)-end)))
 		sb.WriteString("\n")
 	}
 	sb.WriteString("\n")
-	sb.WriteString(subtitleStyle.Render("enter open link · ↑/↓ move · esc close"))
+	sb.WriteString(overlayHintStyle.Render("enter open link · ↑/↓ move · esc close"))
 	return strings.TrimRight(sb.String(), "\n")
 }
 
@@ -272,7 +280,7 @@ func (m Model) overlayListVisibleRows() int {
 
 func (m Model) renderArtifactIndexBody() string {
 	if len(m.artifactIndex) == 0 {
-		return subtitleStyle.Render("No artifacts archived for this dossier.")
+		return overlayEmptyStyle.Render("No artifacts archived for this dossier.")
 	}
 	rows := m.artifactVisibleRows()
 	if m.hasOverlay() {
@@ -281,7 +289,7 @@ func (m Model) renderArtifactIndexBody() string {
 	start, end := centeredWindow(len(m.artifactIndex), m.artifactCursor, rows)
 	var sb strings.Builder
 	if start > 0 {
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf("↑ %d more above", start)))
+		sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↑ %d more above", start)))
 		sb.WriteString("\n")
 	}
 	for i := start; i < end; i++ {
@@ -299,11 +307,11 @@ func (m Model) renderArtifactIndexBody() string {
 		sb.WriteString("\n")
 	}
 	if end < len(m.artifactIndex) {
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf("↓ %d more below", len(m.artifactIndex)-end)))
+		sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↓ %d more below", len(m.artifactIndex)-end)))
 	}
 	if m.hasOverlay() {
 		sb.WriteString("\n\n")
-		sb.WriteString(subtitleStyle.Render("enter view artifact · ↑/↓ move · esc close"))
+		sb.WriteString(overlayHintStyle.Render("enter view artifact · ↑/↓ move · esc close"))
 	}
 	return strings.TrimRight(sb.String(), "\n")
 }
