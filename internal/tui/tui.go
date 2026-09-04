@@ -13,6 +13,7 @@ import (
 	"dossier/internal/core"
 	"dossier/internal/harness"
 
+	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -49,10 +50,6 @@ const (
 	// dashboard, laid out as stage columns. It is appended last so the existing
 	// iota values stay stable for anything that persisted them.
 	ViewKanban
-	// ViewHelp is the full keybinding reference, opened with ? from any of the
-	// three main surfaces. It exists so the footers can advertise only the verbs
-	// a surface is actually for, rather than every key it happens to accept.
-	ViewHelp
 	// ViewRenameSlug is separate from the ordinary metadata editor because a slug
 	// change may move the complete backing directory in one store operation. The
 	// view also supports an explicit title rename.
@@ -282,10 +279,6 @@ type Model struct {
 	// esc lands back on the board.
 	listView View
 
-	// helpReturnView is the surface ? was pressed on, so closing the help
-	// overlay restores it instead of dumping the user on the dashboard.
-	helpReturnView View
-
 	// Data
 	items        []core.ListItem // full dossier list, source of truth
 	visibleItems []core.ListItem // items[] narrowed by lead/interface filters and extrasExpanded; what the table shows
@@ -380,6 +373,7 @@ type Model struct {
 	// Cached markdown renderer, rebuilt only when the wrap width changes.
 	mdRenderer      *glamour.TermRenderer
 	mdRendererWidth int
+	help            help.Model
 
 	// Seams for the "open in Claude" handoff, defaulted in NewModel. They exist
 	// so tests can press 'c' without a claude binary on PATH and without ever
@@ -468,6 +462,7 @@ func NewModel(svc *core.Service) Model {
 		loading:              true,
 		leadSearch:           leadSearch,
 		searchInput:          searchInput,
+		help:                 help.New(),
 		renameSlugInput:      renameSlugInput,
 		renameNameInput:      renameNameInput,
 		configuredLeads:      svc.Leads(),
@@ -1217,15 +1212,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// View-specific key overrides
 		switch m.currentView {
-		case ViewHelp:
-			// Any key dismisses the overlay — it is a reference card, not a
-			// mode, so requiring a specific key to leave would be a trap.
-			if msg.String() == "ctrl+c" {
-				return m, tea.Quit
-			}
-			m.currentView = m.helpReturnView
-			return m, nil
-
 		case ViewKanban:
 			// Only the keys the board owns are intercepted; everything else
 			// (s/l/p/n/c/f/i/k/m/r/q) falls through to the global switch so the
@@ -1527,8 +1513,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "?":
 			if m.isListView() || m.currentView == ViewDetail {
-				m.helpReturnView = m.currentView
-				m.currentView = ViewHelp
+				m.help.ShowAll = !m.help.ShowAll
 				return m, nil
 			}
 		case "b":
@@ -1544,6 +1529,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.help.Width = msg.Width
 		m.recalculateTableLayout()
 		m.recalculateViewportLayout()
 		m.recalculateArtifactViewportLayout()
@@ -2341,39 +2327,16 @@ func (m Model) footerContent(v View) string {
 		}
 	}
 
-	// The footers advertise verbs, not navigation: arrows, enter and esc are
-	// self-evident and every key they crowded out is one press away under ?.
-	keyHelp := "/: search • f: filters • e: edit • k: link • m: merge • c: claude • b: board • ?: help"
-	switch v {
-	case ViewKanban:
-		keyHelp = "/: search • f: filters • e: edit • c: claude • b: table • ?: help"
-	case ViewHelp:
-		keyHelp = "any key: back"
-	case ViewLeadSelector:
-		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
-	case ViewDetail:
-		keyHelp = "e: edit • r: rename • a: artifacts • o: editor • c: claude • ?: help"
-	case ViewArtifactIndex:
-		keyHelp = "↑/↓: select • enter: view artifact • esc: back"
-	case ViewArtifactContent:
-		keyHelp = "↑/↓/pgup/pgdn: scroll • esc: back"
-	case ViewEdit:
-		keyHelp = "←/→: change • enter: save • esc: cancel"
-	case ViewRenameSlug:
-		keyHelp = "tab: slug/title • enter: rename • esc: cancel"
-	case ViewLinkInput:
-		keyHelp = "esc: cancel"
-	case ViewLinkSelector:
-		keyHelp = "↑/↓: select target dossier • esc: cancel"
-	case ViewMergeSelector:
-		keyHelp = "↑/↓: select target dossier • esc: cancel"
-	case ViewMergeConflictResolver:
-		keyHelp = "↑/↓/pgup/pgdn: scroll diff • tab: switch button • esc: cancel"
-	}
 	if m.searchActive && m.isListView() {
-		keyHelp = "type: filter • tab: keep filter • esc: clear"
+		footerParts = append(footerParts, "type: filter • tab: keep filter • esc: clear")
+	} else {
+		w := m.width
+		if w <= 0 {
+			w = 80
+		}
+		m.help.Width = w
+		footerParts = append(footerParts, m.help.View(m.helpKeyMap(v)))
 	}
-	footerParts = append(footerParts, keyHelp)
 
 	w := m.width
 	if w <= 0 {
@@ -2560,12 +2523,6 @@ func (m Model) View() string {
 				sb.WriteString(subtitleStyle.Render(fmt.Sprintf("  ↓ %d more below\n", len(m.artifactIndex)-end)))
 			}
 		}
-
-	case ViewHelp:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Keys", subheadline)))
-		sb.WriteString("\n\n")
-		sb.WriteString(m.renderHelp())
-		sb.WriteString("\n")
 
 	case ViewArtifactContent:
 		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Artifact", subheadline)))

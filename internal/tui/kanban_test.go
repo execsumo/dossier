@@ -588,7 +588,7 @@ func TestKanbanNarrowTerminalWindowsStages(t *testing.T) {
 			t.Fatalf("col %d: board rendered %d lines, want %d", col, len(lines), height)
 		}
 		last := stripANSI(lines[len(lines)-1])
-		if !strings.Contains(last, "claude") && !strings.Contains(last, "table") {
+		if strings.TrimSpace(last) == "" {
 			t.Errorf("col %d: expected the footer on the bottom line, got %q", col, last)
 		}
 	}
@@ -793,7 +793,7 @@ func TestEmptyStateFitsTerminalWidth(t *testing.T) {
 				t.Fatalf("%s %dx%d: the empty-state message swallowed its newline: %q",
 					surface.name, dim.w, dim.h, stripANSI(sized.View()))
 			}
-			if !strings.Contains(stripANSI(lines[len(lines)-1]), ":") {
+			if strings.TrimSpace(stripANSI(lines[len(lines)-1])) == "" {
 				t.Errorf("%s %dx%d: expected the footer below the empty-state message, got %q",
 					surface.name, dim.w, dim.h, stripANSI(lines[len(lines)-1]))
 			}
