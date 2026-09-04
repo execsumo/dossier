@@ -13,14 +13,6 @@ import (
 func CanonicalFrontmatter(fm Frontmatter) string {
 	var sb strings.Builder
 	// Fields are ordered alphabetically to ensure absolute determinism.
-	if len(fm.Aliases) > 0 {
-		aliases := append([]string(nil), fm.Aliases...)
-		sort.Strings(aliases)
-		sb.WriteString("aliases:\n")
-		for _, alias := range aliases {
-			sb.WriteString(fmt.Sprintf("  - %s\n", alias))
-		}
-	}
 	sb.WriteString(fmt.Sprintf("created_at: %s\n", fm.CreatedAt.UTC().Format(time.RFC3339)))
 	if fm.DueDate != "" {
 		sb.WriteString(fmt.Sprintf("due_date: %s\n", fm.DueDate))

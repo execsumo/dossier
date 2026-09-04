@@ -138,12 +138,11 @@ Required fields:
 Optional fields:
 
 - `description`
-- `aliases` (historical slugs retained by first-class rename)
 - `lead`
 - `interfaces`
 - `due_date`
 
-The read schema is backward-compatible with the immediately preceding schema. It additionally accepts `last_touched_at`, `open_questions`, `importance`, `urgency`, and `token_target`, while continuing to reject every other unknown YAML key. When canonical `priority` is absent, the old matrix maps `high/high` → `max`, `high/low` → `high`, `low/high` → `medium`, and `low/low` → `low`; a missing or unknown legacy dimension uses the old normalize-toward-attention behavior and is treated as `high`. A present canonical `priority` takes precedence. Legacy `open_questions` are merged into the body's `## Open Questions` section without duplicates. Compatibility is lazy: reads do not rewrite files; the next ordinary Save writes canonical frontmatter only and preserves the prior bytes in revision history. Retired fields are never re-emitted.
+The read schema accepts the legacy `last_touched_at`, `open_questions`, `importance`, `urgency`, and `token_target` fields, while continuing to reject every other unknown YAML key. Historical slug aliases are not supported and are rejected. When canonical `priority` is absent, the old matrix maps `high/high` → `max`, `high/low` → `high`, `low/high` → `medium`, and `low/low` → `low`; a missing or unknown legacy dimension uses the old normalize-toward-attention behavior and is treated as `high`. A present canonical `priority` takes precedence. Legacy `open_questions` are merged into the body's `## Open Questions` section without duplicates. Compatibility is lazy: reads do not rewrite files; the next ordinary Save writes canonical frontmatter only and preserves the prior bytes in revision history. Retired fields are never re-emitted.
 
 `next_action` must be no more than 140 Unicode characters. The limit is enforced by the core service and does not truncate existing or submitted values.
 
@@ -446,8 +445,8 @@ dossier doctor
 
 - Changes the canonical slug while preserving the immutable Dossier ID.
 - Moves the complete `<slug>/` directory in one same-parent filesystem rename; artifacts, files, conflicts, history, audit shards, and machine-local session stashes move together.
-- Adds the previous canonical slug to optional frontmatter `aliases`; every historical alias continues resolving through CLI, MCP, and TUI operations.
-- Rejects malformed/reserved slugs, aliases or canonical slugs owned by another Dossier, occupied destination directories, and stale `--base-revision` values.
+- Replaces the canonical slug with the new slug; the old slug no longer resolves after the rename.
+- Rejects malformed/reserved slugs or canonical slugs owned by another Dossier, occupied destination directories, and stale `--base-revision` values.
 - Omitting `--base-revision` performs an immediate recall and uses that revision for the optimistic-concurrency check.
 
 `dossier recall`
@@ -522,7 +521,7 @@ Required tools:
 
 > **Note on `dossier_update`:** it accepts `name`, `description`, `status`, `lead`, `interfaces`, `next_action`, and priority fields, and routes them all through the single `Save` write path (so CLI/MCP/TUI behave identically and edits get optimistic-concurrency handling). Open questions are edited by replacing the Markdown body. Changing `name` updates the **display name only**; use `dossier_rename` for the canonical slug.
 >
-> **Note on `dossier_rename`:** it requires `id`, `new_slug`, and `base_revision`. The operation preserves the immutable ID, atomically relocates the complete directory, and retains the old slug in `aliases`, so existing references continue resolving.
+> **Note on `dossier_rename`:** it requires `id`, `new_slug`, and `base_revision`. The operation preserves the immutable ID and atomically relocates the complete directory. References must use the new slug or immutable ID after the rename.
 
 ### 8.2 Tool Contracts
 
@@ -724,12 +723,12 @@ When supported, session start injection includes:
 
 Warning: Transcript archive is unavailable in this session.
 
-3 open dossier(s): Alpha, Beta, Gamma. Use dossier_list for details, dossier_session to resume one, or dossier_promote for a new thread (it flags likely duplicates automatically). Guide: ~/.dossier/context/guide.md
+3 open dossier(s): Alpha, Beta, Gamma. Before choosing or creating a topic, use dossier_list to check for a match; use dossier_promote for a confirmed new thread, dossier_session to bind/resume one, or dossier_recall to read its state. Guide: ~/.dossier/context/guide.md
 ```
 
 If a session has an active binding, also inject the Distillation Guide and the active Dossier's Distilled State in full.
 
-If no active binding exists, the one-line nudge above is the entire payload — no further instructions block. `dossier_promote`'s own similarity check (returned as `next_actions` on ambiguous matches) is what actually guides the agent's decision, not prose injected up front.
+If no active binding exists, the one-line nudge above is the entire payload — no further instructions block. `dossier_list` provides the richer on-demand discovery view, while `dossier_promote`'s own similarity check (returned as `next_actions` on ambiguous matches) remains the server-side safety net.
 
 ### 9.2 Session End And Pre-Compaction
 
@@ -907,8 +906,8 @@ Slug rules:
 - Collapse repeated `-`.
 - Trim leading/trailing `-`.
 - If conflict during creation, append short id suffix.
-- A first-class rename accepts only canonical lowercase ASCII slugs matching `[a-z0-9]+(?:-[a-z0-9]+)*`, rejects reserved store names and collisions, and preserves each prior canonical slug in the optional `aliases` list.
-- The immutable `dos_` ID—not the mutable slug—is the durable identity. Alias lookup always resolves to the current canonical directory.
+- A first-class rename accepts only canonical lowercase ASCII slugs matching `[a-z0-9]+(?:-[a-z0-9]+)*`, rejects reserved store names and collisions, and does not preserve the old slug.
+- The immutable `dos_` ID—not the mutable slug—is the durable identity. References must use the current canonical slug or ID.
 
 ### 12.3 ID Generation
 
@@ -1042,7 +1041,7 @@ Checks:
 ### 14.10 List Search
 
 - `dossier ls -q`, MCP `dossier_list.query`, and the TUI's `/` search return the same set for the same query — one matcher in `core`, no adapter forks.
-- A query matches against `name`, `description`, `lead`, `interfaces`, the canonical `slug`, and historical slug `aliases`; a term spanning two fields does not match.
+- A query matches against `name`, `description`, `lead`, `interfaces`, and the canonical `slug`; a term spanning two fields does not match.
 - Multiple whitespace-separated terms are ANDed.
 - In the TUI, the dashboard and the Kanban board narrow to identical sets, filtering runs on every keystroke with no debounce, and resolved/archived Dossiers are reachable through search without changing the extras collapse state.
 - `ctrl+c` still quits while the search box has focus (`q` types the letter, as it must).
@@ -1061,7 +1060,7 @@ Checks:
 
 - CLI `dossier rename`, MCP `dossier_rename`, and the TUI detail action route through one `Service.RenameSlug` operation.
 - The immutable Dossier ID is unchanged; the complete directory moves, and all nested files survive byte-for-byte.
-- Every old canonical slug remains a resolving alias and is included in list search.
+- The old canonical slug no longer resolves or appears in list search after the rename.
 - Invalid, reserved, occupied, duplicate, and stale-revision rename attempts leave the original path and frontmatter unchanged.
 - Team Sync follows directory renames by immutable ID, preserves machine-local per-Dossier sessions under the resulting slug, and never leaves duplicate directories after a divergent rename/edit merge.
 

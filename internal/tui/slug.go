@@ -9,6 +9,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+type renameField int
+
+const (
+	renameSlugField renameField = iota
+	renameNameField
+)
+
 func (m *Model) startSlugRename() {
 	fm := m.recallResult.Frontmatter
 	if fm.ID == "" {
@@ -19,20 +26,30 @@ func (m *Model) startSlugRename() {
 	m.targetID = fm.ID
 	m.targetName = fm.Name
 	m.targetBaseRevision = m.recallResult.Revision
+	m.renameField = renameSlugField
 	m.renameSlugInput.SetValue(fm.Slug)
 	m.renameSlugInput.CursorEnd()
+	m.renameNameInput.SetValue(fm.Name)
+	m.renameNameInput.CursorEnd()
+	m.renameNameInput.Blur()
 	m.renameSlugInput.Focus()
 	m.err = nil
 }
 
 func (m Model) renameSlugCmd() tea.Cmd {
 	id := m.targetID
-	newSlug := m.renameSlugInput.Value()
 	base := m.targetBaseRevision
+	field := m.renameField
+	slug := m.renameSlugInput.Value()
+	name := m.renameNameInput.Value()
 	return func() tea.Msg {
-		_, err := m.svc.RenameSlug(context.Background(), core.RenameSlugReq{
-			ID: id, NewSlug: newSlug, BaseRevision: base,
-		})
+		req := core.RenameReq{ID: id, BaseRevision: base}
+		if field == renameNameField {
+			req.NewName = name
+		} else {
+			req.NewSlug = slug
+		}
+		_, err := m.svc.Rename(context.Background(), req)
 		return renameSlugResultMsg{err: err, targetID: id}
 	}
 }
@@ -41,8 +58,23 @@ func (m Model) updateSlugRename(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.renameSlugInput.Blur()
+		m.renameNameInput.Blur()
 		m.currentView = ViewDetail
 		m.err = nil
+		return m, nil
+	case "tab", "shift+tab":
+		m.renameSlugInput.Blur()
+		m.renameNameInput.Blur()
+		if msg.String() == "tab" {
+			m.renameField = (m.renameField + 1) % 2
+		} else {
+			m.renameField = (m.renameField + 1) % 2
+		}
+		if m.renameField == renameNameField {
+			m.renameNameInput.Focus()
+		} else {
+			m.renameSlugInput.Focus()
+		}
 		return m, nil
 	case "enter":
 		m.loading = true
@@ -52,16 +84,28 @@ func (m Model) updateSlugRename(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	var cmd tea.Cmd
-	m.renameSlugInput, cmd = m.renameSlugInput.Update(msg)
+	if m.renameField == renameNameField {
+		m.renameNameInput, cmd = m.renameNameInput.Update(msg)
+	} else {
+		m.renameSlugInput, cmd = m.renameSlugInput.Update(msg)
+	}
 	return m, cmd
 }
 
 func (m Model) renderSlugRename() string {
+	slugLabel := "  Slug:  "
+	nameLabel := "  Title: "
+	if m.renameField == renameSlugField {
+		slugLabel = "> Slug:  "
+	} else {
+		nameLabel = "> Title: "
+	}
 	body := fmt.Sprintf(
-		"Rename slug for %s\n\n%s\n\nThe dossier ID stays fixed and the old slug remains a working alias.\nThe complete dossier directory moves to the new path.\n\n%s",
+		"Rename %s\n\n%s%s\n%s%s\n\nThe dossier ID stays fixed. Use the new slug after renaming; the complete dossier directory moves with it.\n\n%s",
 		m.targetName,
-		m.renameSlugInput.View(),
-		mutedStyle.Render("Use lowercase letters, digits, and single hyphens."),
+		slugLabel, m.renameSlugInput.View(),
+		nameLabel, m.renameNameInput.View(),
+		mutedStyle.Render("Tab: choose slug or title. Use lowercase letters, digits, and single hyphens for slugs."),
 	)
 	return editorBoxStyle.Render(body)
 }

@@ -113,7 +113,7 @@ func TestCLICommands(t *testing.T) {
 	}
 }
 
-func TestCLIRenameSlugMovesDirectoryAndKeepsOldReference(t *testing.T) {
+func TestCLIRenameSlugMovesDirectoryAndDropsOldReference(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	tempHome := t.TempDir()
 	svc, err := wire(tempHome)
@@ -139,12 +139,15 @@ func TestCLIRenameSlugMovesDirectoryAndKeepsOldReference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	recalled, err := svc.Recall(context.Background(), core.RecallReq{ID: "old-slug"})
+	if _, err := svc.Recall(context.Background(), core.RecallReq{ID: "old-slug"}); err == nil {
+		t.Fatal("old slug still resolves after rename")
+	}
+	recalled, err := svc.Recall(context.Background(), core.RecallReq{ID: "clearer-slug"})
 	if err != nil {
-		t.Fatalf("old slug no longer resolves: %v", err)
+		t.Fatalf("new slug no longer resolves: %v", err)
 	}
 	got := recalled.Data.(core.RecallResult)
-	if got.Frontmatter.Slug != "clearer-slug" || len(got.Frontmatter.Aliases) != 1 || got.Frontmatter.Aliases[0] != "old-slug" {
+	if got.Frontmatter.Slug != "clearer-slug" {
 		t.Fatalf("renamed frontmatter = %+v", got.Frontmatter)
 	}
 	if _, err := os.Stat(filepath.Join(tempHome, "clearer-slug", "dossier.md")); err != nil {

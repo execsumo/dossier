@@ -34,7 +34,6 @@ func Haystack(item ListItem) string {
 	fields := []string{item.Name, item.Description, item.Lead}
 	fields = append(fields, item.Interfaces...)
 	fields = append(fields, item.Slug)
-	fields = append(fields, item.Aliases...)
 	return strings.ToLower(strings.Join(fields, "\n"))
 }
 

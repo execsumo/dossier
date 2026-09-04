@@ -160,6 +160,14 @@ type SyncStatus struct {
 	Dirty     int
 }
 
+// Renamer is the optional atomic rename capability implemented by stores that
+// can update a dossier's title and/or slug in one operation. It is separate
+// from Store for compatibility with lightweight test and third-party stores
+// that predate title renames.
+type Renamer interface {
+	Rename(dossierID string, newSlug string, newName string, base Revision) (*Dossier, Revision, error)
+}
+
 // Syncer defines the port for synchronizing the dossier store with a remote.
 type Syncer interface {
 	Sync(ctx context.Context) (SyncReport, error)

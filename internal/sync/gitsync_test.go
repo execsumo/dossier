@@ -148,8 +148,11 @@ func TestSync_DivergentSlugRenameFollowsImmutableID(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(storeB, "old-topic")); !os.IsNotExist(err) {
 		t.Fatalf("old path remains after merge: %v", err)
 	}
-	if got, _, err := fsB.Read("old-topic"); err != nil || got.Frontmatter.Slug != "clearer-topic" {
-		t.Fatalf("old alias did not resolve renamed dossier: %+v, %v", got, err)
+	if _, _, err := fsB.Read("old-topic"); err == nil {
+		t.Fatal("old slug still resolves after synced rename")
+	}
+	if got, _, err := fsB.Read("clearer-topic"); err != nil || got.Frontmatter.Slug != "clearer-topic" {
+		t.Fatalf("new slug did not resolve renamed dossier: %+v, %v", got, err)
 	}
 	assertFile(t, storeB, "clearer-topic/sessions/bob/session.md", "private session")
 	assertNoConflictMarkers(t, storeB)

@@ -241,8 +241,7 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 	if existingDir != "" {
 		dossierDir = existingDir
 	} else {
-		// New dossiers cannot claim another dossier's historical alias either:
-		// old references must remain unambiguous after a rename.
+		// New dossiers must not claim an existing canonical slug.
 		baseSlug := slug
 		for attempt := 0; ; attempt++ {
 			owner, ownerErr := s.slugOwner(slug)
@@ -364,12 +363,14 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 	return newRevision, nil
 }
 
-// RenameSlug commits a slug/frontmatter change and a same-parent directory move
-// as one store operation. If the directory move fails, the old dossier.md is
-// restored before the error is returned.
-func (s *FSStore) RenameSlug(dossierID string, newSlug string, base core.Revision) (*core.Dossier, core.Revision, error) {
-	if err := core.ValidateCanonicalSlug(newSlug); err != nil {
-		return nil, "", core.WrapError(core.ErrInvalidFrontmatter, "invalid slug", err)
+// Rename commits a title and/or slug change. When the slug changes, the
+// complete dossier directory is moved in the same store operation. If the move
+// fails, the old dossier.md is restored before the error is returned.
+func (s *FSStore) Rename(dossierID string, newSlug string, newName string, base core.Revision) (*core.Dossier, core.Revision, error) {
+	if newSlug != "" {
+		if err := core.ValidateCanonicalSlug(newSlug); err != nil {
+			return nil, "", core.WrapError(core.ErrInvalidFrontmatter, "invalid slug", err)
+		}
 	}
 
 	// A directory rename must not race Team Sync's working-tree checkout.
@@ -413,29 +414,35 @@ func (s *FSStore) RenameSlug(dossierID string, newSlug string, base core.Revisio
 	if base != "" && currentRev != base {
 		return nil, "", core.NewError(core.ErrConcurrentEdit, fmt.Sprintf("concurrency mismatch: base is %q but current is %q", base, currentRev))
 	}
-	if fm.Slug == newSlug {
+	if newSlug == "" {
+		newSlug = fm.Slug
+	}
+	if newName == "" {
+		newName = fm.Name
+	}
+	slugChanged := fm.Slug != newSlug
+	nameChanged := fm.Name != newName
+	if !slugChanged && !nameChanged {
 		return &core.Dossier{Frontmatter: *fm, DistilledState: core.DistilledState{Body: body}}, currentRev, nil
 	}
 
-	if owner, err := s.slugOwner(newSlug); err != nil {
-		return nil, "", err
-	} else if owner != "" && owner != dossierID {
-		return nil, "", core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("slug %q is already used by another dossier", newSlug))
-	}
-	newDir := filepath.Join(s.dossierHome, newSlug)
-	if _, err := os.Lstat(newDir); err == nil {
-		return nil, "", core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("slug %q is already occupied in the store", newSlug))
-	} else if !os.IsNotExist(err) {
-		return nil, "", fmt.Errorf("inspect rename destination: %w", err)
+	if slugChanged {
+		if owner, err := s.slugOwner(newSlug); err != nil {
+			return nil, "", err
+		} else if owner != "" && owner != dossierID {
+			return nil, "", core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("slug %q is already used by another dossier", newSlug))
+		}
+		newDir := filepath.Join(s.dossierHome, newSlug)
+		if _, err := os.Lstat(newDir); err == nil {
+			return nil, "", core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("slug %q is already occupied in the store", newSlug))
+		} else if !os.IsNotExist(err) {
+			return nil, "", fmt.Errorf("inspect rename destination: %w", err)
+		}
+
 	}
 
-	aliases := append(append([]string(nil), fm.Aliases...), fm.Slug)
-	aliases, err = core.NormalizeSlugAliases(newSlug, aliases)
-	if err != nil {
-		return nil, "", core.WrapError(core.ErrInvalidFrontmatter, "invalid slug aliases", err)
-	}
 	fm.Slug = newSlug
-	fm.Aliases = aliases
+	fm.Name = newName
 	fm.UpdatedAt = time.Now().Truncate(time.Second)
 	if err := fm.Validate(); err != nil {
 		return nil, "", core.WrapError(core.ErrInvalidFrontmatter, "invalid frontmatter details", err)
@@ -459,16 +466,23 @@ func (s *FSStore) RenameSlug(dossierID string, newSlug string, base core.Revisio
 	if err := replaceReadOnlyFile(oldPath, []byte(serialized)); err != nil {
 		return nil, "", fmt.Errorf("write renamed dossier frontmatter: %w", err)
 	}
-	if err := os.Rename(oldDir, newDir); err != nil {
-		if restoreErr := replaceReadOnlyFile(oldPath, oldData); restoreErr != nil {
-			return nil, "", fmt.Errorf("move dossier directory: %v (also failed to restore old frontmatter: %v)", err, restoreErr)
+	if slugChanged {
+		if err := os.Rename(oldDir, filepath.Join(s.dossierHome, newSlug)); err != nil {
+			if restoreErr := replaceReadOnlyFile(oldPath, oldData); restoreErr != nil {
+				return nil, "", fmt.Errorf("move dossier directory: %v (also failed to restore old frontmatter: %v)", err, restoreErr)
+			}
+			return nil, "", fmt.Errorf("move dossier directory: %w", err)
 		}
-		return nil, "", fmt.Errorf("move dossier directory: %w", err)
 	}
 
 	updated := &core.Dossier{Frontmatter: *fm, DistilledState: core.DistilledState{Body: body}}
 	newRev := core.CalculateRevision(*fm, body, artifacts)
 	return updated, newRev, nil
+}
+
+// RenameSlug preserves the original store API for slug-only callers.
+func (s *FSStore) RenameSlug(dossierID string, newSlug string, base core.Revision) (*core.Dossier, core.Revision, error) {
+	return s.Rename(dossierID, newSlug, "", base)
 }
 
 func replaceReadOnlyFile(path string, content []byte) error {
@@ -1006,18 +1020,10 @@ func (s *FSStore) ListConflicts() ([]core.Conflict, error) {
 // Private helper methods
 
 func slugMatches(fm *core.Frontmatter, value string) bool {
-	if fm.ID == value || fm.Slug == value {
-		return true
-	}
-	for _, alias := range fm.Aliases {
-		if alias == value {
-			return true
-		}
-	}
-	return false
+	return fm.ID == value || fm.Slug == value
 }
 
-// slugOwner returns the immutable ID that owns a canonical slug or alias.
+// slugOwner returns the immutable ID that owns a canonical slug.
 func (s *FSStore) slugOwner(slug string) (string, error) {
 	entries, err := os.ReadDir(s.dossierHome)
 	if err != nil {
@@ -1038,19 +1044,14 @@ func (s *FSStore) slugOwner(slug string) (string, error) {
 		if fm.Slug == slug {
 			return fm.ID, nil
 		}
-		for _, alias := range fm.Aliases {
-			if alias == slug {
-				return fm.ID, nil
-			}
-		}
 	}
 	return "", nil
 }
 
 func (s *FSStore) findDossierDir(slugOrID string) (string, error) {
-	// Only a single path component may take the direct-path fast path. IDs and
-	// aliases still resolve through the scan below, while traversal strings can
-	// never cause a read outside dossierHome.
+	// Only a single path component may take the direct-path fast path. IDs still
+	// resolve through the scan below, while traversal strings can never cause a
+	// read outside dossierHome.
 	if slugOrID == filepath.Base(slugOrID) && slugOrID != "." && slugOrID != ".." {
 		directPath := filepath.Join(s.dossierHome, slugOrID)
 		if info, err := os.Stat(directPath); err == nil && info.IsDir() {
@@ -1112,7 +1113,6 @@ type dossierFrontmatterFile struct {
 	Name          string         `yaml:"name"`
 	Description   string         `yaml:"description,omitempty"`
 	Slug          string         `yaml:"slug"`
-	Aliases       []string       `yaml:"aliases,omitempty"`
 	CreatedAt     time.Time      `yaml:"created_at"`
 	UpdatedAt     time.Time      `yaml:"updated_at"`
 	Status        core.Status    `yaml:"status"`
@@ -1161,7 +1161,6 @@ func ParseDossierFile(content string) (*core.Frontmatter, string, error) {
 		Name:        wire.Name,
 		Description: wire.Description,
 		Slug:        wire.Slug,
-		Aliases:     wire.Aliases,
 		CreatedAt:   wire.CreatedAt,
 		UpdatedAt:   wire.UpdatedAt,
 		Status:      core.NormalizeStatus(wire.Status),

@@ -27,7 +27,8 @@ const (
 	AuditEventMergeCompleted               = "merge_completed"
 	AuditEventMergeConflict                = "merge_conflict"
 	AuditEventStatusChanged                = "status_changed"
-	AuditEventSlugRenamed                  = "slug_renamed"
+	AuditEventSlugRenamed                  = "slug_renamed" // legacy slug-only rename event
+	AuditEventRenamed                      = "renamed"
 	AuditEventArchived                     = "archived"
 	AuditEventSnapshotRefreshed            = "snapshot_refreshed"
 	AuditEventSnapshotFrozen               = "snapshot_frozen"

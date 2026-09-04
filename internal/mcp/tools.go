@@ -236,12 +236,12 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 		},
 		{
 			Name:        "dossier_update",
-			Description: "Update a dossier's metadata fields — name, description, status, lead assignee, next action, priority, due date, and interfaces. All fields except id are optional; only supplied fields are written. Use dossier_rename to change the slug.",
+			Description: "Update a dossier's metadata fields — name, description, status, lead assignee, next action, priority, due date, and interfaces. All fields except id are optional; only supplied fields are written. Use dossier_rename to change the title or slug.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"id":          map[string]any{"type": "string", "description": "The dossier slug or ID to update"},
-					"name":        map[string]any{"type": "string", "description": "Replace the display name (omit to leave unchanged). The slug does not change; use dossier_rename for that."},
+					"name":        map[string]any{"type": "string", "description": "Replace the display name (omit to leave unchanged). Use dossier_rename when the rename should be explicit."},
 					"description": map[string]any{"type": "string", "description": "Replace the optional progressive-disclosure summary (omit to leave unchanged)"},
 					"status":      map[string]any{"type": "string", "description": "Replace the current status: spark|define|delegated|review|blocked|done (omit to leave unchanged)"},
 					"lead":        configuredLeadSchema(leads, "Replace the lead assignee (omit to leave unchanged; empty clears)"),
@@ -255,15 +255,22 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 		},
 		{
 			Name:        "dossier_rename",
-			Description: "Rename a dossier's canonical slug and move its complete directory. The immutable ID stays fixed and the old slug remains a working alias.",
+			Description: "Rename a dossier's title or canonical slug. The immutable ID stays fixed; slug changes move the complete directory; use the new slug after renaming.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"id":            map[string]any{"type": "string", "description": "Current dossier slug, historical slug alias, or immutable ID"},
-					"new_slug":      map[string]any{"type": "string", "description": "New lowercase ASCII slug using letters, digits, and single hyphens"},
+					"id":            map[string]any{"type": "string", "description": "Current dossier slug or immutable ID"},
+					"new_slug":      map[string]any{"type": "string", "description": "Optional new lowercase ASCII slug using letters, digits, and single hyphens"},
+					"new_name":      map[string]any{"type": "string", "description": "Optional new display title"},
+					"new_title":     map[string]any{"type": "string", "description": "Alias for new_name"},
 					"base_revision": map[string]any{"type": "string", "description": "Revision returned by dossier_recall; prevents a stale rename"},
 				},
-				"required": []string{"id", "new_slug", "base_revision"},
+				"required": []string{"id", "base_revision"},
+				"anyOf": []any{
+					map[string]any{"required": []string{"new_slug"}},
+					map[string]any{"required": []string{"new_name"}},
+					map[string]any{"required": []string{"new_title"}},
+				},
 			},
 		},
 	}
@@ -582,14 +589,23 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		var params struct {
 			ID           string `json:"id"`
 			NewSlug      string `json:"new_slug"`
+			NewName      string `json:"new_name"`
+			NewTitle     string `json:"new_title"`
 			BaseRevision string `json:"base_revision"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil || params.ID == "" || params.NewSlug == "" || params.BaseRevision == "" {
-			s.sendError(id, -32602, "id, new_slug, and base_revision are required", nil)
+		if err := json.Unmarshal(args, &params); err != nil || params.ID == "" || params.BaseRevision == "" || (params.NewSlug == "" && params.NewName == "" && params.NewTitle == "") {
+			s.sendError(id, -32602, "id, base_revision, and one of new_slug or new_name are required", nil)
 			return
 		}
-		res, err = s.svc.RenameSlug(ctx, core.RenameSlugReq{
-			ID: params.ID, NewSlug: params.NewSlug, BaseRevision: core.Revision(params.BaseRevision),
+		if params.NewName != "" && params.NewTitle != "" && params.NewName != params.NewTitle {
+			s.sendError(id, -32602, "new_name and new_title must match when both are provided", nil)
+			return
+		}
+		if params.NewName == "" {
+			params.NewName = params.NewTitle
+		}
+		res, err = s.svc.Rename(ctx, core.RenameReq{
+			ID: params.ID, NewSlug: params.NewSlug, NewName: params.NewName, BaseRevision: core.Revision(params.BaseRevision),
 		})
 		if err == nil {
 			s.triggerSync()

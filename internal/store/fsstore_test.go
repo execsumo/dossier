@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -48,7 +47,27 @@ func TestFSStoreInit(t *testing.T) {
 	}
 }
 
-func TestFSStoreRenameSlugMovesCompleteDirectoryAndKeepsAliases(t *testing.T) {
+func TestParseDossierFileRejectsHistoricalAliases(t *testing.T) {
+	content := `---
+id: dos_alias
+name: Legacy
+slug: legacy
+aliases:
+  - old-legacy
+created_at: 2026-09-04T00:00:00Z
+updated_at: 2026-09-04T00:00:00Z
+status: spark
+next_action: continue
+priority: medium
+---
+State
+`
+	if _, _, err := ParseDossierFile(content); err == nil {
+		t.Fatal("historical aliases were accepted by the strict frontmatter parser")
+	}
+}
+
+func TestFSStoreRenameSlugMovesCompleteDirectory(t *testing.T) {
 	home := t.TempDir()
 	store := NewFSStore(home)
 	if err := store.Init(); err != nil {
@@ -89,9 +108,6 @@ func TestFSStoreRenameSlugMovesCompleteDirectoryAndKeepsAliases(t *testing.T) {
 	if updated.Frontmatter.ID != d.Frontmatter.ID || updated.Frontmatter.Slug != "clearer-slug" {
 		t.Fatalf("renamed frontmatter = %+v", updated.Frontmatter)
 	}
-	if len(updated.Frontmatter.Aliases) != 1 || updated.Frontmatter.Aliases[0] != "old-slug" {
-		t.Fatalf("aliases = %v, want [old-slug]", updated.Frontmatter.Aliases)
-	}
 	if newRev == rev {
 		t.Fatal("rename did not change revision")
 	}
@@ -104,7 +120,7 @@ func TestFSStoreRenameSlugMovesCompleteDirectoryAndKeepsAliases(t *testing.T) {
 			t.Fatalf("sentinel %s after rename = %q, %v; want %q", rel, got, err, want)
 		}
 	}
-	for _, ref := range []string{d.Frontmatter.ID, "clearer-slug", "old-slug"} {
+	for _, ref := range []string{d.Frontmatter.ID, "clearer-slug"} {
 		got, gotRev, err := store.Read(ref)
 		if err != nil {
 			t.Fatalf("Read(%q) error = %v", ref, err)
@@ -112,6 +128,9 @@ func TestFSStoreRenameSlugMovesCompleteDirectoryAndKeepsAliases(t *testing.T) {
 		if got.Frontmatter.ID != d.Frontmatter.ID || gotRev != newRev {
 			t.Fatalf("Read(%q) = id %q rev %q", ref, got.Frontmatter.ID, gotRev)
 		}
+	}
+	if _, _, err := store.Read("old-slug"); err == nil {
+		t.Fatal("old slug still resolves after rename")
 	}
 	if _, err := os.Stat(filepath.Join(home, "clearer-slug", "history", string(rev)+".md")); err != nil {
 		t.Fatalf("pre-rename history missing: %v", err)
@@ -121,11 +140,8 @@ func TestFSStoreRenameSlugMovesCompleteDirectoryAndKeepsAliases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenameSlug() back error = %v", err)
 	}
-	if got, want := updated.Frontmatter.Aliases, []string{"clearer-slug"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("aliases after rename-back = %v, want %v", got, want)
-	}
-	if _, _, err := store.Read("clearer-slug"); err != nil {
-		t.Fatalf("intermediate slug alias no longer resolves: %v", err)
+	if _, _, err := store.Read("clearer-slug"); err == nil {
+		t.Fatal("old slug still resolves after rename-back")
 	}
 }
 

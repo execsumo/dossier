@@ -70,7 +70,6 @@ type ListItem struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Slug        string   `json:"slug"`
-	Aliases     []string `json:"aliases,omitempty"`
 	Status      string   `json:"status"`
 	Lead        string   `json:"lead,omitempty"`
 	Interfaces  []string `json:"interfaces,omitempty"`
@@ -1047,7 +1046,7 @@ func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 		return Result{}, NewError(ErrInvalidFrontmatter, "slug cannot be changed through Save; use RenameSlug")
 	}
 	if _, ok := req.FrontmatterUpdates["aliases"]; ok {
-		return Result{}, NewError(ErrInvalidFrontmatter, "slug aliases cannot be changed through Save; use RenameSlug")
+		return Result{}, NewError(ErrInvalidFrontmatter, "slug aliases are not supported")
 	}
 	if err := s.validateConfiguredFrontmatterUpdates(req.FrontmatterUpdates); err != nil {
 		return Result{}, WrapError(ErrInvalidFrontmatter, "invalid frontmatter details", err)
@@ -1256,46 +1255,70 @@ func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 	}, nil
 }
 
-// RenameSlugReq changes a dossier's canonical slug. BaseRevision is optional
-// for interactive callers; when provided it protects against a stale rename.
-type RenameSlugReq struct {
+// RenameReq changes a dossier's title and/or canonical slug. At least one of
+// NewName and NewSlug must be supplied. BaseRevision is optional for interactive
+// callers; when provided it protects against a stale rename.
+type RenameReq struct {
 	ID           string
 	NewSlug      string
+	NewName      string
 	BaseRevision Revision
 }
 
-// RenameSlugResult describes the committed rename. The immutable ID remains the
-// durable identity, and prior slugs remain usable through Aliases.
-type RenameSlugResult struct {
+// RenameSlugReq remains an alias for callers of the original slug-only API.
+type RenameSlugReq = RenameReq
+
+// RenameResult describes the committed rename. The immutable ID remains the
+// durable identity; callers must use the new canonical slug after a rename.
+type RenameResult struct {
 	ID       string   `json:"id"`
-	OldSlug  string   `json:"old_slug"`
+	OldName  string   `json:"old_name,omitempty"`
+	Name     string   `json:"name"`
+	OldSlug  string   `json:"old_slug,omitempty"`
 	Slug     string   `json:"slug"`
-	Aliases  []string `json:"aliases,omitempty"`
 	Revision Revision `json:"revision"`
 	Path     string   `json:"path"`
 }
 
-// RenameSlug performs the only supported slug mutation. Keeping this separate
-// from Save ensures adapters cannot accidentally update frontmatter without
-// moving the backing directory.
-func (s *Service) RenameSlug(ctx context.Context, req RenameSlugReq) (Result, error) {
+// RenameSlugResult remains an alias for callers of the original slug-only API.
+type RenameSlugResult = RenameResult
+
+// Rename changes the title and/or slug through one concurrency-checked store
+// operation. Keeping this separate from Save ensures a slug change cannot update
+// frontmatter without moving the backing directory.
+func (s *Service) Rename(ctx context.Context, req RenameReq) (Result, error) {
 	if req.ID == "" {
 		return Result{}, NewError(ErrInvalidFrontmatter, "dossier id or slug is required")
 	}
-	if err := ValidateCanonicalSlug(req.NewSlug); err != nil {
-		return Result{}, WrapError(ErrInvalidFrontmatter, "invalid slug", err)
+	if req.NewSlug == "" && req.NewName == "" {
+		return Result{}, NewError(ErrInvalidFrontmatter, "new slug or title is required")
+	}
+	if req.NewSlug != "" {
+		if err := ValidateCanonicalSlug(req.NewSlug); err != nil {
+			return Result{}, WrapError(ErrInvalidFrontmatter, "invalid slug", err)
+		}
+	}
+	if req.NewName != "" && strings.TrimSpace(req.NewName) == "" {
+		return Result{}, NewError(ErrInvalidFrontmatter, "title cannot be blank")
 	}
 
 	current, currentRev, err := s.store.Read(req.ID)
 	if err != nil {
 		return Result{}, err
 	}
-	oldSlug := current.Frontmatter.Slug
-	if req.NewSlug == oldSlug {
-		return Result{OK: true, Data: RenameSlugResult{
-			ID: current.Frontmatter.ID, OldSlug: oldSlug, Slug: oldSlug,
-			Aliases:  append([]string(nil), current.Frontmatter.Aliases...),
-			Revision: currentRev, Path: filepath.Join(s.cfg.DossierHome, oldSlug),
+	old := current.Frontmatter
+	newSlug := req.NewSlug
+	if newSlug == "" {
+		newSlug = old.Slug
+	}
+	newName := req.NewName
+	if newName == "" {
+		newName = old.Name
+	}
+	if newSlug == old.Slug && newName == old.Name {
+		return Result{OK: true, Data: RenameResult{
+			ID: old.ID, Name: old.Name, Slug: old.Slug,
+			Revision: currentRev, Path: filepath.Join(s.cfg.DossierHome, old.Slug),
 		}}, nil
 	}
 
@@ -1303,25 +1326,51 @@ func (s *Service) RenameSlug(ctx context.Context, req RenameSlugReq) (Result, er
 	if base == "" {
 		base = currentRev
 	}
-	updated, newRev, err := s.store.RenameSlug(current.Frontmatter.ID, req.NewSlug, base)
+	var updated *Dossier
+	var newRev Revision
+	if renamer, ok := s.store.(Renamer); ok {
+		updated, newRev, err = renamer.Rename(old.ID, newSlug, newName, base)
+	} else if req.NewName == "" {
+		// Preserve compatibility with stores that only implement the original port.
+		updated, newRev, err = s.store.RenameSlug(old.ID, newSlug, base)
+	} else if newSlug == old.Slug {
+		// A title-only rename is safely representable by the older Save port.
+		saved, saveErr := s.Save(ctx, SaveReq{ID: old.ID, BaseRevision: base, FrontmatterUpdates: map[string]any{"name": newName}})
+		err = saveErr
+		if err == nil {
+			newRev = saved.Data.(Revision)
+			updated, _, err = s.store.Read(old.ID)
+		}
+	} else {
+		err = NewError(ErrInvalidFrontmatter, "store does not support combined title and slug renames")
+	}
 	if err != nil {
 		return Result{}, err
 	}
 
-	result := RenameSlugResult{
-		ID: updated.Frontmatter.ID, OldSlug: oldSlug, Slug: updated.Frontmatter.Slug,
-		Aliases: append([]string(nil), updated.Frontmatter.Aliases...), Revision: newRev,
-		Path: filepath.Join(s.cfg.DossierHome, updated.Frontmatter.Slug),
+	result := RenameResult{
+		ID: updated.Frontmatter.ID, OldName: old.Name, Name: updated.Frontmatter.Name,
+		OldSlug: old.Slug, Slug: updated.Frontmatter.Slug,
+		Revision: newRev, Path: filepath.Join(s.cfg.DossierHome, updated.Frontmatter.Slug),
 	}
 	var warnings []Warning
+	event := AuditEventSlugRenamed
+	if req.NewName != "" {
+		event = AuditEventRenamed
+	}
 	if err := s.store.AppendAudit(updated.Frontmatter.ID, AuditEvent{
-		TS: s.clock.Now(), Event: AuditEventSlugRenamed, Author: s.cfg.Author,
+		TS: s.clock.Now(), Event: event, Author: s.cfg.Author,
 		DossierID: updated.Frontmatter.ID, BeforeRevision: string(base),
-		AfterRevision: string(newRev), Message: fmt.Sprintf("slug %q→%q", oldSlug, updated.Frontmatter.Slug),
+		AfterRevision: string(newRev), Message: describeFrontmatterChanges(old, updated.Frontmatter),
 	}); err != nil {
-		warnings = append(warnings, Warning(fmt.Sprintf("Slug was renamed, but the audit event could not be written: %v", err)))
+		warnings = append(warnings, Warning(fmt.Sprintf("Dossier was renamed, but the audit event could not be written: %v", err)))
 	}
 	return Result{OK: true, Data: result, Warnings: warnings}, nil
+}
+
+// RenameSlug is the backwards-compatible slug-only spelling.
+func (s *Service) RenameSlug(ctx context.Context, req RenameSlugReq) (Result, error) {
+	return s.Rename(ctx, req)
 }
 
 type LinkReq struct {
@@ -1852,7 +1901,6 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 		if !query.IsEmpty() && !query.Matches(Haystack(ListItem{
 			Name:        fm.Name,
 			Slug:        fm.Slug,
-			Aliases:     fm.Aliases,
 			Description: fm.Description,
 			Lead:        fm.Lead,
 			Interfaces:  fm.Interfaces,
@@ -1877,7 +1925,6 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 			ID:          fm.ID,
 			Name:        fm.Name,
 			Slug:        fm.Slug,
-			Aliases:     append([]string(nil), fm.Aliases...),
 			Status:      string(fm.Status),
 			Description: fm.Description,
 			Lead:        fm.Lead,
@@ -2187,7 +2234,7 @@ func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, e
 	// dossier_session's response — the moment the agent actually enters a
 	// dossier's context, not passively here.
 	sb.WriteString(fmt.Sprintf(
-		"%d open dossier(s): %s. Use dossier_list for details, dossier_session to resume one, or dossier_promote for a new thread (it flags likely duplicates automatically). Guide: ~/.dossier/context/guide.md\n",
+		"%d open dossier(s): %s. Before choosing or creating a topic, use dossier_list to check for a match; use dossier_promote for a confirmed new thread, dossier_session to bind/resume one, or dossier_recall to read its state. Guide: ~/.dossier/context/guide.md\n",
 		len(names), namesStr,
 	))
 

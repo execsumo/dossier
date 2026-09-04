@@ -340,7 +340,7 @@ func TestDetailSlugRenameKeepsIDAndReturnsToDetail(t *testing.T) {
 	if m.currentView != ViewDetail {
 		t.Fatalf("rename returned to %v, want detail", m.currentView)
 	}
-	if got := store.dossiers["s1"].Frontmatter; got.Slug != "clearer-spark" || !containsString(got.Aliases, "spark-one") {
+	if got := store.dossiers["s1"].Frontmatter; got.Slug != "clearer-spark" {
 		t.Fatalf("renamed frontmatter = %+v", got)
 	}
 	if m.recallResult.Frontmatter.ID != "s1" || m.recallResult.Frontmatter.Slug != "clearer-spark" {

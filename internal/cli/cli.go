@@ -384,9 +384,6 @@ func NewRootCmd() *cobra.Command {
 			}
 			fmt.Printf("ID:             %s\n", recall.Frontmatter.ID)
 			fmt.Printf("Slug:           %s\n", recall.Frontmatter.Slug)
-			if len(recall.Frontmatter.Aliases) > 0 {
-				fmt.Printf("Aliases:        %s\n", strings.Join(recall.Frontmatter.Aliases, ", "))
-			}
 			fmt.Printf("Lead:           %s\n", recall.Frontmatter.Lead)
 			fmt.Printf("Interfaces:      %s\n", strings.Join(recall.Frontmatter.Interfaces, ", "))
 			fmt.Printf("Status:         %s\n", recall.Frontmatter.Status)
@@ -953,9 +950,11 @@ func NewRootCmd() *cobra.Command {
 	mergeCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
 	var renameBaseRevision string
+	var renameTitle bool
+	var renameSlug bool
 	renameCmd := &cobra.Command{
-		Use:   "rename <slug-or-id> <new-slug>",
-		Short: "Rename a dossier slug while preserving its ID and old slug alias",
+		Use:   "rename <slug-or-id> <new-value>",
+		Short: "Rename a dossier title or slug while preserving its ID",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := wire(resolveHomeDir())
@@ -970,9 +969,16 @@ func NewRootCmd() *cobra.Command {
 				}
 				base = recalled.Data.(core.RecallResult).Revision
 			}
-			res, err := svc.RenameSlug(context.Background(), core.RenameSlugReq{
-				ID: args[0], NewSlug: args[1], BaseRevision: base,
-			})
+			if renameTitle && renameSlug {
+				return fmt.Errorf("--title and --slug cannot be used together")
+			}
+			req := core.RenameReq{ID: args[0], BaseRevision: base}
+			if renameTitle {
+				req.NewName = args[1]
+			} else {
+				req.NewSlug = args[1]
+			}
+			res, err := svc.Rename(context.Background(), req)
 			if err != nil {
 				return fmt.Errorf("rename failed: %w", err)
 			}
@@ -980,13 +986,19 @@ func NewRootCmd() *cobra.Command {
 				printJSON(res)
 				return nil
 			}
-			renamed := res.Data.(core.RenameSlugResult)
-			fmt.Printf("Dossier slug renamed: %s → %s (ID: %s, revision: %s)\n", renamed.OldSlug, renamed.Slug, renamed.ID, renamed.Revision)
-			fmt.Printf("The old slug remains available as an alias. New path: %s\n", renamed.Path)
+			renamed := res.Data.(core.RenameResult)
+			if renameTitle {
+				fmt.Printf("Dossier title renamed: %s → %s (ID: %s, revision: %s)\n", renamed.OldName, renamed.Name, renamed.ID, renamed.Revision)
+			} else {
+				fmt.Printf("Dossier slug renamed: %s → %s (ID: %s, revision: %s)\n", renamed.OldSlug, renamed.Slug, renamed.ID, renamed.Revision)
+				fmt.Printf("Use the new slug for future references. New path: %s\n", renamed.Path)
+			}
 			return nil
 		},
 	}
 	renameCmd.Flags().StringVar(&renameBaseRevision, "base-revision", "", "Expected current revision (defaults to an immediate recall)")
+	renameCmd.Flags().BoolVar(&renameTitle, "title", false, "Rename the display title instead of the slug")
+	renameCmd.Flags().BoolVar(&renameSlug, "slug", false, "Rename the canonical slug (the default)")
 	renameCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
 	statusCmd := &cobra.Command{

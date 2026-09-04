@@ -1,12 +1,12 @@
 # ADR 0007: Dossier IDs are immutable; canonical slugs are renameable
 
 ## Status
-Accepted (2026-09-04). Supersedes the statement that a slug/directory never changes when a display name changes; display-name edits still do not implicitly rename the slug.
+Superseded by the current slug policy. The rename operation remains, but historical slug aliases are no longer persisted or resolved. The original decision below is retained as historical context.
 
 ## Context
 A slug is useful as a human-readable command and directory name, but the name chosen when a Dossier is created can become misleading. Editing `slug:` by hand is unsafe: the frontmatter can diverge from the directory, while artifacts, history, audit shards, conflicts, working files, and machine-local session stashes all live beneath that directory. Slug references may also exist in scripts or prior conversations.
 
-The existing `dos_` ID is already immutable and session bindings store that ID. It is therefore the correct durable identity; the slug should be a mutable locator with compatibility aliases.
+The existing `dos_` ID is already immutable and session bindings store that ID. It remains the durable identity; the canonical slug is a mutable locator, and callers must use the new slug after a rename.
 
 ## Decision
 Slug changes use a dedicated `Service.RenameSlug` operation, exposed as:

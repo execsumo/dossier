@@ -89,7 +89,7 @@ func TestMCPUpdateLeadAndStatus(t *testing.T) {
 	}
 }
 
-func TestMCPRenameSlugKeepsOldAliasWorking(t *testing.T) {
+func TestMCPRenameSlugDropsOldAlias(t *testing.T) {
 	svc := newSessionTestService(t)
 
 	renamed := callTool(t, svc, "dossier_rename", `{"id":"test-dossier","new_slug":"clearer-test","base_revision":"rev_1"}`)
@@ -101,13 +101,18 @@ func TestMCPRenameSlugKeepsOldAliasWorking(t *testing.T) {
 		t.Fatalf("rename result = %s", raw)
 	}
 
-	recalled := callTool(t, svc, "dossier_recall", `{"id":"test-dossier"}`)
+	oldRecall := callTool(t, svc, "dossier_recall", `{"id":"test-dossier"}`)
+	if oldRecall.OK {
+		t.Fatal("old slug still resolves after rename")
+	}
+
+	recalled := callTool(t, svc, "dossier_recall", `{"id":"clearer-test"}`)
 	if !recalled.OK {
-		t.Fatalf("old slug alias did not resolve: %+v", recalled.Error)
+		t.Fatalf("new slug did not resolve: %+v", recalled.Error)
 	}
 	recalledRaw, _ := json.Marshal(recalled.Data)
 	if !strings.Contains(string(recalledRaw), `"slug":"clearer-test"`) {
-		t.Fatalf("recall through alias = %s", recalledRaw)
+		t.Fatalf("recall through new slug = %s", recalledRaw)
 	}
 }
 

@@ -3,7 +3,6 @@ package core
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"time"
 	"unicode/utf8"
 )
@@ -126,28 +125,6 @@ func ValidateCanonicalSlug(slug string) error {
 	return nil
 }
 
-// NormalizeSlugAliases returns a deterministic set of historical slugs. The
-// current canonical slug is never also retained as an alias.
-func NormalizeSlugAliases(current string, aliases []string) ([]string, error) {
-	seen := make(map[string]struct{}, len(aliases))
-	out := make([]string, 0, len(aliases))
-	for _, alias := range aliases {
-		if alias == current {
-			continue
-		}
-		if err := ValidateCanonicalSlug(alias); err != nil {
-			return nil, fmt.Errorf("invalid slug alias %q: %w", alias, err)
-		}
-		if _, exists := seen[alias]; exists {
-			continue
-		}
-		seen[alias] = struct{}{}
-		out = append(out, alias)
-	}
-	sort.Strings(out)
-	return out, nil
-}
-
 func validateNextActionLength(nextAction string) error {
 	if utf8.RuneCountInString(nextAction) > MaxNextActionLength {
 		return fmt.Errorf("next_action must be at most %d characters", MaxNextActionLength)
@@ -162,7 +139,6 @@ type Frontmatter struct {
 	Name        string    `yaml:"name" json:"name"`
 	Description string    `yaml:"description,omitempty" json:"description,omitempty"`
 	Slug        string    `yaml:"slug" json:"slug"`
-	Aliases     []string  `yaml:"aliases,omitempty" json:"aliases,omitempty"`
 	CreatedAt   time.Time `yaml:"created_at" json:"created_at"`
 	UpdatedAt   time.Time `yaml:"updated_at" json:"updated_at"`
 	Status      Status    `yaml:"status" json:"status"`
@@ -184,11 +160,6 @@ func (f *Frontmatter) Validate() error {
 	if f.Slug == "" {
 		return fmt.Errorf("slug is required")
 	}
-	aliases, err := NormalizeSlugAliases(f.Slug, f.Aliases)
-	if err != nil {
-		return err
-	}
-	f.Aliases = aliases
 	if f.CreatedAt.IsZero() {
 		return fmt.Errorf("created_at is required")
 	}

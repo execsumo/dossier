@@ -140,15 +140,15 @@ dossier ls --interface "1:1" --json   # topics to discuss in a 1:1
 dossier ls -q "billing"           # find a Dossier without recalling its exact name
 dossier next payments-migration "Write the cutover runbook"
 dossier priority payments-migration --priority high
-dossier rename payments-migration payments-platform-migration  # old slug remains an alias
+dossier rename payments-migration payments-platform-migration  # use the new slug afterward
 dossier link payments-migration --from-file ./notes.md   # attach a source to the archive
-dossier merge old-slug payments-migration                # fold one Dossier into another
+dossier merge another-topic payments-platform-migration      # fold one Dossier into another
 dossier archive payments-migration                       # archive (never deletes)
 ```
 
-A slug rename preserves the immutable Dossier ID, moves the complete directory
-atomically, and records every former slug as an alias. Existing commands, links,
-and session bindings can therefore continue using an old slug after the rename.
+A slug rename preserves the immutable Dossier ID and moves the complete directory
+atomically. Existing commands, links, and session bindings must use the new slug
+after the rename.
 
 Full reference: `dossier --help`.
 

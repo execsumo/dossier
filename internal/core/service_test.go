@@ -80,15 +80,37 @@ func TestServiceRenameSlugUsesDedicatedStorePath(t *testing.T) {
 	if got.ID != "dos_rename" || got.OldSlug != "old-slug" || got.Slug != "clearer-slug" {
 		t.Fatalf("rename result = %+v", got)
 	}
-	if len(got.Aliases) != 1 || got.Aliases[0] != "old-slug" {
-		t.Fatalf("aliases = %v", got.Aliases)
-	}
 	if got.Path != filepath.Join("/tmp/dossier-test", "clearer-slug") {
 		t.Fatalf("path = %q", got.Path)
 	}
 	events := store.audits["dos_rename"]
 	if len(events) != 1 || events[0].Event != AuditEventSlugRenamed {
 		t.Fatalf("audit events = %+v", events)
+	}
+}
+
+func TestServiceRenameTitle(t *testing.T) {
+	store := newLocalFakeStore()
+	now := time.Now().Truncate(time.Second)
+	store.dossiers["dos_title"] = &Dossier{Frontmatter: Frontmatter{
+		ID: "dos_title", Name: "Old title", Slug: "stable-slug", CreatedAt: now, UpdatedAt: now,
+		Status: StatusSpark, Priority: PriorityMedium,
+	}}
+	store.revisions["dos_title"] = CalculateRevision(store.dossiers["dos_title"].Frontmatter, "", nil)
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: now}, Config{DossierHome: "/tmp/dossier-test", Author: "Alice"}, nil)
+
+	res, err := svc.Rename(context.Background(), RenameReq{
+		ID: "dos_title", NewName: "New title", BaseRevision: store.revisions["dos_title"],
+	})
+	if err != nil {
+		t.Fatalf("Rename() error = %v", err)
+	}
+	got := res.Data.(RenameResult)
+	if got.Name != "New title" || got.Slug != "stable-slug" || got.OldName != "Old title" {
+		t.Fatalf("rename result = %+v", got)
+	}
+	if store.dossiers["dos_title"].Frontmatter.Name != "New title" {
+		t.Fatalf("stored title = %q", store.dossiers["dos_title"].Frontmatter.Name)
 	}
 }
 
@@ -244,29 +266,16 @@ func (f *localFakeStore) RenameSlug(id, newSlug string, base Revision) (*Dossier
 		return nil, "", NewError(ErrConcurrentEdit, "concurrency mismatch")
 	}
 	for _, other := range f.dossiers {
-		if other.Frontmatter.ID != id && (other.Frontmatter.Slug == newSlug || stringSliceContains(other.Frontmatter.Aliases, newSlug)) {
+		if other.Frontmatter.ID != id && other.Frontmatter.Slug == newSlug {
 			return nil, "", NewError(ErrInvalidFrontmatter, "slug already used")
 		}
 	}
-	aliases, err := NormalizeSlugAliases(newSlug, append(d.Frontmatter.Aliases, d.Frontmatter.Slug))
-	if err != nil {
-		return nil, "", err
-	}
 	f.history[rev] = d
 	d.Frontmatter.Slug = newSlug
-	d.Frontmatter.Aliases = aliases
 	newRev := CalculateRevision(d.Frontmatter, d.DistilledState.Body, f.artifacts[id])
 	f.dossiers[id] = d
 	f.revisions[id] = newRev
 	return d, newRev, nil
-}
-func stringSliceContains(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
 }
 func (f *localFakeStore) WriteArtifact(id string, a *Artifact) error {
 	if a.ID == "" {
@@ -735,6 +744,16 @@ func TestSessionStartUnboundIsCompactNudge(t *testing.T) {
 
 	if !strings.Contains(payload, "Pricing model refresh") {
 		t.Errorf("expected open dossier name in nudge, got:\n%s", payload)
+	}
+	for _, instruction := range []string{
+		"Before choosing or creating a topic, use dossier_list to check for a match",
+		"dossier_promote",
+		"dossier_session",
+		"dossier_recall",
+	} {
+		if !strings.Contains(payload, instruction) {
+			t.Errorf("expected %q in nudge, got:\n%s", instruction, payload)
+		}
 	}
 	if strings.Contains(payload, "check the Open Dossiers list") || strings.Contains(payload, "similarity check and flag") {
 		t.Errorf("expected the old multi-step instructional block to be gone, got:\n%s", payload)

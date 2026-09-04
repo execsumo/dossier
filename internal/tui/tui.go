@@ -53,8 +53,9 @@ const (
 	// three main surfaces. It exists so the footers can advertise only the verbs
 	// a surface is actually for, rather than every key it happens to accept.
 	ViewHelp
-	// ViewRenameSlug is deliberately separate from the ordinary metadata editor:
-	// a slug change moves the complete backing directory in one store operation.
+	// ViewRenameSlug is separate from the ordinary metadata editor because a slug
+	// change may move the complete backing directory in one store operation. The
+	// view also supports an explicit title rename.
 	ViewRenameSlug
 )
 
@@ -346,6 +347,8 @@ type Model struct {
 	leadSuggestionText string
 	nextActionInput    textinput.Model
 	renameSlugInput    textinput.Model
+	renameNameInput    textinput.Model
+	renameField        renameField
 
 	// Link view state
 	linkTextInput   textinput.Model
@@ -431,6 +434,9 @@ func NewModel(svc *core.Service) Model {
 	renameSlugInput := textinput.New()
 	renameSlugInput.Placeholder = "new-canonical-slug"
 	renameSlugInput.Width = 48
+	renameNameInput := textinput.New()
+	renameNameInput.Placeholder = "new-title"
+	renameNameInput.Width = 48
 
 	watcher, err := fsnotify.NewWatcher()
 	updateChan := make(chan string, 100)
@@ -463,6 +469,7 @@ func NewModel(svc *core.Service) Model {
 		leadSearch:           leadSearch,
 		searchInput:          searchInput,
 		renameSlugInput:      renameSlugInput,
+		renameNameInput:      renameNameInput,
 		configuredLeads:      svc.Leads(),
 		configuredInterfaces: svc.Interfaces(),
 		watcher:              watcher,
@@ -1737,6 +1744,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.currentView = ViewRenameSlug
 		} else {
 			m.renameSlugInput.Blur()
+			m.renameNameInput.Blur()
 			m.currentView = ViewDetail
 			m.err = nil
 			return m, m.recallDossierCmd(msg.targetID)
@@ -2311,9 +2319,6 @@ func (m Model) renderDetailMetadata() string {
 		sb.WriteString(renderRow("Summary:", fm.Description))
 	}
 	sb.WriteString(renderRow("Slug:", fm.Slug))
-	if len(fm.Aliases) > 0 {
-		sb.WriteString(renderRow("Aliases:", strings.Join(fm.Aliases, ", ")))
-	}
 	sb.WriteString(renderRow("Priority:", string(fm.Priority)))
 	sb.WriteString(renderTwoCols(
 		"Stage:", string(fm.Status),
@@ -2354,7 +2359,7 @@ func (m Model) footerContent(v View) string {
 	case ViewLeadSelector:
 		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
 	case ViewDetail:
-		keyHelp = "e: edit • s: rename slug • a: artifacts • o: editor • c: claude • ?: help"
+		keyHelp = "e: edit • s: rename • a: artifacts • o: editor • c: claude • ?: help"
 	case ViewArtifactIndex:
 		keyHelp = "↑/↓: select • enter: view artifact • esc: back"
 	case ViewArtifactContent:
@@ -2362,7 +2367,7 @@ func (m Model) footerContent(v View) string {
 	case ViewEdit:
 		keyHelp = "←/→: change • enter: save • esc: cancel"
 	case ViewRenameSlug:
-		keyHelp = "enter: rename slug • esc: cancel"
+		keyHelp = "tab: slug/title • enter: rename • esc: cancel"
 	case ViewLinkInput:
 		keyHelp = "esc: cancel"
 	case ViewLinkSelector:
@@ -2582,7 +2587,7 @@ func (m Model) View() string {
 		sb.WriteString("\n")
 
 	case ViewRenameSlug:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Rename Slug", subheadline)))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Rename", subheadline)))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderSlugRename())
 		sb.WriteString("\n")

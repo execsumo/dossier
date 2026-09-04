@@ -37,7 +37,6 @@ func (f *FakeStore) Init() error {
 
 func cloneDossier(d *core.Dossier) *core.Dossier {
 	cp := *d
-	cp.Frontmatter.Aliases = append([]string(nil), d.Frontmatter.Aliases...)
 	cp.Frontmatter.Interfaces = append([]string(nil), d.Frontmatter.Interfaces...)
 	return &cp
 }
@@ -45,11 +44,6 @@ func cloneDossier(d *core.Dossier) *core.Dossier {
 func fakeSlugMatches(d *core.Dossier, value string) bool {
 	if d.Frontmatter.ID == value || d.Frontmatter.Slug == value {
 		return true
-	}
-	for _, alias := range d.Frontmatter.Aliases {
-		if alias == value {
-			return true
-		}
 	}
 	return false
 }
@@ -121,9 +115,11 @@ func (f *FakeStore) Write(d *core.Dossier, base core.Revision) (core.Revision, e
 	return newRev, nil
 }
 
-func (f *FakeStore) RenameSlug(dossierID string, newSlug string, base core.Revision) (*core.Dossier, core.Revision, error) {
-	if err := core.ValidateCanonicalSlug(newSlug); err != nil {
-		return nil, "", core.WrapError(core.ErrInvalidFrontmatter, "invalid slug", err)
+func (f *FakeStore) Rename(dossierID string, newSlug string, newName string, base core.Revision) (*core.Dossier, core.Revision, error) {
+	if newSlug != "" {
+		if err := core.ValidateCanonicalSlug(newSlug); err != nil {
+			return nil, "", core.WrapError(core.ErrInvalidFrontmatter, "invalid slug", err)
+		}
 	}
 	d, currentRev, err := f.Read(dossierID)
 	if err != nil {
@@ -132,27 +128,37 @@ func (f *FakeStore) RenameSlug(dossierID string, newSlug string, base core.Revis
 	if base != "" && base != currentRev {
 		return nil, "", core.NewError(core.ErrConcurrentEdit, "concurrent edit detected")
 	}
-	if d.Frontmatter.Slug == newSlug {
+	if newSlug == "" {
+		newSlug = d.Frontmatter.Slug
+	}
+	if newName == "" {
+		newName = d.Frontmatter.Name
+	}
+	slugChanged := d.Frontmatter.Slug != newSlug
+	nameChanged := d.Frontmatter.Name != newName
+	if !slugChanged && !nameChanged {
 		return d, currentRev, nil
 	}
-	for _, other := range f.Dossiers {
-		if other.Frontmatter.ID != d.Frontmatter.ID && fakeSlugMatches(other, newSlug) {
-			return nil, "", core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("slug %q is already used by another dossier", newSlug))
+	if slugChanged {
+		for _, other := range f.Dossiers {
+			if other.Frontmatter.ID != d.Frontmatter.ID && fakeSlugMatches(other, newSlug) {
+				return nil, "", core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("slug %q is already used by another dossier", newSlug))
+			}
 		}
-	}
-	aliases := append(append([]string(nil), d.Frontmatter.Aliases...), d.Frontmatter.Slug)
-	aliases, err = core.NormalizeSlugAliases(newSlug, aliases)
-	if err != nil {
-		return nil, "", err
 	}
 	f.History[currentRev] = cloneDossier(d)
 	d.Frontmatter.Slug = newSlug
-	d.Frontmatter.Aliases = aliases
+	d.Frontmatter.Name = newName
 	d.Frontmatter.UpdatedAt = time.Now().Truncate(time.Second)
 	newRev := core.Revision(fmt.Sprintf("rev_fake_%d", len(f.History)+1))
 	f.Dossiers[d.Frontmatter.ID] = cloneDossier(d)
 	f.Revisions[d.Frontmatter.ID] = newRev
 	return cloneDossier(d), newRev, nil
+}
+
+// RenameSlug preserves the original store API for slug-only callers.
+func (f *FakeStore) RenameSlug(dossierID string, newSlug string, base core.Revision) (*core.Dossier, core.Revision, error) {
+	return f.Rename(dossierID, newSlug, "", base)
 }
 
 func (f *FakeStore) WriteArtifact(dossierID string, a *core.Artifact) error {

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"dossier/internal/core"
@@ -26,7 +25,6 @@ type dossierRenamePlan struct {
 	localPath  string
 	remotePath string
 	targetPath string
-	aliases    []string
 }
 
 func indexTreeDossiers(tree *object.Tree) map[string]treeDossier {
@@ -54,8 +52,7 @@ func indexTreeDossiers(tree *object.Tree) map[string]treeDossier {
 }
 
 // dossierRenamePlans recognizes a directory rename by immutable dossier ID.
-// Remote wins if both sides chose different new slugs; every losing canonical
-// slug is retained as an alias in the resulting dossier.md.
+// Remote wins if both sides chose different new slugs.
 func dossierRenamePlans(baseTree, localTree, remoteTree *object.Tree) map[string]dossierRenamePlan {
 	base := indexTreeDossiers(baseTree)
 	local := indexTreeDossiers(localTree)
@@ -71,25 +68,9 @@ func dossierRenamePlans(baseTree, localTree, remoteTree *object.Tree) map[string
 		if r.path != "" && r.path != b.path {
 			target = r.path
 		}
-		aliasSet := map[string]struct{}{}
-		for _, entry := range []treeDossier{b, l, r} {
-			if entry.path != "" && entry.path != target {
-				aliasSet[entry.path] = struct{}{}
-			}
-			for _, alias := range entry.fm.Aliases {
-				if alias != target {
-					aliasSet[alias] = struct{}{}
-				}
-			}
-		}
-		aliases := make([]string, 0, len(aliasSet))
-		for alias := range aliasSet {
-			aliases = append(aliases, alias)
-		}
-		sort.Strings(aliases)
 		plans[id] = dossierRenamePlan{
 			id: id, basePath: b.path, localPath: l.path, remotePath: r.path,
-			targetPath: target, aliases: aliases,
+			targetPath: target,
 		}
 	}
 	return plans
@@ -147,10 +128,6 @@ func rewriteRenamedDossier(content []byte, plan dossierRenamePlan) ([]byte, erro
 		return nil, fmt.Errorf("dossier ID %q does not match rename plan %q", fm.ID, plan.id)
 	}
 	fm.Slug = plan.targetPath
-	fm.Aliases, err = core.NormalizeSlugAliases(fm.Slug, append(fm.Aliases, plan.aliases...))
-	if err != nil {
-		return nil, err
-	}
 	formatted, err := store.FormatDossierFile(*fm, body)
 	return []byte(formatted), err
 }

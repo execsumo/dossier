@@ -9,7 +9,6 @@ func TestQueryMatchesListItemFields(t *testing.T) {
 		Lead:        "Ada Lovelace",
 		Interfaces:  []string{"Pricing WBR", "Steerco"},
 		Slug:        "q1-planning",
-		Aliases:     []string{"quarterly-plan"},
 	}
 
 	tests := []struct {
@@ -24,7 +23,6 @@ func TestQueryMatchesListItemFields(t *testing.T) {
 		{"lead", "lovelace", true},
 		{"interface", "steerco", true},
 		{"slug", "q1-planning", true},
-		{"historical slug alias", "quarterly-plan", true},
 		{"non matching", "roadmap", false},
 		{"does not cross fields", "planningprepare", false},
 	}
