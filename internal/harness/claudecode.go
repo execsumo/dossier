@@ -235,7 +235,14 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 		delegateSkillOk = true
 	}
 
-	if hooksOk && mcpOk && !staleMCPInHooks && hasSkill && delegateSkillOk {
+	sparkSkillContent, err := assets.FS.ReadFile("spark-skill.md")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded spark skill asset: %w", err)
+	}
+	sparkSkillPath := filepath.Join(home, ".claude", "skills", "spark", "SKILL.md")
+	sparkSkillOk := managedAssetInstalled(sparkSkillPath, sparkSkillContent)
+
+	if hooksOk && mcpOk && !staleMCPInHooks && hasSkill && delegateSkillOk && sparkSkillOk {
 		return nil
 	}
 
@@ -342,8 +349,8 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 		}
 	}
 
-	// Install (or update) the dossier-delegate Claude Code Skill. This is a
-	// standalone file write, independent of the hooks/MCP state above.
+	// Install (or update) the Claude Code Skills. These are standalone file
+	// writes, independent of the hooks/MCP state above.
 	if !delegateSkillOk {
 		delegateSkillDir := filepath.Dir(delegateSkillPath)
 		if err := os.MkdirAll(delegateSkillDir, 0755); err != nil {
@@ -357,6 +364,11 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 		}
 		if err := os.WriteFile(delegateSkillPath, delegateSkillContent, 0644); err != nil {
 			return fmt.Errorf("failed to write dossier-delegate skill: %w", err)
+		}
+	}
+	if !sparkSkillOk {
+		if err := installManagedAsset(sparkSkillPath, sparkSkillContent, timestamp); err != nil {
+			return fmt.Errorf("failed to install spark skill: %w", err)
 		}
 	}
 

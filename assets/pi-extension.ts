@@ -28,9 +28,9 @@
  *
  * Scope
  * -----
- * Session identity only. Bridging Pi's lifecycle into `dossier hook
- * session-start|session-end|pre-compaction` is deliberately not wired here
- * yet; see docs/harness-capabilities.md.
+ * Session identity plus the `/spark` capture command. Bridging Pi's lifecycle
+ * into `dossier hook session-start|session-end|pre-compaction` is deliberately
+ * not wired here yet; see docs/harness-capabilities.md.
  */
 
 import * as fs from "node:fs";
@@ -191,6 +191,17 @@ export default function (pi: ExtensionAPI) {
 			lines.push(`pointer: ${published ? pointerPath(process.pid) : "not published"}`);
 			if (lastError) lines.push(`last error: ${lastError}`);
 			ctx.ui.notify(`Dossier\n${lines.join("\n")}`, lastError ? "warning" : "info");
+		},
+	});
+
+	// Pi's native command is a short alias for the installed shared skill. The
+	// skill contains the workflow; this bridge preserves the exact `/spark` UX
+	// while allowing Pi to expand it as `/skill:spark`.
+	pi.registerCommand("spark", {
+		description: "Capture an unstructured thought as a new spark Dossier",
+		handler: async (args) => {
+			const prompt = args?.trim() ? `/skill:spark ${args}` : "/skill:spark";
+			pi.sendUserMessage(prompt, { expandPromptTemplates: true });
 		},
 	});
 }

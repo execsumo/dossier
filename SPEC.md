@@ -371,7 +371,7 @@ The first implementation milestone should produce a capability matrix in `docs/h
 dossier init
 dossier ls [--status spark|define|delegated|review|blocked|done|all] [--interface <interface>] [-q|--query <text>] [--json]
 dossier show <slug-or-id> [--json]
-dossier promote [--name <name>] [--from-file <path>] [--json]
+dossier promote [--name <name>] [--from-file <path>] [--distilled-file <path>] [--json]
 dossier link [<slug-or-id>] [--from-file <path>] [--json]
 dossier merge <source> <target> [--json]
 dossier recall <slug-or-id> [--json]
@@ -420,7 +420,8 @@ dossier doctor
 `dossier promote`
 
 - Creates a new Dossier from agent-provided content or `--from-file`.
-- Accepts optional `--description` and `--priority low|medium|high|max`.
+- Accepts optional `--description`, `--priority low|medium|high|max`, and `--distilled-file <path>` for a multiline initial Distilled State.
+- New Dossiers default to `spark` status and `medium` priority when no priority is supplied.
 - If likely existing matches are found, returns top candidates and requires disambiguation unless `--name` and explicit create intent are provided.
 - Captures transcript artifact if available.
 - Warns if transcript capture is unavailable.

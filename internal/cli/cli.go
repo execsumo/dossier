@@ -38,6 +38,7 @@ var (
 	jsonFlag            bool
 	dossierSearchFlag   string
 	distilledFlag       string
+	distilledFileFlag   string
 	descriptionFlag     string
 	promotePriorityFlag string
 	fromFileFlag        string
@@ -698,6 +699,7 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			var content string
+			distilled := distilledFlag
 			if fromFileFlag != "" {
 				data, err := os.ReadFile(fromFileFlag)
 				if err != nil {
@@ -706,12 +708,24 @@ func NewRootCmd() *cobra.Command {
 				}
 				content = string(data)
 			}
+			if distilledFileFlag != "" {
+				if distilled != "" {
+					fmt.Println("Error: --distilled and --distilled-file cannot be used together")
+					os.Exit(1)
+				}
+				data, err := os.ReadFile(distilledFileFlag)
+				if err != nil {
+					fmt.Printf("Error reading distilled state file: %v\n", err)
+					os.Exit(1)
+				}
+				distilled = string(data)
+			}
 
 			req := core.PromoteReq{
 				Name:                   args[0],
 				Description:            descriptionFlag,
 				Priority:               core.Priority(promotePriorityFlag),
-				DistilledStateMarkdown: distilledFlag,
+				DistilledStateMarkdown: distilled,
 				Content:                content,
 				Lead:                   leadFlag,
 				Interfaces:             interfacesFlag,
@@ -747,6 +761,7 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 	promoteCmd.Flags().StringVar(&distilledFlag, "distilled", "", "Distilled state markdown body")
+	promoteCmd.Flags().StringVar(&distilledFileFlag, "distilled-file", "", "Path to a file containing the distilled state markdown body")
 	promoteCmd.Flags().StringVar(&descriptionFlag, "description", "", "Optional progressive-disclosure summary")
 	promoteCmd.Flags().StringVar(&promotePriorityFlag, "priority", "", "Priority: low|medium|high|max")
 	promoteCmd.Flags().StringVar(&fromFileFlag, "from-file", "", "Path to session content file")

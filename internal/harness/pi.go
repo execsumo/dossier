@@ -18,11 +18,11 @@ const piExtensionAsset = "pi-extension.ts"
 // PiHarness integrates Dossier with the Pi coding agent.
 //
 // Pi exposes session identity (PI_SESSION_ID/PI_SESSION_FILE) only to processes
-// spawned by its bash tool, so Dossier ships a Pi extension that publishes the
-// live session id for every Dossier process Pi owns. Install writes that
-// extension into Pi's extension directory; assets/pi-extension.ts documents the
-// mechanism. Pi's lifecycle (session-start/session-end/pre-compaction) is not
-// bridged yet — see docs/harness-capabilities.md.
+// spawned by its bash tool, so Dossier ships an extension that publishes the
+// live session id for every Dossier process Pi owns and exposes the native
+// `/spark` alias. Install writes the extension and shared spark skill into Pi's
+// global integration directories. Pi's lifecycle (session-start/session-end/
+// pre-compaction) is not bridged yet — see docs/harness-capabilities.md.
 type PiHarness struct {
 	dossierHome string
 }
@@ -58,6 +58,26 @@ func PiInstalled() bool {
 		return true
 	}
 	return false
+}
+
+// PiSparkSkillPath returns where the bundled spark skill is installed. Pi
+// discovers skills from its global agent skills directory.
+func PiSparkSkillPath() string {
+	agentDir := PiAgentDir()
+	if agentDir == "" {
+		return ""
+	}
+	return filepath.Join(agentDir, "skills", "spark", "SKILL.md")
+}
+
+// PiSparkSkillInstalled reports whether Pi has the current bundled spark skill.
+func PiSparkSkillInstalled() bool {
+	content, err := assets.FS.ReadFile("spark-skill.md")
+	if err != nil {
+		return false
+	}
+	path := PiSparkSkillPath()
+	return path != "" && managedAssetInstalled(path, content)
 }
 
 // PiExtensionInstalled reports whether the installed extension is byte-identical
@@ -96,10 +116,10 @@ func (p *PiHarness) Detect() (core.Capabilities, error) {
 	return caps, nil
 }
 
-// Install writes the bundled Pi extension into Pi's extension directory.
-// Non-clobbering and idempotent (B7/B8): an identical file is left alone, a
-// modified one is backed up before being replaced, and without confirmation
-// (or a terminal to ask on) nothing is written.
+// Install writes the bundled Pi extension and spark skill into Pi's global
+// integration directories. Non-clobbering and idempotent (B7/B8): identical
+// files are left alone, modified files are backed up before being replaced, and
+// without confirmation (or a terminal to ask on) nothing is written.
 func (p *PiHarness) Install(opts core.InstallOpts) error {
 	if !PiInstalled() {
 		return nil
@@ -109,6 +129,10 @@ func (p *PiHarness) Install(opts core.InstallOpts) error {
 	if err != nil {
 		return fmt.Errorf("failed to read embedded Pi extension asset: %w", err)
 	}
+	sparkContent, err := assets.FS.ReadFile("spark-skill.md")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded spark skill asset: %w", err)
+	}
 
 	dest := PiExtensionPath()
 	if dest == "" {
@@ -117,9 +141,12 @@ func (p *PiHarness) Install(opts core.InstallOpts) error {
 	if resolved, err := filepath.EvalSymlinks(dest); err == nil {
 		dest = resolved
 	}
+	sparkDest := PiSparkSkillPath()
+	if sparkDest == "" {
+		return fmt.Errorf("could not determine Pi spark skill path")
+	}
 
-	existing, readErr := os.ReadFile(dest)
-	if readErr == nil && bytes.Equal(existing, content) {
+	if managedAssetInstalled(dest, content) && managedAssetInstalled(sparkDest, sparkContent) {
 		return nil
 	}
 
@@ -130,7 +157,7 @@ func (p *PiHarness) Install(opts core.InstallOpts) error {
 			return nil
 		}
 
-		fmt.Printf("Install the Dossier Pi extension (session identity) to %s? [y/N]: ", dest)
+		fmt.Printf("Install the Dossier Pi integration (session identity + /spark) to %s? [y/N]: ", dest)
 		var response string
 		_, _ = fmt.Scanln(&response)
 		response = strings.ToLower(strings.TrimSpace(response))
@@ -139,19 +166,12 @@ func (p *PiHarness) Install(opts core.InstallOpts) error {
 		}
 	}
 
-	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
-		return fmt.Errorf("failed to create Pi extension directory: %w", err)
+	timestamp := time.Now().Unix()
+	if err := installManagedAsset(dest, content, timestamp); err != nil {
+		return fmt.Errorf("failed to install Pi extension: %w", err)
 	}
-
-	if readErr == nil && len(existing) > 0 {
-		backupPath := fmt.Sprintf("%s.%d.bak", dest, time.Now().Unix())
-		if err := os.WriteFile(backupPath, existing, 0644); err != nil {
-			return fmt.Errorf("failed to back up existing Pi extension: %w", err)
-		}
-	}
-
-	if err := os.WriteFile(dest, content, 0644); err != nil {
-		return fmt.Errorf("failed to write Pi extension: %w", err)
+	if err := installManagedAsset(sparkDest, sparkContent, timestamp); err != nil {
+		return fmt.Errorf("failed to install Pi spark skill: %w", err)
 	}
 
 	return nil

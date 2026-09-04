@@ -30,11 +30,19 @@ func delegateSkillAssetContent(t *testing.T) []byte {
 	return content
 }
 
-// TestClaudeCodeHarnessInstallsDelegateSkill covers a fresh Install writing
-// the dossier-delegate skill into Claude Code's own skills directory
-// (~/.claude/skills/dossier-delegate/SKILL.md), not Dossier's ~/.dossier
-// store, with content byte-identical to the embedded asset.
-func TestClaudeCodeHarnessInstallsDelegateSkill(t *testing.T) {
+func sparkSkillAssetContent(t *testing.T) []byte {
+	t.Helper()
+	content, err := assets.FS.ReadFile("spark-skill.md")
+	if err != nil {
+		t.Fatalf("failed to read embedded spark skill asset: %v", err)
+	}
+	return content
+}
+
+// TestClaudeCodeHarnessInstallsSkills covers a fresh Install writing the
+// bundled skills into Claude Code's own skills directory, not Dossier's
+// ~/.dossier store, with content byte-identical to the embedded assets.
+func TestClaudeCodeHarnessInstallsSkills(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
 	writeMinimalClaudeConfig(t, tempHome)
@@ -53,6 +61,15 @@ func TestClaudeCodeHarnessInstallsDelegateSkill(t *testing.T) {
 	want := delegateSkillAssetContent(t)
 	if string(got) != string(want) {
 		t.Errorf("installed SKILL.md content does not match embedded asset")
+	}
+
+	sparkPath := filepath.Join(tempHome, ".claude", "skills", "spark", "SKILL.md")
+	sparkGot, err := os.ReadFile(sparkPath)
+	if err != nil {
+		t.Fatalf("expected spark SKILL.md to be written, got error: %v", err)
+	}
+	if string(sparkGot) != string(sparkSkillAssetContent(t)) {
+		t.Errorf("installed spark SKILL.md content does not match embedded asset")
 	}
 }
 

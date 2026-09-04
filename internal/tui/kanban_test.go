@@ -383,6 +383,46 @@ func TestKanbanDoneCardsOmitDescription(t *testing.T) {
 	}
 }
 
+func TestKanbanCardsShowAssignedLeadAsLastRow(t *testing.T) {
+	item := core.ListItem{
+		ID:          "d1",
+		Name:        "Pricing Topic",
+		Description: "summary text",
+		Lead:        "Alice Smith",
+	}
+
+	lines := strings.Split(stripANSI(renderCard(item, 30, false, true)), "\n")
+	leadLine := -1
+	descriptionLine := -1
+	for i, line := range lines {
+		if strings.Contains(line, "summary text") {
+			descriptionLine = i
+		}
+		if strings.Contains(line, "Alice") {
+			leadLine = i
+		}
+	}
+	if descriptionLine == -1 || leadLine == -1 {
+		t.Fatalf("expected card to contain description and lead, got:\n%s", strings.Join(lines, "\n"))
+	}
+	if leadLine <= descriptionLine {
+		t.Fatalf("expected lead to be after the description, got:\n%s", strings.Join(lines, "\n"))
+	}
+	card := strings.Join(lines, "\n")
+	if strings.Contains(card, "Alice Smith") {
+		t.Fatalf("expected only the lead's first name, got:\n%s", card)
+	}
+	if strings.Contains(card, "Lead:") {
+		t.Fatalf("expected the lead field name to be omitted, got:\n%s", card)
+	}
+
+	unassigned := item
+	unassigned.Lead = ""
+	if got, want := lipgloss.Height(renderCard(unassigned, 30, false, true)), lipgloss.Height(renderCard(item, 30, false, true))-1; got != want {
+		t.Fatalf("unassigned card height = %d, want assigned height minus one (%d)", got, want)
+	}
+}
+
 func TestKanbanToggleAndTextInputIsolation(t *testing.T) {
 	store := newTestStore()
 	seedDossier(store, "s1", "Spark One", core.StatusSpark)

@@ -1069,7 +1069,7 @@ func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 		d = &Dossier{
 			Frontmatter: Frontmatter{
 				Status:   StatusSpark,
-				Priority: PriorityHigh,
+				Priority: PriorityMedium,
 			},
 		}
 	} else {

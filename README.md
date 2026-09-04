@@ -87,21 +87,36 @@ dossier harness install pi     # installs the Dossier Pi extension
 dossier harness list           # what each harness gives Dossier
 ```
 
-This writes `~/.pi/agent/extensions/dossier/index.ts` (backing up anything it
-replaces, and asking first unless you pass `-y`). Restart Pi to load it.
+This writes `~/.pi/agent/extensions/dossier/index.ts` and the shared
+`~/.pi/agent/skills/spark/SKILL.md` (backing up anything they replace, and
+asking first unless you pass `-y`). Restart Pi to load them.
 
 The extension exists because Pi hands `PI_SESSION_ID` only to processes its bash
 tool spawns — so without it, Dossier running any other way under Pi cannot tell
 which session it belongs to, and refuses to bind a Dossier rather than risk two
 sessions sharing one binding. The extension publishes the live session id for
 every Dossier process the Pi session owns; `/dossier-session` inside Pi shows
-what Dossier will resolve.
+what Dossier will resolve. It also provides `/spark`, which captures a raw
+thought as a new medium-priority Dossier in the spark stage.
 
 **What Pi does not have yet:** lifecycle bridging. Pi sessions get no
 session-start surfacing, no end-of-session save, and no pre-compaction save —
 `dossier harness list` reports those as unavailable rather than pretending. Pi
 also has no built-in MCP client; if you run an MCP adapter extension, register
-`dossier mcp serve` with it yourself. Use the CLI in the meantime.
+`dossier mcp serve` with it yourself. Use `/spark` for quick capture, or the
+CLI in the meantime.
+
+### Quick capture
+
+In either Claude Code or Pi:
+
+```text
+/spark The vendor changed the API contract and I need to work out migration,
+backward compatibility, and who needs to review it.
+```
+
+Dossier derives a short name, preserves the raw capture, checks for likely
+duplicates, and creates the new Dossier in `spark` with `medium` priority.
 
 ### From the command line
 

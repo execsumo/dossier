@@ -59,7 +59,7 @@ func TestSavePreservesCompatibilityViewAndHistory(t *testing.T) {
 	}
 }
 
-func TestNewDossierDefaultsToHighPriority(t *testing.T) {
+func TestNewDossierDefaultsToMediumPriority(t *testing.T) {
 	store := newLocalFakeStore()
 	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()}, Config{DossierHome: "/tmp/dossier-test"}, nil)
 
@@ -71,8 +71,8 @@ func TestNewDossierDefaultsToHighPriority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
-	if d.Frontmatter.Priority != PriorityHigh {
-		t.Fatalf("new dossier priority = %q, want %q", d.Frontmatter.Priority, PriorityHigh)
+	if d.Frontmatter.Priority != PriorityMedium {
+		t.Fatalf("new dossier priority = %q, want %q", d.Frontmatter.Priority, PriorityMedium)
 	}
 }
 

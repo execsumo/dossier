@@ -113,6 +113,54 @@ func TestCLICommands(t *testing.T) {
 	}
 }
 
+func TestCLIPromoteDistilledFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	tempHome := t.TempDir()
+	svc, err := wire(tempHome)
+	if err != nil {
+		t.Fatalf("wire failed: %v", err)
+	}
+	if _, err := svc.Init(context.Background(), core.InitReq{YesToAll: true}); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	raw := "The vendor changed the API contract.\nNeed to investigate migration impact."
+	rawPath := filepath.Join(t.TempDir(), "spark.md")
+	if err := os.WriteFile(rawPath, []byte(raw), 0600); err != nil {
+		t.Fatalf("write raw capture: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"promote", "Vendor API change", "--distilled-file", rawPath, "--home", tempHome})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("promote failed: %v", err)
+	}
+
+	svc, err = wire(tempHome)
+	if err != nil {
+		t.Fatalf("rewire failed: %v", err)
+	}
+	res, err := svc.List(context.Background(), core.ListReq{Status: "all"})
+	if err != nil {
+		t.Fatalf("list failed: %v", err)
+	}
+	items := res.Data.([]core.ListItem)
+	if len(items) != 1 {
+		t.Fatalf("listed %d dossiers, want 1", len(items))
+	}
+	recall, err := svc.Recall(context.Background(), core.RecallReq{ID: items[0].ID})
+	if err != nil {
+		t.Fatalf("recall failed: %v", err)
+	}
+	dossier := recall.Data.(core.RecallResult)
+	if dossier.Frontmatter.Status != core.StatusSpark || dossier.Frontmatter.Priority != core.PriorityMedium {
+		t.Fatalf("new dossier metadata = status %q, priority %q; want spark/medium", dossier.Frontmatter.Status, dossier.Frontmatter.Priority)
+	}
+	if dossier.DistilledState != raw {
+		t.Fatalf("distilled state = %q, want raw capture %q", dossier.DistilledState, raw)
+	}
+}
+
 // TestCLIOutputFormat prints and verifies printed output strings
 func TestCLIOutputFormat(t *testing.T) {
 	// Simple validation of printJSON

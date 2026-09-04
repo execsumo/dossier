@@ -58,13 +58,15 @@ All capabilities are available, so Claude Code supports Dossier's full determini
    Dossier must not claim the MCP capability under Pi.
 
 Consequence: Dossier claims neither MCP nor lifecycle hooks for Pi, and supplies
-session identity itself through a bundled extension.
+session identity itself through a bundled extension. The same extension also
+provides the `/spark` command alias described below.
 
 ### The Dossier Pi extension (`assets/pi-extension.ts`)
 
 Installed to `<agent dir>/extensions/dossier/index.ts` by `dossier init` or
 `dossier harness install pi` — idempotent, backed up before replacement, and
-confirmed before writing (B7/B8). On every `session_start` it:
+confirmed before writing (B7/B8). The same install also writes the shared
+`spark` skill to `<agent dir>/skills/spark/SKILL.md`. On every `session_start` it:
 
 - writes a **session pointer** to `<agent dir>/dossier/sessions/<pi-pid>.json`
   (override: `DOSSIER_PI_SESSION_DIR`) recording `session_id`, `session_file`,
@@ -82,6 +84,11 @@ Pi's capabilities even on a machine that also has Claude Code configured.
 Verified end-to-end against Pi 0.83.0: a real session published its UUID and
 JSONL path, a child process with no session environment resolved that id through
 the ancestry walk, bound a Dossier, and read the binding back.
+
+The extension registers `/spark` as a native alias for Pi's `/skill:spark`
+command. It forwards any command arguments to the shared skill, which uses the
+installed `dossier` CLI because Pi has no built-in MCP client. The CLI's
+`--distilled-file` option preserves multiline raw captures safely.
 
 ### Out of scope in this pass (named, not forgotten)
 

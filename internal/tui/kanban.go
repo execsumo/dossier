@@ -337,6 +337,9 @@ func renderCard(item core.ListItem, colWidth int, selected, showDescription bool
 			lines = append(lines, mutedStyle.Render(line))
 		}
 	}
+	if lead := strings.Fields(item.Lead); len(lead) > 0 {
+		lines = append(lines, mutedStyle.Render(truncateCell(lead[0], inner)))
+	}
 
 	style := kanbanCardStyle
 	if selected {

@@ -98,7 +98,8 @@ dossier/
     guide.md
     library.tmpl.md
     dossier-delegate-skill.md  # installed into Claude Code's skills dir
-    pi-extension.ts            # installed into Pi's extensions dir (session identity)
+    spark-skill.md              # installed into Claude Code and Pi skills dirs
+    pi-extension.ts            # installed into Pi's extensions dir (identity + /spark)
   docs/
     harness-capabilities.md   # PRODUCED by dev agent (Milestone 1)
 ```
@@ -338,6 +339,8 @@ Per-harness reporting lives in `core`: `HarnessReport` + `Service.HarnessStatus`
 The Distillation Guide, the Dossier Protocol skill, and the `library.md` template are **embedded** via `go:embed` (`assets/`). `init` writes both the guide and the `skill.md` file to `~/.dossier/context/`; `context refresh` regenerates `~/.dossier/context/library.md` from the template + a live frontmatter scan. This keeps the single-binary promise — no external asset files to ship.
 
 `assets/dossier-delegate-skill.md` is also embedded, but is installed to a different destination: `ClaudeCodeHarness.Install` (`internal/harness/claudecode.go`) writes it to `~/.claude/skills/dossier-delegate/SKILL.md` — Claude Code's own skills directory, not `~/.dossier/context/` — because it must resolve as a real `/dossier-delegate` slash-command Skill rather than be pulled programmatically via MCP interception like the guide/instructions files. The write follows the same idempotent/backed-up/single-confirmation contract (B7/B8) as the rest of `Install`: byte-identical content is a no-op, differing content gets a timestamped `.bak` before being overwritten.
+
+`assets/spark-skill.md` is the shared quick-capture workflow. Claude Code receives it at `~/.claude/skills/spark/SKILL.md`, where it is invoked as `/spark`; Pi receives it at `~/.pi/agent/skills/spark/SKILL.md`. Pi's installed extension registers a native `/spark` alias that forwards to Pi's `/skill:spark` expansion, keeping the user-facing command identical across harnesses. The skill uses the existing promote path, preserves the raw capture, and relies on the core default of `medium` priority for all new Dossiers. Both skill files follow the same confirmation, backup, and idempotent installation contract.
 
 **Programmatic Injection (Zero-Tax Architecture):** Instead of injecting the 1500-token `guide.md` into global prompts (`skill.md`) or passive lifecycle hooks where it wastes tokens on generic coding tasks, Dossier uses **active interception**. When an LLM invokes the `dossier_session` MCP tool to bind a topic, the MCP server dynamically wraps the `Service.Switch` or `Service.Active` state response in a payload that explicitly includes the full string contents of the Distillation Guide. This guarantees the LLM receives strict schema instructions *exactly* when it enters a dossier context, while maintaining zero overhead during non-dossier operations. Future iterations will apply this deterministic pattern to other operational instructions currently housed in `skill.md` to further compress global bloat.
 

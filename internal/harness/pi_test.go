@@ -163,6 +163,19 @@ func TestPiHarnessInstallsExtensionIdempotently(t *testing.T) {
 		t.Error("installed extension does not match the bundled asset")
 	}
 
+	sparkPath := PiSparkSkillPath()
+	sparkGot, err := os.ReadFile(sparkPath)
+	if err != nil {
+		t.Fatalf("expected spark skill at %s: %v", sparkPath, err)
+	}
+	sparkWant, err := assets.FS.ReadFile("spark-skill.md")
+	if err != nil {
+		t.Fatalf("read embedded spark skill: %v", err)
+	}
+	if string(sparkGot) != string(sparkWant) {
+		t.Error("installed spark skill does not match the bundled asset")
+	}
+
 	// Installing the extension is what turns session identity on.
 	caps, err := h.Detect()
 	if err != nil {
