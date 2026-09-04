@@ -49,6 +49,10 @@ const (
 	// dashboard, laid out as stage columns. It is appended last so the existing
 	// iota values stay stable for anything that persisted them.
 	ViewKanban
+	// ViewHelp is the full keybinding reference, opened with ? from any of the
+	// three main surfaces. It exists so the footers can advertise only the verbs
+	// a surface is actually for, rather than every key it happens to accept.
+	ViewHelp
 )
 
 // leadFilterKind enumerates the three ways the dashboard can be scoped by lead.
@@ -269,6 +273,10 @@ type Model struct {
 	// hardcoding the dashboard, so opening a dossier from the board and pressing
 	// esc lands back on the board.
 	listView View
+
+	// helpReturnView is the surface ? was pressed on, so closing the help
+	// overlay restores it instead of dumping the user on the dashboard.
+	helpReturnView View
 
 	// Data
 	items        []core.ListItem // full dossier list, source of truth
@@ -1310,6 +1318,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// View-specific key overrides
 		switch m.currentView {
+		case ViewHelp:
+			// Any key dismisses the overlay — it is a reference card, not a
+			// mode, so requiring a specific key to leave would be a trap.
+			if msg.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
+			m.currentView = m.helpReturnView
+			return m, nil
+
 		case ViewKanban:
 			// Only the keys the board owns are intercepted; everything else
 			// (s/l/p/n/c/f/i/k/m/r/q) falls through to the global switch so the
@@ -1317,7 +1334,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "ctrl+c":
 				return m, tea.Quit
-			case "esc", "b":
+			case "esc", "backspace", "b":
 				m.listView = ViewDashboard
 				m.currentView = ViewDashboard
 				m.table.Focus()
@@ -1641,6 +1658,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "n":
+			// Detail only: the next action is free text that only makes sense
+			// once you have read the dossier it belongs to.
+			if m.currentView != ViewDetail {
+				return m, nil
+			}
 			if t, ok := m.getTargetDossier(); ok && t.id != "" {
 				m.startEditNextAction(t)
 				return m, nil
@@ -1700,16 +1722,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "k":
-			if m.isListView() {
+			// Dashboard only: linking needs a list to pick a target from, and
+			// the board's stage columns are a poor picker.
+			if m.currentView == ViewDashboard {
 				m.startLinkInput()
 				return m, nil
 			}
 		case "m":
-			if m.isListView() {
+			// Dashboard only, for the same reason as k, and because a merge is
+			// consequential enough to deserve the deliberate surface.
+			if m.currentView == ViewDashboard {
 				if t, ok := m.getTargetDossier(); ok && t.id != "" {
 					m.startMergeSelector(t.id, t.name)
 					return m, nil
 				}
+			}
+		case "?":
+			if m.isListView() || m.currentView == ViewDetail {
+				m.helpReturnView = m.currentView
+				m.currentView = ViewHelp
+				return m, nil
 			}
 		case "b":
 			// Toggle to the board. The reverse toggle lives in the ViewKanban
@@ -2596,14 +2628,18 @@ func (m Model) footerContent(v View) string {
 		}
 	}
 
-	keyHelp := "↑/↓: select • f: filters • s: stage • l: lead • p: priority • n: next action • k: link • m: merge • c: claude • b: board • /: search"
+	// The footers advertise verbs, not navigation: arrows, enter and esc are
+	// self-evident and every key they crowded out is one press away under ?.
+	keyHelp := "/: search • f: filters • s/p/l: edit • k: link • m: merge • c: claude • b: board • ?: help"
 	switch v {
 	case ViewKanban:
-		keyHelp = "←/→: stage • ↑/↓: card • enter: open • f: filters • i: interface • s: stage • l: lead • p: priority • n: next action • c: claude • b: table • /: search"
+		keyHelp = "/: search • f: filters • s/p/l: edit • c: claude • b: table • ?: help"
+	case ViewHelp:
+		keyHelp = "any key: back"
 	case ViewLeadSelector:
 		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
 	case ViewDetail:
-		keyHelp = "↑/↓/pgup/pgdn: scroll • s: stage • l: lead • p: priority • n: next action • a: artifacts • c: claude • esc: back"
+		keyHelp = "s/p/l/n: edit • a: artifacts • e: editor • c: claude • ?: help"
 	case ViewArtifactIndex:
 		keyHelp = "↑/↓: select • enter: view artifact • esc: back"
 	case ViewArtifactContent:
@@ -2626,7 +2662,7 @@ func (m Model) footerContent(v View) string {
 		keyHelp = "↑/↓/pgup/pgdn: scroll diff • tab: switch button • esc: cancel"
 	}
 	if m.searchActive && m.isListView() {
-		keyHelp = "type: filter • ↑↓: select • enter: open • tab: keep filter • esc: clear"
+		keyHelp = "type: filter • tab: keep filter • esc: clear"
 	}
 	footerParts = append(footerParts, keyHelp)
 
@@ -2815,6 +2851,12 @@ func (m Model) View() string {
 				sb.WriteString(subtitleStyle.Render(fmt.Sprintf("  ↓ %d more below\n", len(m.artifactIndex)-end)))
 			}
 		}
+
+	case ViewHelp:
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Keys", subheadline)))
+		sb.WriteString("\n\n")
+		sb.WriteString(m.renderHelp())
+		sb.WriteString("\n")
 
 	case ViewArtifactContent:
 		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Artifact", subheadline)))

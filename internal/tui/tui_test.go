@@ -733,27 +733,12 @@ func TestTUI_InlineEditing(t *testing.T) {
 		t.Errorf("expected to return to ViewDashboard after status update, got %v", m.currentView)
 	}
 
-	// 2. Test Next Action Editing (press 'n')
+	// 2. The next action is detail-only, so 'n' from the dashboard is inert.
+	// TestNextActionIsDetailOnly covers the editor itself.
 	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
 	m = newM.(Model)
-	if m.currentView != ViewNextActionEditor {
-		t.Fatalf("expected view ViewNextActionEditor, got %v", m.currentView)
-	}
-	if m.nextActionInput.CharLimit != core.MaxNextActionLength {
-		t.Fatalf("expected next action character limit %d, got %d", core.MaxNextActionLength, m.nextActionInput.CharLimit)
-	}
-	m.nextActionInput.SetValue("New Next Action")
-	// Press enter
-	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m = newM.(Model)
-	if cmd == nil {
-		t.Fatal("expected next action enter to return save command")
-	}
-	mutMsg = cmd()
-	newM, cmd = m.Update(mutMsg)
-	m = newM.(Model)
 	if m.currentView != ViewDashboard {
-		t.Errorf("expected to return to ViewDashboard, got %v", m.currentView)
+		t.Fatalf("'n' from the dashboard gave %v, want ViewDashboard", m.currentView)
 	}
 
 	// 3. Test Priority Editing (press 'p')
@@ -1929,24 +1914,45 @@ func TestTUI_FooterSequenceConsistency(t *testing.T) {
 	newM, _ := m.Update(listMsg)
 	m = newM.(Model)
 
-	// Dashboard view footer
-	dashView := stripANSI(m.View())
-
-	// Shared keys that appear in both footers
-	sharedKeys := []string{"s: stage", "l: lead", "p: priority", "n: next action", "c: claude"}
-
-	// Verify shared keys appear in order in dashboard footer
-	lastIdx := -1
-	for _, key := range sharedKeys {
-		idx := strings.Index(dashView, key)
-		if idx == -1 {
-			t.Fatalf("dashboard footer missing key %q", key)
+	// The footers advertise verbs a surface is for, in a stable order that ends
+	// at ?: help. Navigation keys are deliberately absent — they are self
+	// evident, and the space they cost is what the surface-specific verbs need.
+	assertOrdered := func(name, view string, fragments []string) {
+		t.Helper()
+		lastIdx := -1
+		for _, frag := range fragments {
+			idx := strings.Index(view, frag)
+			if idx == -1 {
+				t.Fatalf("%s footer missing %q", name, frag)
+			}
+			if idx < lastIdx {
+				t.Errorf("%s footer fragment %q appeared out of order", name, frag)
+			}
+			lastIdx = idx
 		}
-		if idx < lastIdx {
-			t.Errorf("dashboard footer key %q appeared out of order", key)
-		}
-		lastIdx = idx
 	}
+	assertAbsent := func(name, view string, fragments []string) {
+		t.Helper()
+		for _, frag := range fragments {
+			if strings.Contains(view, frag) {
+				t.Errorf("%s footer should not advertise %q", name, frag)
+			}
+		}
+	}
+
+	dashView := stripANSI(m.View())
+	assertOrdered("dashboard", dashView, []string{"/: search", "f: filters", "s/p/l: edit", "k: link", "m: merge", "c: claude", "b: board", "?: help"})
+	assertAbsent("dashboard", dashView, []string{"n: next action", "↑/↓", "enter:", "esc:"})
+
+	m.currentView = ViewKanban
+	m.listView = ViewKanban
+	boardView := stripANSI(m.View())
+	assertOrdered("board", boardView, []string{"/: search", "f: filters", "s/p/l: edit", "c: claude", "b: table", "?: help"})
+	// Link and merge want a list to pick a target from; the board is not one.
+	assertAbsent("board", boardView, []string{"k: link", "m: merge", "n: next action"})
+
+	m.currentView = ViewDashboard
+	m.listView = ViewDashboard
 
 	// Open Detail view
 	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -1957,31 +1963,9 @@ func TestTUI_FooterSequenceConsistency(t *testing.T) {
 	}
 
 	detailView := stripANSI(m.View())
-
-	// Verify shared keys appear in the same order in detail footer
-	lastIdx = -1
-	for _, key := range sharedKeys {
-		idx := strings.Index(detailView, key)
-		if idx == -1 {
-			t.Fatalf("detail footer missing key %q", key)
-		}
-		if idx < lastIdx {
-			t.Errorf("detail footer key %q appeared out of order", key)
-		}
-		lastIdx = idx
-	}
-
-	// Also verify navigation is before edits, and esc is at the end of detail
-	scrollIdx := strings.Index(detailView, "scroll")
-	statusIdx := strings.Index(detailView, "s: stage")
-	claudeIdx := strings.Index(detailView, "c: claude")
-	escIdx := strings.Index(detailView, "esc: back")
-	if scrollIdx > statusIdx {
-		t.Errorf("expected navigation (scroll) before stage edit in detail footer")
-	}
-	if claudeIdx > escIdx {
-		t.Errorf("expected claude before esc in detail footer")
-	}
+	assertOrdered("detail", detailView, []string{"s/p/l/n: edit", "a: artifacts", "e: editor", "c: claude", "?: help"})
+	// Filtering and the board toggle are list-surface verbs.
+	assertAbsent("detail", detailView, []string{"f: filters", "b: board", "/: search"})
 }
 
 func TestTUI_FooterConvergenceAtTerminalBottom(t *testing.T) {
@@ -2040,10 +2024,10 @@ func TestTUI_FooterConvergenceAtTerminalBottom(t *testing.T) {
 			t.Errorf("dim %dx%d: expected Dashboard line count %d, got %d", dim.w, dim.h, dim.h, len(dashLines))
 		}
 		lastDashLine := dashLines[len(dashLines)-1]
-		// The help string wraps at narrower widths, so the bottom line is
-		// whichever footer fragment lands last: "…c: claude" or "…b: board".
-		if !strings.Contains(lastDashLine, "claude") && !strings.Contains(lastDashLine, "board") {
-			t.Errorf("dim %dx%d: expected Dashboard bottom line to be footer with 'claude' or 'board', got: %q", dim.w, dim.h, lastDashLine)
+		// The help string wraps at narrower widths, but "?: help" is the last
+		// fragment of every footer, so it lands on the bottom line regardless.
+		if !strings.Contains(lastDashLine, "help") {
+			t.Errorf("dim %dx%d: expected Dashboard bottom line to be the footer ending in 'help', got: %q", dim.w, dim.h, lastDashLine)
 		}
 
 		// 2. Detail view with description: footer must be on bottom line
@@ -2274,6 +2258,168 @@ func TestEmptyStateKeepsHeadersPinned(t *testing.T) {
 		}
 		if len(lines) != height {
 			t.Errorf("%s: rendered %d lines, want %d", surface.name, len(lines), height)
+		}
+	}
+}
+
+// dashboardModel is boardModel's sibling: a loaded dashboard, past the lead
+// selector, sized for a normal terminal.
+func dashboardModel(t *testing.T, store *testStore, width, height int) Model {
+	t.Helper()
+	m := NewModel(setupTestService(store))
+	m.width = width
+	m.height = height
+	m.recalculateTableLayout()
+	newM, _ := m.Update(m.listDossiersCmd()())
+	m = enterDashboard(t, newM.(Model))
+	if m.currentView != ViewDashboard {
+		t.Fatalf("expected ViewDashboard, got %v", m.currentView)
+	}
+	return m
+}
+
+// detailModel opens the first dossier so the detail-only verbs have a target.
+func detailModel(t *testing.T, store *testStore, id string, width, height int) Model {
+	t.Helper()
+	m := dashboardModel(t, store, width, height)
+	newM, _ := m.Update(m.recallDossierCmd(id)())
+	m = newM.(Model)
+	if m.currentView != ViewDetail {
+		t.Fatalf("expected ViewDetail, got %v", m.currentView)
+	}
+	return m
+}
+
+// TestNextActionIsDetailOnly pins the verb split the footers advertise: the next
+// action is free text that only makes sense once you have read the dossier, so
+// the key that edits it lives on the surface that shows one.
+func TestNextActionIsDetailOnly(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "dos1", "Alpha", core.StatusSpark)
+
+	board := boardModel(t, store, 120, 40)
+	if m, _ := press(t, board, "n"); m.currentView != ViewKanban {
+		t.Errorf("'n' from the board gave %v, want ViewKanban", m.currentView)
+	}
+
+	m := detailModel(t, store, "dos1", 120, 40)
+	m, _ = press(t, m, "n")
+	if m.currentView != ViewNextActionEditor {
+		t.Fatalf("'n' from the detail view gave %v, want ViewNextActionEditor", m.currentView)
+	}
+	if m.nextActionInput.CharLimit != core.MaxNextActionLength {
+		t.Errorf("next action character limit = %d, want %d", m.nextActionInput.CharLimit, core.MaxNextActionLength)
+	}
+	m.nextActionInput.SetValue("Draft the pricing memo")
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(Model)
+	if cmd == nil {
+		t.Fatal("expected the next action editor to return a save command")
+	}
+	newM, _ = m.Update(cmd())
+	m = newM.(Model)
+	if m.currentView != ViewDetail {
+		t.Errorf("saving the next action left the detail view for %v", m.currentView)
+	}
+	if got := store.dossiers["dos1"].Frontmatter.NextAction; got != "Draft the pricing memo" {
+		t.Errorf("stored next action = %q, want the edited value", got)
+	}
+}
+
+// TestLinkAndMergeAreDashboardOnly covers the other half of the split: both
+// verbs need a list to pick a target from, and the board's stage columns are a
+// poor picker.
+func TestLinkAndMergeAreDashboardOnly(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "dos1", "Alpha", core.StatusSpark)
+	seedDossier(store, "dos2", "Beta", core.StatusSpark)
+
+	board := boardModel(t, store, 120, 40)
+	for _, k := range []string{"k", "m"} {
+		if m, _ := press(t, board, k); m.currentView != ViewKanban {
+			t.Errorf("%q from the board gave %v, want ViewKanban", k, m.currentView)
+		}
+	}
+
+	dash := dashboardModel(t, store, 120, 40)
+	if m, _ := press(t, dash, "k"); m.currentView != ViewLinkInput {
+		t.Errorf("'k' from the dashboard gave %v, want ViewLinkInput", m.currentView)
+	}
+	if m, _ := press(t, dash, "m"); m.currentView != ViewMergeSelector {
+		t.Errorf("'m' from the dashboard gave %v, want ViewMergeSelector", m.currentView)
+	}
+}
+
+// TestHelpOverlay is what makes the short footers honest: every key a surface
+// stopped advertising has to still be one press away, and getting back out must
+// return to the surface the user was on.
+func TestHelpOverlay(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "dos1", "Alpha", core.StatusSpark)
+
+	for _, surface := range []struct {
+		name string
+		open func(*testing.T) Model
+	}{
+		{"dashboard", func(t *testing.T) Model { return dashboardModel(t, store, 100, 30) }},
+		{"board", func(t *testing.T) Model { return boardModel(t, store, 100, 30) }},
+		{"detail", func(t *testing.T) Model { return detailModel(t, store, "dos1", 100, 30) }},
+	} {
+		origin := surface.open(t)
+		from := origin.currentView
+
+		m, _ := press(t, origin, "?")
+		if m.currentView != ViewHelp {
+			t.Fatalf("%s: '?' gave %v, want ViewHelp", surface.name, m.currentView)
+		}
+
+		out := stripANSI(m.View())
+		// Every key that left a footer must be findable here.
+		for _, want := range []string{"i", "q", "r", "n", "k", "m", "e", "a", "b", "f", "/"} {
+			if !strings.Contains(out, "  "+padCell(want, helpKeyWidth)) {
+				t.Errorf("%s: help overlay is missing the %q row:\n%s", surface.name, want, out)
+			}
+		}
+
+		lines := strings.Split(out, "\n")
+		if len(lines) != 30 {
+			t.Errorf("%s: help overlay rendered %d lines, want 30", surface.name, len(lines))
+		}
+		for i, line := range lines {
+			if w := lipgloss.Width(line); w > 100 {
+				t.Errorf("%s: help line %d is %d cells wide, want <= 100: %q", surface.name, i, w, line)
+			}
+		}
+
+		// Any key closes it — a reference card is not a mode.
+		back, _ := press(t, m, "x")
+		if back.currentView != from {
+			t.Errorf("%s: closing help gave %v, want %v", surface.name, back.currentView, from)
+		}
+	}
+}
+
+// TestHelpOverlayFitsSmallTerminal guards the two-column split: at 80x24 the
+// whole reference has to be on screen at once, or "any key closes it" starts
+// hiding rows the footers no longer mention.
+func TestHelpOverlayFitsSmallTerminal(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "dos1", "Alpha", core.StatusSpark)
+
+	for _, dim := range []struct{ w, h int }{{80, 24}, {60, 24}, {140, 40}} {
+		m := dashboardModel(t, store, dim.w, dim.h)
+		newM, _ := m.Update(tea.WindowSizeMsg{Width: dim.w, Height: dim.h})
+		m, _ = press(t, newM.(Model), "?")
+
+		body := strings.Split(stripANSI(m.renderHelp()), "\n")
+		budget := dim.h - 4 - m.footerHeight(ViewHelp)
+		if len(body) > budget {
+			t.Errorf("%dx%d: help body is %d lines, budget is %d", dim.w, dim.h, len(body), budget)
+		}
+		for i, line := range body {
+			if w := lipgloss.Width(line); w > dim.w {
+				t.Errorf("%dx%d: help line %d is %d cells wide: %q", dim.w, dim.h, i, w, line)
+			}
 		}
 	}
 }
