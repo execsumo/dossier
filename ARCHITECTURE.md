@@ -372,6 +372,21 @@ The TUI is the one caller that filters repeatedly — once per keystroke — so 
 
 `dossier_artifact` / `dossier_artifacts` (MCP), `dossier artifact <dossier> [<artifact>] [-L a-b]` (CLI), and the `a` key from the TUI's detail view (evidence index, then enter to fetch one artifact's content) are the three surfaces over the same `Service` methods.
 
+**External links and contextual overlays.** `core.ParseExternalLinks` parses the
+canonical Markdown link line beneath `## References` and `## Active Monitors`.
+`RecallResult` returns the two section-aware collections without making either
+one an Archive artifact: a reference is navigational context, while a monitor
+adds a polling obligation; captured results remain ordinary `source_snapshot`,
+`query`, or `link` artifacts. The TUI uses a layered overlay stack over its
+dashboard/detail base surface. Filters, references, monitors, the artifact
+index, and nested artifact content all share the same contextual modal frame,
+cursor/windowing, and `esc` pop behavior, so sub-details retain their parent
+Dossier context. External labels render as terminal hyperlinks and `enter`
+launches the validated HTTP(S) URL through the platform opener. Lip Gloss v1
+remains in place for the Bubbles widgets; Lip Gloss v2 supplies only the
+compositor and hyperlink rendering until a coordinated Bubbles upgrade is
+appropriate.
+
 ---
 
 ## 10. Testing strategy (how the acceptance criteria get met)

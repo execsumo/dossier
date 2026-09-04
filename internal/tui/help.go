@@ -52,20 +52,23 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 	case ViewDetail:
 		contextual = []bubbleskey.Binding{
 			tuiHelpKey("e", "edit"), tuiHelpKey("r", "rename"),
-			tuiHelpKey("a", "artifacts"), tuiHelpKey("o", "open in editor"),
+			tuiHelpKey("a", "artifacts"), tuiHelpKey("l", "references"), tuiHelpKey("m", "monitors"), tuiHelpKey("o", "open in editor"),
 			tuiHelpKey("c", "open agent"), tuiHelpKey("v", "view"),
 		}
 		shortContextual = []bubbleskey.Binding{
-			tuiHelpKey("a", "artifacts"), tuiHelpKey("v", "view"),
+			tuiHelpKey("a", "artifacts"), tuiHelpKey("l", "refs"), tuiHelpKey("m", "monitors"), tuiHelpKey("v", "view"),
 		}
 	case ViewLeadSelector:
-		contextual = []bubbleskey.Binding{tuiHelpKey("esc", "cancel"), tuiHelpKey("enter", "select")}
+		contextual = []bubbleskey.Binding{tuiHelpKey("tab", "interface"), tuiHelpKey("esc", "cancel"), tuiHelpKey("enter", "apply")}
 		shortContextual = contextual
 	case ViewArtifactIndex:
 		contextual = []bubbleskey.Binding{tuiHelpKey("esc", "back"), tuiHelpKey("enter", "view artifact")}
 		shortContextual = []bubbleskey.Binding{tuiHelpKey("esc", "back")}
 	case ViewArtifactContent:
 		contextual = []bubbleskey.Binding{tuiHelpKey("esc", "back")}
+		shortContextual = contextual
+	case ViewReferences, ViewActiveMonitors:
+		contextual = []bubbleskey.Binding{tuiHelpKey("enter", "open link"), tuiHelpKey("esc", "close")}
 		shortContextual = contextual
 	default:
 		contextual = []bubbleskey.Binding{tuiHelpKey("esc", "back")}

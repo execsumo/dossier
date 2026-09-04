@@ -1,6 +1,6 @@
 # Dossier / chainlink — Handoff
 
-> Updated: 2026-09-02
+> Updated: 2026-09-04
 > Purpose: the entry point for the dev agent picking up implementation. Read this first.
 
 ## Start here (reading order)
@@ -54,6 +54,7 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 
 > - **Configurable interface and lead vocabularies (2026-09-03):** Machine-local `config.yaml` now owns ordered `interfaces` and `leads` lists. Omitted interfaces retain the legacy seven defaults; an empty lead list preserves free-form assignment, while a nonempty list constrains new assignments. Core Service validation, TUI selectors/autocomplete, and MCP schemas share these values. Removed legacy values remain readable and do not block unrelated edits.
 > - **Global token limit in `config.yaml` & TUI polish (2026-09-03):** (1) **Configurable token warning limit** — moved the global token limit into machine-local `config.yaml` as `token_limit` (integer, default `100000`). Wire schema accepts legacy `token_target` on read for backward compatibility. Core `Recall` warning threshold uses this configured value. (2) **TUI layout & branding convergence** — subheadline tagline updated to `"Durable episodic memory and delegation layer"` across all views; table column sequence updated to `Dossier, Priority, Stage, Lead, Due` with "Status" rebranded to "Stage" in user-facing views; `viewDetail` metadata sequence aligned with `viewDashboard` (`Dossier`, `Priority`, `Stage`, `Lead`, `Due`, followed by `Interfaces`, `Tokens`, `Next`); dynamic terminal width budgeting converges footers flush to the terminal bottom; table headers styled with `metaLabelStyle` purple.
+> - **External references and contextual overlays (2026-09-04):** Added the pure `core.ParseExternalLinks` view over `## References` and `## Active Monitors`, returned alongside `RecallResult` without promoting navigational pointers or polling registrations into Archive artifacts. The TUI now renders filters, references, active monitors, artifacts, and nested artifact content through a contextual overlay stack over the parent surface; external labels are OSC-8 clickable and `enter` opens validated HTTP(S) URLs. Lip Gloss v2 is additive for compositor/hyperlink support while Bubbles remains on Lip Gloss v1.
 
 > **Rename titles or slugs (2026-09-04):** Explicit renames now use `Service.Rename`, CLI `dossier rename`, MCP `dossier_rename`, or `s` from TUI detail. The user can choose a display title or canonical slug (slug remains the default); slug changes move the complete directory atomically while title changes keep its path. Generic Save/Write still rejects slug mutation. See ADR 0007.
 >

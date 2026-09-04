@@ -39,11 +39,13 @@ type Service struct {
 
 // RecallResult carries the output fields for dossier recall queries.
 type RecallResult struct {
-	DistilledState string      `json:"distilled_state"`
-	Frontmatter    Frontmatter `json:"frontmatter"`
-	Revision       Revision    `json:"revision"`
-	TokenEstimate  int         `json:"token_estimate"`
-	Path           string      `json:"path"`
+	DistilledState string         `json:"distilled_state"`
+	Frontmatter    Frontmatter    `json:"frontmatter"`
+	Revision       Revision       `json:"revision"`
+	TokenEstimate  int            `json:"token_estimate"`
+	Path           string         `json:"path"`
+	References     []ExternalLink `json:"references,omitempty"`
+	ActiveMonitors []ExternalLink `json:"active_monitors,omitempty"`
 	// Artifacts is the evidence index: one entry per archived artifact, with
 	// the line count that bounds a citable range and whether the Distilled
 	// State currently cites it. Recall previously returned the curated view
@@ -1610,11 +1612,12 @@ func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
 
 	index, indexWarnings := s.evidenceIndex(d.Frontmatter.ID, d.DistilledState.Body)
 	warnings = append(warnings, indexWarnings...)
+	externalLinks := ParseExternalLinks(d.DistilledState.Body)
 
 	dossierPath := filepath.Join(s.cfg.DossierHome, d.Frontmatter.Slug)
 	return Result{
 		OK:       true,
-		Data:     RecallResult{DistilledState: d.DistilledState.Body, Frontmatter: d.Frontmatter, Revision: rev, TokenEstimate: tokens, Path: dossierPath, Artifacts: index},
+		Data:     RecallResult{DistilledState: d.DistilledState.Body, Frontmatter: d.Frontmatter, Revision: rev, TokenEstimate: tokens, Path: dossierPath, Artifacts: index, References: externalLinks.References, ActiveMonitors: externalLinks.ActiveMonitors},
 		Warnings: warnings,
 	}, nil
 }

@@ -54,6 +54,10 @@ const (
 	// change may move the complete backing directory in one store operation. The
 	// view also supports an explicit title rename.
 	ViewRenameSlug
+	// ViewReferences and ViewActiveMonitors are contextual overlays over dossier
+	// detail. They share the same external-link rows but differ in polling meaning.
+	ViewReferences
+	ViewActiveMonitors
 )
 
 // leadFilterKind enumerates the three ways the dashboard can be scoped by lead.
@@ -271,8 +275,10 @@ type targetDossier struct {
 
 // Model holds the application state.
 type Model struct {
-	svc         *core.Service
-	currentView View
+	svc          *core.Service
+	currentView  View
+	overlayBase  View
+	overlayStack []View
 
 	// listView records which home surface — the dashboard table or the Kanban
 	// board — the user last chose. Every "go back" path returns here rather than
@@ -367,9 +373,10 @@ type Model struct {
 	kanbanRow     int
 
 	// Artifact index / content view state
-	artifactIndex   []core.ArtifactSummary
-	artifactCursor  int
-	artifactContent core.ArtifactContent
+	artifactIndex      []core.ArtifactSummary
+	artifactCursor     int
+	artifactContent    core.ArtifactContent
+	externalLinkCursor int
 
 	// Cached markdown renderer, rebuilt only when the wrap width changes.
 	mdRenderer      *glamour.TermRenderer
@@ -382,6 +389,7 @@ type Model struct {
 	openWith     string
 	planOpenWith func(string, harness.LaunchRequest) (harness.HandoffPlan, error)
 	execProcess  func(*exec.Cmd, tea.ExecCallback) tea.Cmd
+	openURL      func(string) tea.Cmd
 
 	watcher      *fsnotify.Watcher
 	updateChan   chan string
@@ -477,6 +485,7 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		svc:                  svc,
 		currentView:          ViewDashboard,
 		listView:             ViewDashboard,
+		overlayBase:          ViewDashboard,
 		table:                t,
 		viewport:             vp,
 		artifactViewport:     avp,
@@ -495,6 +504,7 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		openWith:             openWith,
 		planOpenWith:         harness.PlanOpenWith,
 		execProcess:          tea.ExecProcess,
+		openURL:              launchExternalURL,
 	}
 }
 
@@ -945,7 +955,7 @@ func (m *Model) rowToItemIndex(idx int) (itemIdx int, isToggle bool) {
 // rebuilt from current data, and the cursor parked on the active filter.
 func (m *Model) openLeadSelector() {
 	m.previousView = m.currentView
-	m.currentView = ViewLeadSelector
+	m.pushOverlay(ViewLeadSelector)
 
 	m.leadSearch = textinput.New()
 	m.leadSearch.Placeholder = "Type a lead's name to search…"
@@ -970,7 +980,10 @@ func (m *Model) chooseLead() {
 	}
 	m.applyFilters()
 	m.populateTableRows()
-	m.currentView = m.listView
+	m.popOverlay()
+	if m.currentView != m.listView {
+		m.currentView = m.listView
+	}
 	m.table.SetCursor(0)
 	m.table.Focus()
 }
@@ -1235,7 +1248,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// View-specific key overrides
-		if msg.String() == "?" && (m.isListView() || m.currentView == ViewDetail || m.currentView == ViewArtifactIndex || m.currentView == ViewArtifactContent) {
+		if msg.String() == "?" && (m.isListView() || m.currentView == ViewDetail || m.currentView == ViewArtifactIndex || m.currentView == ViewArtifactContent || m.currentView == ViewReferences || m.currentView == ViewActiveMonitors) {
 			m.toggleHelp()
 			return m, nil
 		}
@@ -1290,9 +1303,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// "show everything"; reopened via 'f' it cancels the change.
 				m.applyFilters()
 				m.populateTableRows()
-				m.currentView = m.listView
+				m.popOverlay()
 				m.table.SetCursor(0)
 				m.table.Focus()
+				return m, nil
+			case "tab":
+				m.interfaceFilter = nextInterfaceFilter(m.interfaceFilter, m.configuredInterfaces)
+				m.applyFilters()
+				m.populateTableRows()
 				return m, nil
 			case "up", "ctrl+p":
 				if len(m.leadResults) > 0 {
@@ -1392,7 +1410,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewArtifactIndex:
 			switch msg.String() {
 			case "esc":
-				m.currentView = ViewDetail
+				m.popOverlay()
 				m.err = nil
 				return m, nil
 			case "up", "k":
@@ -1415,12 +1433,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewArtifactContent:
 			switch msg.String() {
 			case "esc":
-				m.currentView = ViewArtifactIndex
+				m.popOverlay()
 				m.err = nil
 				return m, nil
 			}
 			m.artifactViewport, cmd = m.artifactViewport.Update(msg)
 			return m, cmd
+
+		case ViewReferences, ViewActiveMonitors:
+			switch msg.String() {
+			case "esc":
+				m.popOverlay()
+				m.err = nil
+				return m, nil
+			case "up", "k":
+				links := m.recallResult.References
+				if m.currentView == ViewActiveMonitors {
+					links = m.recallResult.ActiveMonitors
+				}
+				if len(links) > 0 {
+					m.externalLinkCursor = (m.externalLinkCursor - 1 + len(links)) % len(links)
+				}
+			case "down", "j":
+				links := m.recallResult.References
+				if m.currentView == ViewActiveMonitors {
+					links = m.recallResult.ActiveMonitors
+				}
+				if len(links) > 0 {
+					m.externalLinkCursor = (m.externalLinkCursor + 1) % len(links)
+				}
+			case "enter":
+				return m, m.openSelectedExternalLink()
+			}
+			return m, nil
 
 		case ViewEdit:
 			return m.updateEditor(msg)
@@ -1510,6 +1555,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = nil
 				return m, m.listArtifactsCmd(m.recallResult.Frontmatter.ID)
 			}
+		case "l":
+			if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
+				m.externalLinkCursor = 0
+				m.pushOverlay(ViewReferences)
+				return m, nil
+			}
+		case "m":
+			if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
+				m.externalLinkCursor = 0
+				m.pushOverlay(ViewActiveMonitors)
+				return m, nil
+			}
+			// Dashboard only, for the same reason as k, and because a merge is
+			// consequential enough to deserve the deliberate surface.
+			if m.currentView == ViewDashboard {
+				if t, ok := m.getTargetDossier(); ok && t.id != "" {
+					m.startMergeSelector(t.id, t.name)
+					return m, nil
+				}
+			}
 		case "f":
 			if m.isListView() {
 				m.openLeadSelector()
@@ -1536,15 +1601,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentView == ViewDashboard {
 				m.startLinkInput()
 				return m, nil
-			}
-		case "m":
-			// Dashboard only, for the same reason as k, and because a merge is
-			// consequential enough to deserve the deliberate surface.
-			if m.currentView == ViewDashboard {
-				if t, ok := m.getTargetDossier(); ok && t.id != "" {
-					m.startMergeSelector(t.id, t.name)
-					return m, nil
-				}
 			}
 		case "v":
 			// The board leg is handled in its view-specific block. From detail,
@@ -1677,7 +1733,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.err = msg.err
 		} else {
-			m.currentView = ViewArtifactIndex
+			m.pushOverlay(ViewArtifactIndex)
 			m.artifactIndex = msg.index
 			m.artifactCursor = 0
 			m.err = nil
@@ -1688,7 +1744,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.err = msg.err
 		} else {
-			m.currentView = ViewArtifactContent
+			m.pushOverlay(ViewArtifactContent)
 			m.artifactContent = msg.content
 			m.warnings = msg.warnings
 			m.artifactViewport.SetContent(renderArtifactContent(msg.content))
@@ -1808,7 +1864,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dossierUpdatedMsg:
 		cmds = append(cmds, waitForUpdate(m.updateChan))
-		if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
+		if (m.currentView == ViewDetail || m.currentView == ViewReferences || m.currentView == ViewActiveMonitors) && m.recallResult.Frontmatter.ID != "" {
 			m.loading = true
 			cmds = append(cmds, m.recallDossierCmd(m.recallResult.Frontmatter.ID))
 		} else if m.isListView() || m.currentView == ViewLeadSelector {
@@ -2123,7 +2179,10 @@ func (m Model) renderLeadSelector() string {
 // cursor. The constant reserves space for the screen chrome (title, subtitle,
 // box padding, intro line, search box, the two "more" indicators, help, footer).
 func (m Model) leadVisibleRows() int {
-	const chrome = 14
+	chrome := 14
+	if m.hasOverlay() {
+		chrome = 18
+	}
 	rows := m.height - chrome
 	if rows < 3 {
 		rows = 3
@@ -2447,8 +2506,17 @@ func pinEmptyNotice(view, notice string, headerLines int) string {
 	return strings.Join(lines, "\n")
 }
 
-// View renders the screen based on state.
+// View renders the base screen and any contextual overlays based on state.
 func (m Model) View() string {
+	if m.hasOverlay() {
+		return m.renderLayeredView()
+	}
+	return m.renderNormalView()
+}
+
+// renderNormalView renders a single full-screen surface. Overlay rendering
+// calls this with the underlying base view so the parent remains visible.
+func (m Model) renderNormalView() string {
 	if m.width == 0 || m.height == 0 {
 		return "Initializing TUI..."
 	}
@@ -2545,31 +2613,8 @@ func (m Model) View() string {
 	case ViewArtifactIndex:
 		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Evidence Index: %s", subheadline, m.recallResult.Frontmatter.Name)))
 		sb.WriteString("\n\n")
-		if len(m.artifactIndex) == 0 {
-			sb.WriteString(" No artifacts archived for this dossier.\n")
-		} else {
-			start, end := m.artifactWindow()
-			if start > 0 {
-				sb.WriteString(subtitleStyle.Render(fmt.Sprintf("  ↑ %d more above\n", start)))
-			}
-			for i := start; i < end; i++ {
-				a := m.artifactIndex[i]
-				cited := "uncited"
-				if a.Cited {
-					cited = "cited"
-				}
-				row := fmt.Sprintf("%-28s %-18s %6d lines  %-8s %s", a.ID, a.Type, a.Lines, cited, a.Title)
-				if i == m.artifactCursor {
-					sb.WriteString(focusedItemStyle.Render("> " + row))
-				} else {
-					sb.WriteString("  " + row)
-				}
-				sb.WriteString("\n")
-			}
-			if end < len(m.artifactIndex) {
-				sb.WriteString(subtitleStyle.Render(fmt.Sprintf("  ↓ %d more below\n", len(m.artifactIndex)-end)))
-			}
-		}
+		sb.WriteString(m.renderArtifactIndexBody())
+		sb.WriteString("\n")
 
 	case ViewArtifactContent:
 		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Artifact", subheadline)))
