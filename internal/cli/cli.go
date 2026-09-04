@@ -99,7 +99,7 @@ func NewRootCmd() *cobra.Command {
 			if _, statErr := os.Stat(cfgPath); os.IsNotExist(statErr) {
 				cfg := config.Default()
 				cfg.DossierHome = homeDir
-				if err := cfg.Save(cfgPath); err != nil {
+				if err := cfg.SaveDefault(cfgPath); err != nil {
 					fmt.Printf("Error writing config: %v\n", err)
 					os.Exit(1)
 				}
@@ -1769,7 +1769,7 @@ func wireWithConfig(dossierHome string) (*core.Service, *config.Config, error) {
 
 	// Write default config to disk if not exists
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-		if err := cfg.Save(cfgPath); err != nil {
+		if err := cfg.SaveDefault(cfgPath); err != nil {
 			return nil, nil, fmt.Errorf("failed to save default config: %w", err)
 		}
 	}

@@ -71,6 +71,7 @@ func Default() *Config {
 		Author:      author,
 		OpenWith:    "claude-code",
 		Interfaces:  core.DefaultDiscussionInterfaces(),
+		Leads:       []string{},
 		TokenLimit:  core.DefaultTokenLimit,
 	}
 }
@@ -115,14 +116,36 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+const defaultConfigHelp = `# Dossier configuration. Edit the lists below as needed.
+# Interfaces are exact, case-sensitive values used to categorize Dossiers.
+# Leads are optional: leave the list empty for free-form lead names, or add
+# names to restrict lead assignments to that vocabulary.
+# Example leads:
+#   - Alice
+#   - Bob
+`
+
 // Save marshals and writes the configuration to a YAML file.
 func (c *Config) Save(path string) error {
+	return c.save(path, false)
+}
+
+// SaveDefault marshals and writes a newly generated configuration with inline
+// guidance for the user-editable interface and lead lists.
+func (c *Config) SaveDefault(path string) error {
+	return c.save(path, true)
+}
+
+func (c *Config) save(path string, includeHelp bool) error {
 	if err := c.validateValues(); err != nil {
 		return err
 	}
 	data, err := yaml.Marshal(c)
 	if err != nil {
 		return err
+	}
+	if includeHelp {
+		data = append([]byte(defaultConfigHelp), data...)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err

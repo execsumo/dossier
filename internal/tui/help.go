@@ -42,12 +42,12 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 	case ViewKanban:
 		contextual = []bubbleskey.Binding{
 			tuiHelpKey("/", "search"), tuiHelpKey("f", "lead filter"),
-			tuiHelpKey("i", "interface filter"), tuiHelpKey("v", "view"),
+			tuiHelpKey("i", "interface filter"), tuiHelpKey("v", "dashboard"),
 			tuiHelpKey("e", "edit"), tuiHelpKey("c", "open agent"),
 		}
 		shortContextual = []bubbleskey.Binding{
 			tuiHelpKey("/", "search"), tuiHelpKey("f", "filters"),
-			tuiHelpKey("v", "view"),
+			tuiHelpKey("v", "dashboard"),
 		}
 	case ViewDetail:
 		contextual = []bubbleskey.Binding{

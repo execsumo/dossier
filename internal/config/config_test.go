@@ -90,6 +90,34 @@ func TestLoadValueLists(t *testing.T) {
 	})
 }
 
+func TestSaveDefaultIncludesValueListGuidance(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := Default().SaveDefault(path); err != nil {
+		t.Fatalf("SaveDefault() failed: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	written := string(data)
+	for _, want := range []string{
+		"# Interfaces are exact, case-sensitive values",
+		"# Leads are optional: leave the list empty for free-form lead names",
+		"#   - Alice",
+		"interfaces:\n",
+		"leads: []\n",
+	} {
+		if !strings.Contains(written, want) {
+			t.Fatalf("generated config missing %q:\n%s", want, written)
+		}
+	}
+
+	if _, err := Load(path); err != nil {
+		t.Fatalf("generated config did not load: %v", err)
+	}
+}
+
 func TestLoadLegacyConfigAndSaveCanonical(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	legacy := `dossier_home: /tmp/dossiers

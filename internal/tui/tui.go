@@ -1254,13 +1254,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.table.Focus()
 				return m, nil
 			case "v":
-				if item, ok := m.selectedKanbanItem(); ok && item.ID != "" {
-					m.loading = true
-					m.err = nil
-					return m, m.recallDossierCmd(item.ID)
-				}
-				// An empty board has no detail target, so complete the cycle by
-				// returning to the table.
+				// v is the board's view toggle: always return to the dashboard.
 				m.listView = ViewDashboard
 				m.currentView = ViewDashboard
 				m.table.Focus()

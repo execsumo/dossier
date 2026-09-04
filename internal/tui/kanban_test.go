@@ -504,27 +504,24 @@ func TestKanbanToggleAndTextInputIsolation(t *testing.T) {
 	seedDossier(store, "s1", "Spark One", core.StatusSpark)
 	m := boardModel(t, store, 140, 40)
 
-	// 'v' opens detail, where it behaves like back and returns to the board.
+	// 'v' from the board always returns to the dashboard, even with a card
+	// selected. Detail remains reachable with Enter.
 	m, cmd := press(t, m, "v")
-	if cmd == nil {
-		t.Fatal("'v' from the board should open the selected dossier")
+	if cmd != nil {
+		t.Fatal("'v' from the board should not recall a dossier")
 	}
-	newM, _ := m.Update(cmd())
-	m = newM.(Model)
-	if m.currentView != ViewDetail {
-		t.Fatalf("'v' from the board gave currentView=%v, want detail", m.currentView)
+	if m.currentView != ViewDashboard || m.listView != ViewDashboard {
+		t.Fatalf("'v' from the board gave currentView=%v listView=%v, want dashboard", m.currentView, m.listView)
 	}
+
+	// The same shortcut from the dashboard still enters the board.
 	m, _ = press(t, m, "v")
 	if m.currentView != ViewKanban || m.listView != ViewKanban {
-		t.Fatalf("'v' from detail gave currentView=%v listView=%v", m.currentView, m.listView)
+		t.Fatalf("'v' from the dashboard gave currentView=%v listView=%v", m.currentView, m.listView)
 	}
 	m, _ = press(t, m, "esc")
 	if m.currentView != ViewDashboard {
 		t.Fatalf("esc from the board gave currentView=%v", m.currentView)
-	}
-	m, _ = press(t, m, "v")
-	if m.currentView != ViewKanban || m.listView != ViewKanban {
-		t.Fatalf("'v' from the dashboard gave currentView=%v listView=%v", m.currentView, m.listView)
 	}
 
 	// esc is the other way out of the board.
@@ -552,7 +549,7 @@ func TestKanbanToggleAndTextInputIsolation(t *testing.T) {
 	}
 
 	// Saving returns to the home surface where the editor was opened.
-	newM, cmd = m.Update(key("enter"))
+	newM, cmd := m.Update(key("enter"))
 	m = newM.(Model)
 	if cmd == nil {
 		t.Fatal("expected enter to return a save command")
