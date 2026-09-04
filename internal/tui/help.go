@@ -22,7 +22,6 @@ var helpSections = []helpSection{
 		{"e", "edit stage, priority,"},
 		{"", "due, lead, next action"},
 		{"c", "open in Claude"},
-		{"r", "reload from disk"},
 		{"q", "quit"},
 		{"?", "this help"},
 	}},
@@ -37,7 +36,7 @@ var helpSections = []helpSection{
 		{"m", "merge into another dossier"},
 	}},
 	{"Detail only", [][2]string{
-		{"s", "rename title or canonical slug"},
+		{"r", "rename title or canonical slug"},
 		{"a", "browse archived artifacts"},
 		{"o", "open dossier.md in $EDITOR"},
 	}},

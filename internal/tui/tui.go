@@ -1427,13 +1427,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-		case "r":
-			m.loading = true
-			m.err = nil
-			if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
-				return m, m.recallDossierCmd(m.recallResult.Frontmatter.ID)
-			}
-			return m, m.listDossiersCmd()
 		case "enter", "right":
 			if m.currentView == ViewDashboard {
 				itemIdx, isToggle := m.rowToItemIndex(m.table.Cursor())
@@ -1455,7 +1448,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.recallDossierCmd(dossierID)
 				}
 			}
-		case "s":
+		case "r":
 			if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
 				m.startSlugRename()
 				return m, nil
@@ -2359,7 +2352,7 @@ func (m Model) footerContent(v View) string {
 	case ViewLeadSelector:
 		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
 	case ViewDetail:
-		keyHelp = "e: edit • s: rename • a: artifacts • o: editor • c: claude • ?: help"
+		keyHelp = "e: edit • r: rename • a: artifacts • o: editor • c: claude • ?: help"
 	case ViewArtifactIndex:
 		keyHelp = "↑/↓: select • enter: view artifact • esc: back"
 	case ViewArtifactContent:

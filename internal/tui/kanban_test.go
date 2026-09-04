@@ -321,7 +321,7 @@ func TestDetailSlugRenameKeepsIDAndReturnsToDetail(t *testing.T) {
 	if m.currentView != ViewDetail {
 		t.Fatalf("expected detail, got %v", m.currentView)
 	}
-	m, _ = press(t, m, "s")
+	m, _ = press(t, m, "r")
 	if m.currentView != ViewRenameSlug || m.renameSlugInput.Value() != "spark-one" {
 		t.Fatalf("rename view = %v, input = %q", m.currentView, m.renameSlugInput.Value())
 	}
@@ -356,7 +356,7 @@ func TestDetailTitleRenameKeepsSlug(t *testing.T) {
 	m, cmd := press(t, m, "enter")
 	newM, _ := m.Update(cmd())
 	m = newM.(Model)
-	m, _ = press(t, m, "s")
+	m, _ = press(t, m, "r")
 	m, _ = press(t, m, "tab")
 	if m.renameField != renameNameField {
 		t.Fatal("tab did not select title")
