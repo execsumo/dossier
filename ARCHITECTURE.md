@@ -378,14 +378,14 @@ canonical Markdown link line beneath `## References` and `## Active Monitors`.
 one an Archive artifact: a reference is navigational context, while a monitor
 adds a polling obligation; captured results remain ordinary `source_snapshot`,
 `query`, or `link` artifacts. The TUI uses a layered overlay stack over its
-dashboard/detail base surface. Filters, references, monitors, the artifact
-index, and nested artifact content all share the same contextual modal frame,
-cursor/windowing, and `esc` pop behavior, so sub-details retain their parent
-Dossier context. External labels render as terminal hyperlinks and `enter`
-launches the validated HTTP(S) URL through the platform opener. Lip Gloss v1
-remains in place for the Bubbles widgets; Lip Gloss v2 supplies only the
-compositor and hyperlink rendering until a coordinated Bubbles upgrade is
-appropriate.
+dashboard/detail base surface. Filters, the unified links view (Active Monitors
+first, References second), the artifact index, and nested artifact content all
+share the same contextual modal frame, cursor/windowing, and `esc` pop behavior,
+so sub-details retain their parent Dossier context. External labels render as
+terminal hyperlinks and `enter` launches the validated HTTP(S) URL through the
+platform opener. Lip Gloss v1 remains in place for the Bubbles widgets; Lip
+Gloss v2 supplies only the compositor and hyperlink rendering until a
+coordinated Bubbles upgrade is appropriate.
 
 ---
 

@@ -54,10 +54,9 @@ const (
 	// change may move the complete backing directory in one store operation. The
 	// view also supports an explicit title rename.
 	ViewRenameSlug
-	// ViewReferences and ViewActiveMonitors are contextual overlays over dossier
-	// detail. They share the same external-link rows but differ in polling meaning.
-	ViewReferences
-	ViewActiveMonitors
+	// ViewLinks is a contextual overlay over dossier detail. It presents active
+	// monitors before passive references while preserving their distinct meaning.
+	ViewLinks
 )
 
 // leadFilterKind enumerates the three ways the dashboard can be scoped by lead.
@@ -1248,7 +1247,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// View-specific key overrides
-		if msg.String() == "?" && (m.isListView() || m.currentView == ViewDetail || m.currentView == ViewArtifactIndex || m.currentView == ViewArtifactContent || m.currentView == ViewReferences || m.currentView == ViewActiveMonitors) {
+		if msg.String() == "?" && (m.isListView() || m.currentView == ViewDetail || m.currentView == ViewArtifactIndex || m.currentView == ViewArtifactContent || m.currentView == ViewLinks) {
 			m.toggleHelp()
 			return m, nil
 		}
@@ -1440,25 +1439,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.artifactViewport, cmd = m.artifactViewport.Update(msg)
 			return m, cmd
 
-		case ViewReferences, ViewActiveMonitors:
+		case ViewLinks:
 			switch msg.String() {
 			case "esc":
 				m.popOverlay()
 				m.err = nil
 				return m, nil
 			case "up", "k":
-				links := m.recallResult.References
-				if m.currentView == ViewActiveMonitors {
-					links = m.recallResult.ActiveMonitors
-				}
+				links := m.externalLinkEntries()
 				if len(links) > 0 {
 					m.externalLinkCursor = (m.externalLinkCursor - 1 + len(links)) % len(links)
 				}
 			case "down", "j":
-				links := m.recallResult.References
-				if m.currentView == ViewActiveMonitors {
-					links = m.recallResult.ActiveMonitors
-				}
+				links := m.externalLinkEntries()
 				if len(links) > 0 {
 					m.externalLinkCursor = (m.externalLinkCursor + 1) % len(links)
 				}
@@ -1558,15 +1551,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "l":
 			if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
 				m.externalLinkCursor = 0
-				m.pushOverlay(ViewReferences)
+				m.pushOverlay(ViewLinks)
 				return m, nil
 			}
 		case "m":
-			if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
-				m.externalLinkCursor = 0
-				m.pushOverlay(ViewActiveMonitors)
-				return m, nil
-			}
 			// Dashboard only, for the same reason as k, and because a merge is
 			// consequential enough to deserve the deliberate surface.
 			if m.currentView == ViewDashboard {
@@ -1864,7 +1852,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dossierUpdatedMsg:
 		cmds = append(cmds, waitForUpdate(m.updateChan))
-		if (m.currentView == ViewDetail || m.currentView == ViewReferences || m.currentView == ViewActiveMonitors) && m.recallResult.Frontmatter.ID != "" {
+		if (m.currentView == ViewDetail || m.currentView == ViewLinks) && m.recallResult.Frontmatter.ID != "" {
 			m.loading = true
 			cmds = append(cmds, m.recallDossierCmd(m.recallResult.Frontmatter.ID))
 		} else if m.isListView() || m.currentView == ViewLeadSelector {

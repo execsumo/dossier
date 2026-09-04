@@ -33,11 +33,26 @@ var (
 				Foreground(lipgloss.Color("#B9B6D6"))
 	overlayMutedStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#B9B6D6"))
+	overlaySectionStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#B18CFF")).
+				Bold(true)
 )
+
+type externalLinkEntry struct {
+	link     core.ExternalLink
+	monitors bool
+}
+
+type externalLinkRow struct {
+	section    string
+	entry      externalLinkEntry
+	entryIndex int
+	empty      bool
+}
 
 func isOverlayView(v View) bool {
 	switch v {
-	case ViewLeadSelector, ViewArtifactIndex, ViewArtifactContent, ViewReferences, ViewActiveMonitors:
+	case ViewLeadSelector, ViewArtifactIndex, ViewArtifactContent, ViewLinks:
 		return true
 	default:
 		return false
@@ -61,7 +76,7 @@ func (m *Model) popOverlay() {
 		switch m.currentView {
 		case ViewLeadSelector:
 			m.currentView = m.previousView
-		case ViewArtifactIndex, ViewArtifactContent, ViewReferences, ViewActiveMonitors:
+		case ViewArtifactIndex, ViewArtifactContent, ViewLinks:
 			m.currentView = ViewDetail
 		}
 		return
@@ -147,10 +162,8 @@ func (m Model) overlayLabel(v View) string {
 	switch v {
 	case ViewLeadSelector:
 		return "Filters"
-	case ViewReferences:
-		return "References"
-	case ViewActiveMonitors:
-		return "Active Monitors"
+	case ViewLinks:
+		return "Links"
 	case ViewArtifactIndex:
 		return "Artifacts"
 	case ViewArtifactContent:
@@ -164,10 +177,8 @@ func (m Model) renderOverlayContent(v View) string {
 	switch v {
 	case ViewLeadSelector:
 		return m.renderFilterOverlay()
-	case ViewReferences:
-		return m.renderExternalLinks(m.recallResult.References, false)
-	case ViewActiveMonitors:
-		return m.renderExternalLinks(m.recallResult.ActiveMonitors, true)
+	case ViewLinks:
+		return m.renderExternalLinks()
 	case ViewArtifactIndex:
 		return m.renderArtifactIndexBody()
 	case ViewArtifactContent:
@@ -222,24 +233,83 @@ func (m Model) renderFilterOverlay() string {
 	return sb.String()
 }
 
-func (m Model) renderExternalLinks(links []core.ExternalLink, monitors bool) string {
-	if len(links) == 0 {
-		if monitors {
-			return overlayEmptyStyle.Render("No active monitors recorded.")
+func (m Model) externalLinkEntries() []externalLinkEntry {
+	entries := make([]externalLinkEntry, 0, len(m.recallResult.ActiveMonitors)+len(m.recallResult.References))
+	for _, link := range m.recallResult.ActiveMonitors {
+		entries = append(entries, externalLinkEntry{link: link, monitors: true})
+	}
+	for _, link := range m.recallResult.References {
+		entries = append(entries, externalLinkEntry{link: link})
+	}
+	return entries
+}
+
+func externalLinkRows(entries []externalLinkEntry) []externalLinkRow {
+	rows := make([]externalLinkRow, 0, len(entries)+4)
+	rows = append(rows, externalLinkRow{section: "Active Monitors"})
+	monitorCount := 0
+	for _, entry := range entries {
+		if entry.monitors {
+			rows = append(rows, externalLinkRow{entry: entry, entryIndex: monitorCount})
+			monitorCount++
 		}
-		return overlayEmptyStyle.Render("No references recorded.")
+	}
+	if monitorCount == 0 {
+		rows = append(rows, externalLinkRow{empty: true, entry: externalLinkEntry{monitors: true}})
 	}
 
-	start, end := centeredWindow(len(links), m.externalLinkCursor, m.overlayListVisibleRows())
+	rows = append(rows, externalLinkRow{section: "References"})
+	referenceCount := 0
+	for _, entry := range entries {
+		if !entry.monitors {
+			rows = append(rows, externalLinkRow{entry: entry, entryIndex: monitorCount + referenceCount})
+			referenceCount++
+		}
+	}
+	if referenceCount == 0 {
+		rows = append(rows, externalLinkRow{empty: true})
+	}
+	return rows
+}
+
+func (m Model) renderExternalLinks() string {
+	entries := m.externalLinkEntries()
+	rows := externalLinkRows(entries)
+	selectedRow := 0
+	if len(entries) > 0 {
+		for i, row := range rows {
+			if !row.empty && row.section == "" && row.entryIndex == m.externalLinkCursor {
+				selectedRow = i
+				break
+			}
+		}
+	}
+
+	start, end := centeredWindow(len(rows), selectedRow, m.overlayListVisibleRows())
 	var sb strings.Builder
 	if start > 0 {
 		sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↑ %d more above", start)))
 		sb.WriteString("\n")
 	}
 	for i := start; i < end; i++ {
-		link := links[i]
+		row := rows[i]
+		if row.section != "" {
+			sb.WriteString(overlaySectionStyle.Render(row.section))
+			sb.WriteString("\n")
+			continue
+		}
+		if row.empty {
+			message := "No references recorded."
+			if row.entry.monitors {
+				message = "No active monitors recorded."
+			}
+			sb.WriteString("  " + overlayEmptyStyle.Render(message))
+			sb.WriteString("\n")
+			continue
+		}
+		link := row.entry.link
 		prefix := "  "
-		if i == m.externalLinkCursor {
+		if row.entryIndex == m.externalLinkCursor {
 			prefix = "> "
 		}
 		label := fmt.Sprintf("[%s: %s]", link.Kind, link.Label)
@@ -248,23 +318,19 @@ func (m Model) renderExternalLinks(links []core.ExternalLink, monitors bool) str
 		if link.Description != "" {
 			line += " — " + link.Description
 		}
-		if monitors && link.LastPolled != "" {
+		if row.entry.monitors && link.LastPolled != "" {
 			line += "  " + overlayMutedStyle.Render("Last polled: "+link.LastPolled)
 		}
 		sb.WriteString(line)
 		sb.WriteString("\n")
 	}
-	if end < len(links) {
-		sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↓ %d more below", len(links)-end)))
+	if end < len(rows) {
+		sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↓ %d more below", len(rows)-end)))
 		sb.WriteString("\n")
 	}
 	sb.WriteString("\n")
 	sb.WriteString(overlayHintStyle.Render("enter open link · ↑/↓ move · esc close"))
 	return strings.TrimRight(sb.String(), "\n")
-}
-
-func (m Model) externalLinkWindow(links []core.ExternalLink) (int, int) {
-	return centeredWindow(len(links), m.externalLinkCursor, m.overlayListVisibleRows())
 }
 
 func (m Model) overlayListVisibleRows() int {
@@ -317,19 +383,14 @@ func (m Model) renderArtifactIndexBody() string {
 }
 
 func (m Model) openSelectedExternalLink() tea.Cmd {
-	var links []core.ExternalLink
-	if m.currentView == ViewReferences {
-		links = m.recallResult.References
-	} else {
-		links = m.recallResult.ActiveMonitors
-	}
+	links := m.externalLinkEntries()
 	if m.externalLinkCursor < 0 || m.externalLinkCursor >= len(links) {
 		return nil
 	}
-	parsed, err := url.Parse(links[m.externalLinkCursor].URL)
+	parsed, err := url.Parse(links[m.externalLinkCursor].link.URL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return func() tea.Msg {
-			return errMsg(fmt.Errorf("external link must be an absolute HTTP(S) URL: %q", links[m.externalLinkCursor].URL))
+			return errMsg(fmt.Errorf("external link must be an absolute HTTP(S) URL: %q", links[m.externalLinkCursor].link.URL))
 		}
 	}
 	if m.openURL != nil {

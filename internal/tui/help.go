@@ -52,11 +52,11 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 	case ViewDetail:
 		contextual = []bubbleskey.Binding{
 			tuiHelpKey("e", "edit"), tuiHelpKey("r", "rename"),
-			tuiHelpKey("a", "artifacts"), tuiHelpKey("l", "references"), tuiHelpKey("m", "monitors"), tuiHelpKey("o", "open in editor"),
+			tuiHelpKey("a", "artifacts"), tuiHelpKey("l", "links"), tuiHelpKey("o", "open in editor"),
 			tuiHelpKey("c", "open agent"), tuiHelpKey("v", "view"),
 		}
 		shortContextual = []bubbleskey.Binding{
-			tuiHelpKey("a", "artifacts"), tuiHelpKey("l", "refs"), tuiHelpKey("m", "monitors"), tuiHelpKey("v", "view"),
+			tuiHelpKey("a", "artifacts"), tuiHelpKey("l", "links"), tuiHelpKey("v", "view"),
 		}
 	case ViewLeadSelector:
 		contextual = []bubbleskey.Binding{tuiHelpKey("tab", "interface"), tuiHelpKey("esc", "cancel"), tuiHelpKey("enter", "apply")}
@@ -67,7 +67,7 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 	case ViewArtifactContent:
 		contextual = []bubbleskey.Binding{tuiHelpKey("esc", "back")}
 		shortContextual = contextual
-	case ViewReferences, ViewActiveMonitors:
+	case ViewLinks:
 		contextual = []bubbleskey.Binding{tuiHelpKey("enter", "open link"), tuiHelpKey("esc", "close")}
 		shortContextual = contextual
 	default:

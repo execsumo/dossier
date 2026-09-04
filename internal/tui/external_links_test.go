@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func TestExternalLinkOverlaysKeepDossierContextAndOpenSelectedURL(t *testing.T) {
+func TestLinksOverlayKeepsDossierContextAndPrioritizesMonitors(t *testing.T) {
 	store := newTestStore()
 	seedDossier(store, "dos1", "Pricing Model", core.StatusReview, func(fm *core.Frontmatter) {})
 	store.dossiers["dos1"].DistilledState.Body = `# Pricing Model
@@ -34,32 +34,34 @@ Pricing review is underway.`
 	}
 
 	m, _ = press(t, m, "l")
-	if m.currentView != ViewReferences || len(m.overlayStack) != 1 {
-		t.Fatalf("references overlay state = view %v, stack %d; want ViewReferences, 1", m.currentView, len(m.overlayStack))
+	if m.currentView != ViewLinks || len(m.overlayStack) != 1 {
+		t.Fatalf("links overlay state = view %v, stack %d; want ViewLinks, 1", m.currentView, len(m.overlayStack))
 	}
 	view := stripANSI(m.View())
-	if !strings.Contains(view, "Pricing Model · References") || !strings.Contains(view, "PROJ-123") {
-		t.Fatalf("references overlay lost dossier context or link label:\n%s", view)
+	if !strings.Contains(view, "Pricing Model · Links") || !strings.Contains(view, "PROJ-123") {
+		t.Fatalf("links overlay lost dossier context or link label:\n%s", view)
 	}
-	m, _ = press(t, m, "esc")
-	if m.currentView != ViewDetail || len(m.overlayStack) != 0 {
-		t.Fatalf("closing references overlay = view %v, stack %d; want ViewDetail, 0", m.currentView, len(m.overlayStack))
-	}
-
-	m, _ = press(t, m, "m")
-	if m.currentView != ViewActiveMonitors || len(m.overlayStack) != 1 {
-		t.Fatalf("monitor overlay state = view %v, stack %d; want ViewActiveMonitors, 1", m.currentView, len(m.overlayStack))
+	linksBody := stripANSI(m.renderExternalLinks())
+	monitorsAt := strings.Index(linksBody, "Active Monitors")
+	referencesAt := strings.Index(linksBody, "References")
+	if monitorsAt < 0 || referencesAt < 0 || monitorsAt > referencesAt {
+		t.Fatalf("links overlay did not prioritize monitors:\n%s", linksBody)
 	}
 	if !strings.Contains(stripANSI(m.View()), "Last polled: 2026-09-04") {
-		t.Fatalf("monitor overlay did not render polling metadata:\n%s", stripANSI(m.View()))
+		t.Fatalf("links overlay did not render polling metadata:\n%s", stripANSI(m.View()))
 	}
 	m, _ = press(t, m, "enter")
 	if opened != "https://slack.example/thread" {
-		t.Fatalf("opened URL = %q, want selected monitor URL", opened)
+		t.Fatalf("opened first URL = %q, want selected monitor URL", opened)
+	}
+	m, _ = press(t, m, "down")
+	m, _ = press(t, m, "enter")
+	if opened != "https://jira.example/PROJ-123" {
+		t.Fatalf("opened second URL = %q, want selected reference URL", opened)
 	}
 	m, _ = press(t, m, "esc")
 	if m.currentView != ViewDetail || len(m.overlayStack) != 0 {
-		t.Fatalf("closing monitor overlay = view %v, stack %d; want ViewDetail, 0", m.currentView, len(m.overlayStack))
+		t.Fatalf("closing links overlay = view %v, stack %d; want ViewDetail, 0", m.currentView, len(m.overlayStack))
 	}
 }
 
