@@ -1180,9 +1180,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "right":
-				if m.currentView == ViewKanban {
-					m.moveKanbanColumn(1)
+				if m.currentView == ViewDashboard {
+					return m, m.openSelectedDossier()
 				}
+				m.moveKanbanColumn(1)
 				return m, nil
 			}
 			m.searchInput, cmd = m.searchInput.Update(msg)
@@ -1389,7 +1390,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		case "esc", "backspace":
+		case "esc", "backspace", "left":
 			switch m.currentView {
 			case ViewDetail:
 				m.currentView = m.listView
@@ -1412,7 +1413,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.recallDossierCmd(m.recallResult.Frontmatter.ID)
 			}
 			return m, m.listDossiersCmd()
-		case "enter":
+		case "enter", "right":
 			if m.currentView == ViewDashboard {
 				itemIdx, isToggle := m.rowToItemIndex(m.table.Cursor())
 				if isToggle {

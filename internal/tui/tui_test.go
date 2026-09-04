@@ -490,6 +490,25 @@ func TestTUI_Detail(t *testing.T) {
 	if m.currentView != ViewDashboard {
 		t.Errorf("expected view to be ViewDashboard after esc, got %v", m.currentView)
 	}
+
+	// The right arrow is an alias for Enter on the dashboard.
+	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = newM.(Model)
+	if cmd == nil {
+		t.Fatal("expected right arrow to return a recall command")
+	}
+	newM, _ = m.Update(cmd())
+	m = newM.(Model)
+	if m.currentView != ViewDetail {
+		t.Errorf("expected right arrow to open ViewDetail, got %v", m.currentView)
+	}
+
+	// The left arrow is an alias for Esc in the detail view.
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m = newM.(Model)
+	if m.currentView != ViewDashboard {
+		t.Errorf("expected left arrow to return to ViewDashboard, got %v", m.currentView)
+	}
 }
 
 func TestTUI_ArtifactFlowRestoresDistilledStateAndScroll(t *testing.T) {
