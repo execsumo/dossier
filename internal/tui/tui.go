@@ -376,11 +376,12 @@ type Model struct {
 	mdRendererWidth int
 	help            help.Model
 
-	// Seams for the "open in Claude" handoff, defaulted in NewModel. They exist
-	// so tests can press 'c' without a claude binary on PATH and without ever
+	// Seams for the configured agent handoff, defaulted in NewModel. They exist
+	// so tests can press 'c' without an agent binary on PATH and without ever
 	// spawning a process.
-	claudeBin   func() (string, error)
-	execProcess func(*exec.Cmd, tea.ExecCallback) tea.Cmd
+	openWith     string
+	planOpenWith func(string, harness.LaunchRequest) (harness.HandoffPlan, error)
+	execProcess  func(*exec.Cmd, tea.ExecCallback) tea.Cmd
 
 	watcher      *fsnotify.Watcher
 	updateChan   chan string
@@ -389,6 +390,18 @@ type Model struct {
 
 // NewModel instantiates the root TUI model.
 func NewModel(svc *core.Service) Model {
+	return NewModelWithOpenWith(svc, harness.DefaultOpenWith)
+}
+
+// NewModelWithOpenWith instantiates the TUI with the configured launch profile.
+// The profile name controls the executable and argv construction; its prompt
+// remains owned by the profile implementation.
+func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
+	if strings.TrimSpace(openWith) == "" {
+		openWith = harness.DefaultOpenWith
+	} else if canonical, err := harness.NormalizeOpenWith(openWith); err == nil {
+		openWith = canonical
+	}
 	columns := []table.Column{
 		{Title: "Dossier", Width: 30},
 		{Title: "Priority", Width: 12},
@@ -479,7 +492,8 @@ func NewModel(svc *core.Service) Model {
 		watcher:              watcher,
 		updateChan:           updateChan,
 		watchedPaths:         map[string]bool{},
-		claudeBin:            harness.ClaudeBin,
+		openWith:             openWith,
+		planOpenWith:         harness.PlanOpenWith,
 		execProcess:          tea.ExecProcess,
 	}
 }
@@ -684,24 +698,16 @@ func (m Model) getTargetDossier() (targetDossier, bool) {
 	return targetDossier{}, false
 }
 
-// openInClaude hands the focused Dossier off to a fresh Claude Code session.
+// openInAgent hands the focused Dossier off to a fresh configured agent session.
 //
-// The TUI still resolves no session identity of its own (ADR 0004) — it *mints*
+// The TUI still resolves no session identity of its own (ADR 0004) — it mints
 // one for a session that does not exist yet, binds the Dossier to that id, and
-// then launches Claude with the same id via --session-id. Claude's session-start
-// hook therefore fires already bound and injects the Distilled State. See
-// ADR 0006.
+// then lets the selected launch profile carry it using that agent's mechanism.
 //
-// The binary is looked up first, before anything is written, so a missing claude
+// The binary is looked up first, before anything is written, so a missing agent
 // cannot leave a binding behind for a session that never starts. Every failure
 // sets m.err rather than silently doing nothing.
-func (m Model) openInClaude(t targetDossier) (tea.Model, tea.Cmd) {
-	bin, err := m.claudeBin()
-	if err != nil {
-		m.err = err
-		return m, nil
-	}
-
+func (m Model) openInAgent(t targetDossier) (tea.Model, tea.Cmd) {
 	ctx := context.Background()
 	res, err := m.svc.Path(ctx, core.PathReq{ID: t.id})
 	if err != nil {
@@ -710,23 +716,14 @@ func (m Model) openInClaude(t targetDossier) (tea.Model, tea.Cmd) {
 	}
 	dir, _ := res.Data.(string)
 	if dir == "" {
-		// Launching with an empty Dir would silently run Claude in the TUI's own
+		// Launching with an empty Dir would silently run the agent in the TUI's own
 		// working directory against the wrong (or no) Dossier. Fail visibly.
 		m.err = fmt.Errorf("could not resolve the directory for dossier %s", t.id)
 		return m, nil
 	}
 
-	sessionID, err := harness.NewClaudeSessionID()
+	sessionID, err := harness.NewSessionID()
 	if err != nil {
-		m.err = err
-		return m, nil
-	}
-
-	if _, err := m.svc.Switch(ctx, core.SwitchReq{
-		ID:          t.id,
-		SessionID:   sessionID,
-		HarnessName: "claude-code",
-	}); err != nil {
 		m.err = err
 		return m, nil
 	}
@@ -735,11 +732,29 @@ func (m Model) openInClaude(t targetDossier) (tea.Model, tea.Cmd) {
 	if slug == "" {
 		slug = filepath.Base(dir)
 	}
-	plan := harness.PlanClaudeHandoff(bin, sessionID, dir, t.name, slug)
+	plan, err := m.planOpenWith(m.openWith, harness.LaunchRequest{
+		SessionID:  sessionID,
+		DossierDir: dir,
+		Name:       t.name,
+		Slug:       slug,
+	})
+	if err != nil {
+		m.err = err
+		return m, nil
+	}
+
+	if _, err := m.svc.Switch(ctx, core.SwitchReq{
+		ID:          t.id,
+		SessionID:   sessionID,
+		HarnessName: m.openWith,
+	}); err != nil {
+		m.err = err
+		return m, nil
+	}
 
 	id, fromView := t.id, m.currentView
 	return m, m.execProcess(plan.Command(), func(err error) tea.Msg {
-		return claudeFinishedMsg{err: err, id: id, fromView: fromView}
+		return agentFinishedMsg{err: err, id: id, fromView: fromView}
 	})
 }
 
@@ -1492,7 +1507,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "c":
 			if m.isListView() || m.currentView == ViewDetail {
 				if t, ok := m.getTargetDossier(); ok && t.id != "" {
-					return m.openInClaude(t)
+					return m.openInAgent(t)
 				}
 			}
 		case "a":
@@ -1780,12 +1795,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = true
 		return m, m.recallDossierCmd(msg.id)
 
-	case claudeFinishedMsg:
+	case agentFinishedMsg:
 		if msg.err != nil {
 			m.err = msg.err
 			return m, nil
 		}
-		// Claude almost certainly wrote to the Dossier while the TUI was
+		// The agent almost certainly wrote to the Dossier while the TUI was
 		// suspended; refresh whichever view we came back to.
 		m.loading = true
 		if msg.fromView == ViewDetail && msg.id != "" {
@@ -1824,10 +1839,10 @@ type editorFinishedMsg struct {
 	id  string
 }
 
-// claudeFinishedMsg reports that a handed-off Claude Code session has exited and
+// agentFinishedMsg reports that a handed-off agent session has exited and
 // the TUI has the terminal back. fromView records where 'c' was pressed so the
 // right view is refreshed.
-type claudeFinishedMsg struct {
+type agentFinishedMsg struct {
 	err      error
 	id       string
 	fromView View
@@ -2617,8 +2632,12 @@ func (m Model) View() string {
 // NOTE (ADR 0004): the TUI does not resolve or carry a session identity. It is a
 // read/edit viewer over the dossier store; the per-session "active" binding (Switch)
 // is intentionally not exposed here — see ADR 0004 and BUILD-DECISIONS B9.
-func Run(ctx context.Context, svc *core.Service) error {
-	m := NewModel(svc)
+func Run(ctx context.Context, svc *core.Service, openWith ...string) error {
+	configured := harness.DefaultOpenWith
+	if len(openWith) > 0 && strings.TrimSpace(openWith[0]) != "" {
+		configured = openWith[0]
+	}
+	m := NewModelWithOpenWith(svc, configured)
 	if m.watcher != nil {
 		defer m.watcher.Close()
 	}

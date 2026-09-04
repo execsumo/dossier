@@ -33,7 +33,7 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 			tuiHelpKey("/", "search"), tuiHelpKey("f", "lead filter"),
 			tuiHelpKey("i", "interface filter"), tuiHelpKey("v", "view"),
 			tuiHelpKey("e", "edit"), tuiHelpKey("k", "link"),
-			tuiHelpKey("m", "merge"), tuiHelpKey("c", "Claude"),
+			tuiHelpKey("m", "merge"), tuiHelpKey("c", "open agent"),
 		}
 		shortContextual = []bubbleskey.Binding{
 			tuiHelpKey("/", "search"), tuiHelpKey("f", "filters"),
@@ -43,7 +43,7 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 		contextual = []bubbleskey.Binding{
 			tuiHelpKey("/", "search"), tuiHelpKey("f", "lead filter"),
 			tuiHelpKey("i", "interface filter"), tuiHelpKey("v", "view"),
-			tuiHelpKey("e", "edit"), tuiHelpKey("c", "Claude"),
+			tuiHelpKey("e", "edit"), tuiHelpKey("c", "open agent"),
 		}
 		shortContextual = []bubbleskey.Binding{
 			tuiHelpKey("/", "search"), tuiHelpKey("f", "filters"),
@@ -53,7 +53,7 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 		contextual = []bubbleskey.Binding{
 			tuiHelpKey("e", "edit"), tuiHelpKey("r", "rename"),
 			tuiHelpKey("a", "artifacts"), tuiHelpKey("o", "open in editor"),
-			tuiHelpKey("c", "Claude"), tuiHelpKey("v", "view"),
+			tuiHelpKey("c", "open agent"), tuiHelpKey("v", "view"),
 		}
 		shortContextual = []bubbleskey.Binding{
 			tuiHelpKey("a", "artifacts"), tuiHelpKey("v", "view"),

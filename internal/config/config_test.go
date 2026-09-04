@@ -34,6 +34,34 @@ func TestLoadValueLists(t *testing.T) {
 		if len(cfg.Interfaces) != 7 {
 			t.Fatalf("Interfaces = %v, want seven defaults", cfg.Interfaces)
 		}
+		if cfg.OpenWith != "claude-code" {
+			t.Fatalf("OpenWith = %q, want claude-code default", cfg.OpenWith)
+		}
+	})
+
+	t.Run("open_with round trips", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte("open_with: cursor\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.OpenWith != "cursor" {
+			t.Fatalf("OpenWith = %q, want cursor", cfg.OpenWith)
+		}
+		saved := filepath.Join(t.TempDir(), "saved.yaml")
+		if err := cfg.Save(saved); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(saved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), "open_with: cursor") {
+			t.Fatalf("saved config missing open_with: cursor:\n%s", data)
+		}
 	})
 
 	t.Run("custom and explicitly empty values round trip", func(t *testing.T) {

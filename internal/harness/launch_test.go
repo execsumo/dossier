@@ -66,6 +66,95 @@ func TestPlanClaudeHandoff(t *testing.T) {
 	}
 }
 
+func TestPlanCursorHandoff(t *testing.T) {
+	plan := PlanCursorHandoff("/usr/local/bin/cursor-agent", "cursor-session", "/home/u/.dossier/pricing-model", "Pricing Model", "pricing-model")
+
+	if plan.Bin != "/usr/local/bin/cursor-agent" {
+		t.Errorf("Bin = %q", plan.Bin)
+	}
+	if plan.Dir != "/home/u/.dossier/pricing-model" {
+		t.Errorf("Dir = %q", plan.Dir)
+	}
+	if len(plan.Args) != 1 || !strings.Contains(plan.Args[0], "pricing-model") {
+		t.Errorf("Args = %v, want one dossier prompt", plan.Args)
+	}
+	if len(plan.Env) != 4 || plan.Env[0] != "DOSSIER_SESSION=cursor-session" {
+		t.Errorf("Env = %v, want Cursor session override and parent-identity clears", plan.Env)
+	}
+
+	cmd := plan.Command()
+	if cmd.Dir != plan.Dir {
+		t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, plan.Dir)
+	}
+	for _, want := range plan.Env {
+		found := false
+		for _, got := range cmd.Env {
+			if got == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("command environment missing %q", want)
+		}
+	}
+}
+
+func TestPlanOpenWithCursorResolvesConfiguredBinary(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "cursor-agent")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(CursorBinEnv, fake)
+
+	plan, err := PlanOpenWith("cursor", LaunchRequest{
+		SessionID:  "cursor-session",
+		DossierDir: "/tmp/dossier/project",
+		Name:       "Project",
+		Slug:       "project",
+	})
+	if err != nil {
+		t.Fatalf("PlanOpenWith(cursor): %v", err)
+	}
+	if plan.Bin != fake || len(plan.Args) != 1 || !strings.Contains(plan.Args[0], "project") {
+		t.Fatalf("cursor plan = %+v", plan)
+	}
+}
+
+func TestPlanPromptHandoffWithPrefix(t *testing.T) {
+	plan := PlanPromptHandoffWithPrefix("/usr/local/bin/agy", []string{"--prompt-interactive"}, "agy-session", "/tmp/dossier/project", "Project", "project", nil)
+	if len(plan.Args) != 2 || plan.Args[0] != "--prompt-interactive" || !strings.Contains(plan.Args[1], "project") {
+		t.Fatalf("Args = %v, want Antigravity interactive flag plus prompt", plan.Args)
+	}
+}
+
+func TestNormalizeOpenWith(t *testing.T) {
+	for _, tt := range []struct {
+		input string
+		want  string
+	}{
+		{input: "claude", want: "claude-code"},
+		{input: "claude-code", want: "claude-code"},
+		{input: "cursor", want: "cursor"},
+		{input: "codex", want: "codex"},
+		{input: "pi", want: "pi"},
+		{input: "agy", want: "antigravity"},
+		{input: "antigravity", want: "antigravity"},
+	} {
+		got, err := NormalizeOpenWith(tt.input)
+		if err != nil {
+			t.Fatalf("NormalizeOpenWith(%q): %v", tt.input, err)
+		}
+		if got != tt.want {
+			t.Errorf("NormalizeOpenWith(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+	if _, err := NormalizeOpenWith("unknown"); err == nil {
+		t.Fatal("NormalizeOpenWith(unknown) succeeded, want unsupported-profile error")
+	}
+}
+
 func TestClaudeBinHonoursOverride(t *testing.T) {
 	dir := t.TempDir()
 	fake := filepath.Join(dir, "my-claude")

@@ -54,6 +54,7 @@ It's idempotent and non-clobbering: your existing MCP servers, hooks, and extens
 Discussion interfaces, lead choices, and global token limits are configured in `~/.dossier/config.yaml`:
 
 ```yaml
+open_with: claude-code  # claude-code, cursor, codex, pi, or antigravity
 interfaces:
   - Pricing WBR
   - "1:1"
@@ -64,7 +65,7 @@ leads:
 token_limit: 100000
 ```
 
-Interface and lead selectors follow the configured order after restarting Dossier. Existing configs that omit `interfaces` retain the original seven defaults. An empty `leads` list keeps lead entry free-form; once leads are listed, new assignments must use one of them. The `token_limit` sets the warning ceiling for Distilled State tokens (defaults to 100000). The file remains machine-local and is never team-synced.
+Interface and lead selectors follow the configured order after restarting Dossier. Existing configs that omit `interfaces` retain the original seven defaults. An empty `leads` list keeps lead entry free-form; once leads are listed, new assignments must use one of them. The `token_limit` sets the warning ceiling for Distilled State tokens (defaults to 100000). `open_with` controls which terminal agent the TUI's `c` key and `dossier open` launch; it accepts `claude-code`, `cursor`, `codex`, `pi`, or `antigravity` (`agy`). The launch prompt is built into Dossier and is not stored in this file. The file remains machine-local and is never team-synced.
 
 ## Using it
 
@@ -171,7 +172,7 @@ It opens a priority-sorted dashboard of your Dossiers, with Lead and discussion-
 - **edit** the Lead, stage, priority (`low`/`medium`/`high`/`max`), due date, and next action (up to 140 characters) inline without leaving the dashboard,
 - **link** a source, resolving ambiguous matches by picking from ranked candidates, and
 - **merge** one Dossier into another, resolving any conflicts in a syntax-highlighted side-by-side view (sources are archived, never deleted), and
-- **open in Claude** with `c` — launches a fresh Claude Code session already bound to the selected Dossier, with its distilled state loaded. The TUI suspends until you exit the session, then refreshes. (`dossier open <slug-or-id>` does the same from the shell. Set `DOSSIER_CLAUDE_BIN` if `claude` is not on your PATH.)
+- **open in the configured agent** with `c` — launches a fresh session already bound to the selected Dossier, with its distilled state loaded. The TUI suspends until you exit the session, then refreshes. (`dossier open <slug-or-id>` does the same from the shell. Set the profile-specific binary override when needed, such as `DOSSIER_CLAUDE_BIN` or `DOSSIER_CURSOR_BIN`.)
 
 Both views — the table and the board — are thin layers over the same core as the CLI and MCP, so they behave identically — `q` quits, `?` toggles help. Search runs on the same shared filter as `dossier ls -q` and the `dossier_list` MCP tool, so all three agree on what matches.
 
@@ -189,7 +190,7 @@ One Go binary serves the CLI, the MCP-over-stdio server, and the session hooks. 
 ## Good to know
 
 - **Team Sync (pilot).** Dossier includes an experimental, optionally team-synced mode so you can share a store with colleagues. It keeps your work local-first, pulling and pushing changes to a shared GitHub repo. For setup and how to join a team, see [`docs/team-sync-onboarding.md`](docs/team-sync-onboarding.md).
-- **Claude Code and Pi.** Claude Code is fully integrated. Pi has session identity via the bundled extension; its lifecycle hooks and MCP are not wired yet. Other harnesses (Codex, Antigravity) remain out of scope. If a capability is missing, Dossier says so — at install, in `dossier harness list`, and in `dossier doctor` — rather than failing silently.
+- **Harness integrations and launch profiles.** Claude Code and Pi are integrated harnesses. Cursor, Codex, and Antigravity (`agy`) are available as launch profiles through `open_with`; their Dossier lifecycle capabilities depend on the agent's own MCP/session support and are not claimed by `dossier harness list` unless a native integration is added. Missing launch binaries fail visibly.
 - **Config lives in two files.** Hooks go in `~/.claude/settings.json`; the MCP server goes in `~/.claude.json` (the only place Claude Code reads user-scope MCP servers). Both store the absolute path of the stable binary — if you rebuild, rename, or move it, re-run `dossier install` then `dossier init` to re-bind, idempotently.
 - **Token counts are estimates.** Dossier uses a BPE tokenizer benchmarked against Opus 4.8; it won't match every model exactly. The token target is a configurable warning threshold (`token_limit` in `config.yaml`, default 100,000), not a hard cap — Dossier warns, it never silently truncates.
 - **Wiring it up by hand.** If you'd rather not let `init` edit your config: register the MCP server with `claude mcp add dossier -- dossier mcp serve`, and run `dossier hook session-start` to see what the start hook emits.

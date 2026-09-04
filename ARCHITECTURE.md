@@ -77,14 +77,14 @@ dossier/
       pi.go              # Pi: detection + installs the bundled Pi extension (B2, ADR 0005)
       pisession.go       # Pi session pointer: location, record, process-ancestry walk
       session.go         # session-id resolution ladder shared by CLI/MCP (ADR 0003/0005)
-      launch.go          # Claude Code handoff: bin lookup, session-id mint, launch plan (ADR 0006)
+      launch.go          # Configured agent handoffs: profile normalization, bin lookup, launch plans
     sync/                # driven adapter: Team Sync go-git engine (implements core.Syncer)
       gitsync.go         # GitSync + Config/report types; sync.go: pull→resolve→commit→push
       merge.go/tree.go   # remote-wins 3-way merge (no git markers ever); DiffTree + MergeBase
       credentials.go     # PAT resolution (~/.dossier/credentials 0600, `gh auth token` fallback)
       gitignore.go       # machine-local exclusion set (config.yaml, root + per-slug sessions/, context/) — B13
       adapter.go         # maps GitSync's internal types → core.Sync* DTOs (keeps core pure)
-    config/              # config.yaml load/save/defaults (incl. team.remote / team.branch)
+    config/              # config.yaml load/save/defaults (incl. open_with and team.remote / team.branch)
     hooks/               # hook PAYLOAD builders + session-start/end handlers (call core)
     cli/                 # cobra commands → core.Service → render (text/--json)
     mcp/                 # stdio MCP server → core.Service → §8.2 envelope
@@ -330,7 +330,7 @@ v1 supports **Claude Code and Pi** (B2). Claude Code provides the full capabilit
 
 **`PiHarness`** (`internal/harness/pi.go`) detects Pi from its agent directory (`PI_CODING_AGENT_DIR`, default `~/.pi/agent`), a `pi` on PATH, the Pi process environment, or a live session pointer. `Install` writes the embedded `assets/pi-extension.ts` to `<agent dir>/extensions/dossier/index.ts` under the same idempotent/backed-up/confirmed contract (B7/B8) as the Claude Code installer. It claims **neither** MCP nor lifecycle hooks — Dossier does not provide those for Pi yet, and overclaiming them would be a silent no-op instead of a visible gap. `internal/harness/pisession.go` owns the pointer record, its location, and the depth-bounded process-ancestry walk (procfs, `ps` fallback) that finds the owning Pi process.
 
-**Handing a Dossier to a new Claude Code session** (`internal/harness/launch.go`, ADR 0006) inverts the usual direction: instead of resolving the session Dossier is running inside, it *provisions* one. `ClaudeBin` resolves the executable (`$DOSSIER_CLAUDE_BIN`, else PATH), `NewClaudeSessionID` mints a UUIDv4, the caller binds the Dossier to that id via `Service.Switch`, and `PlanClaudeHandoff` builds the `claude --session-id <uuid> "<prompt>"` launch rooted in the Dossier directory. Because the binding exists before Claude starts, the `SessionStart` hook fires already bound and `Service.SessionStart` inlines the Distillation Guide and Distilled State — no reliance on the model choosing to call a tool. `HandoffPlan` is a plain value, so *what* gets run is testable without running it. Both callers — the TUI's `c` key (via `tea.ExecProcess`) and `dossier open` — use these same helpers; the binary is resolved **before** the binding is written so a missing `claude` leaves nothing behind. MCP deliberately does not expose it (an agent is already in a session).
+**Handing a Dossier to a new agent session** (`internal/harness/launch.go`) inverts the usual direction: instead of resolving the session Dossier is running inside, it *provisions* one. `open_with` selects a built-in profile (`claude-code`, `cursor`, `codex`, `pi`, or `antigravity`); each profile resolves its executable and builds its own argv/environment while keeping the generated resume prompt out of `config.yaml`. The caller mints a UUIDv4, binds the Dossier to that id via `Service.Switch`, and launches the plan rooted in the Dossier directory. Claude uses `--session-id`; prompt-positional agents use the explicit session environment override where their native session identity is not available. Because the plan is resolved before the binding is written, a missing binary leaves nothing behind. `HandoffPlan` is a plain value, so *what* gets run is testable without running it. Both callers — the TUI's `c` key (via `tea.ExecProcess`) and `dossier open` — use these same helpers. MCP deliberately does not expose it (an agent is already in a session).
 
 Per-harness reporting lives in `core`: `HarnessReport` + `Service.HarnessStatus` (read-only detection) and `Service.InstallHarness` (install one integration by name, the "user added Pi after `init`" path, exposed as `dossier harness list|install`). `harnessAdvisories` produces the actionable line that `init`, `harness list` and `doctor` all surface when a harness is installed but its bridge is not. Doctor treats such an advisory as a warning, not an issue — `Doctor.OK` now tracks `report.Issues`, so a missing integration never masquerades as store damage.
 

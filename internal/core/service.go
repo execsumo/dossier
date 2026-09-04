@@ -284,6 +284,12 @@ func displayHarnessName(name string) string {
 		return "Claude Code"
 	case "pi":
 		return "Pi"
+	case "cursor":
+		return "Cursor"
+	case "codex":
+		return "Codex"
+	case "antigravity":
+		return "Antigravity"
 	default:
 		return name
 	}
@@ -299,6 +305,9 @@ func (s *Service) sessionHarness(name string) (Harness, Capabilities) {
 				return h, caps
 			}
 		}
+		// An explicit harness name is authoritative. Do not silently attribute
+		// a newly launched session to another live harness on the same machine.
+		return nil, Capabilities{}
 	}
 	for _, h := range s.hreg.All() {
 		if caps, err := h.Detect(); err == nil && caps.LiveSession() {
@@ -2053,9 +2062,10 @@ func (s *Service) ContextRefresh(ctx context.Context) (Result, error) {
 type SwitchReq struct {
 	ID        string
 	SessionID string
-	// HarnessName is the harness the adapter resolved this session id from
-	// ("claude-code", "pi"). Empty means unknown (explicit override, manual CLI),
-	// in which case the binding falls back to whichever harness is detected.
+	// HarnessName is the harness the adapter resolved this session id from, or
+	// the configured launch profile for a newly spawned session. Empty means
+	// unknown (explicit override, manual CLI), in which case the binding falls
+	// back to whichever harness is detected.
 	HarnessName string
 }
 
@@ -2086,6 +2096,9 @@ func (s *Service) Switch(ctx context.Context, req SwitchReq) (Result, error) {
 	activeHarness, activeCaps := s.sessionHarness(req.HarnessName)
 
 	harnessName := "CLI"
+	if req.HarnessName != "" {
+		harnessName = req.HarnessName
+	}
 	if activeHarness != nil {
 		harnessName = activeHarness.Name()
 	}

@@ -56,11 +56,11 @@ func NewRootCmd() *cobra.Command {
 		Version: Version,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			homeDir := resolveHomeDir()
-			svc, err := wire(homeDir)
+			svc, cfg, err := wireWithConfig(homeDir)
 			if err != nil {
 				return err
 			}
-			return tui.Run(context.Background(), svc)
+			return tui.Run(context.Background(), svc, cfg.OpenWith)
 		},
 	}
 
@@ -1352,21 +1352,20 @@ func NewRootCmd() *cobra.Command {
 		Short: "Launch the interactive text user interface (TUI)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			homeDir := resolveHomeDir()
-			svc, err := wire(homeDir)
+			svc, cfg, err := wireWithConfig(homeDir)
 			if err != nil {
 				return err
 			}
-			return tui.Run(context.Background(), svc)
+			return tui.Run(context.Background(), svc, cfg.OpenWith)
 		},
 	}
 
 	openCmd := &cobra.Command{
 		Use:   "open <slug-or-id>",
-		Short: "Open a dossier in a fresh Claude Code session bound to it",
+		Short: "Open a dossier in the configured agent",
 		Long: "Mint a new Claude Code session id, bind the dossier to it, and launch\n" +
-			"claude in the dossier's directory with that id. The session-start hook\n" +
-			"fires already bound, so the session opens with the distilled state loaded.\n" +
-			"This is the same handoff the TUI's 'c' key performs (ADR 0006).",
+			"the configured agent in the dossier's directory with a fresh binding.\n" +
+			"This is the same handoff the TUI's 'c' key performs.",
 		Args: cobra.ExactArgs(1),
 		// Nothing this command can fail on is a usage error — a missing binary or
 		// a non-zero exit from claude should not bury the message under a help
@@ -1374,14 +1373,12 @@ func NewRootCmd() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			homeDir := resolveHomeDir()
-			svc, err := wire(homeDir)
+			svc, cfg, err := wireWithConfig(homeDir)
 			if err != nil {
 				return err
 			}
 
-			// Resolve the binary before writing anything: a missing claude must
-			// not leave a binding for a session that never starts.
-			bin, err := harness.ClaudeBin()
+			openWith, err := harness.NormalizeOpenWith(cfg.OpenWith)
 			if err != nil {
 				return err
 			}
@@ -1392,28 +1389,41 @@ func NewRootCmd() *cobra.Command {
 				return err
 			}
 			dir := res.Data.(string)
+			recallRes, err := svc.Recall(ctx, core.RecallReq{ID: args[0]})
+			if err != nil {
+				return err
+			}
+			recall := recallRes.Data.(core.RecallResult)
 
-			sessionID, err := harness.NewClaudeSessionID()
+			sessionID, err := harness.NewSessionID()
 			if err != nil {
 				return err
 			}
 
-			switchRes, err := svc.Switch(ctx, core.SwitchReq{
-				ID:          args[0],
-				SessionID:   sessionID,
-				HarnessName: "claude-code",
+			plan, err := harness.PlanOpenWith(openWith, harness.LaunchRequest{
+				SessionID:  sessionID,
+				DossierDir: dir,
+				Name:       recall.Frontmatter.Name,
+				Slug:       recall.Frontmatter.Slug,
 			})
 			if err != nil {
 				return err
 			}
-			recall := switchRes.Data.(core.RecallResult)
 
-			plan := harness.PlanClaudeHandoff(bin, sessionID, dir, recall.Frontmatter.Name, recall.Frontmatter.Slug)
-			claude := plan.Command()
-			claude.Stdin = os.Stdin
-			claude.Stdout = cmd.OutOrStdout()
-			claude.Stderr = cmd.ErrOrStderr()
-			return claude.Run()
+			_, err = svc.Switch(ctx, core.SwitchReq{
+				ID:          args[0],
+				SessionID:   sessionID,
+				HarnessName: openWith,
+			})
+			if err != nil {
+				return err
+			}
+
+			agent := plan.Command()
+			agent.Stdin = os.Stdin
+			agent.Stdout = cmd.OutOrStdout()
+			agent.Stderr = cmd.ErrOrStderr()
+			return agent.Run()
 		},
 	}
 
@@ -1741,16 +1751,26 @@ func (r *realClock) Now() time.Time {
 }
 
 func wire(dossierHome string) (*core.Service, error) {
+	svc, _, err := wireWithConfig(dossierHome)
+	return svc, err
+}
+
+func wireWithConfig(dossierHome string) (*core.Service, *config.Config, error) {
 	cfgPath := filepath.Join(dossierHome, "config.yaml")
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	if canonical, err := harness.NormalizeOpenWith(cfg.OpenWith); err != nil {
+		return nil, nil, err
+	} else {
+		cfg.OpenWith = canonical
 	}
 
 	// Write default config to disk if not exists
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
 		if err := cfg.Save(cfgPath); err != nil {
-			return nil, fmt.Errorf("failed to save default config: %w", err)
+			return nil, nil, fmt.Errorf("failed to save default config: %w", err)
 		}
 	}
 
@@ -1774,7 +1794,7 @@ func wire(dossierHome string) (*core.Service, error) {
 
 	tokAdapter, err := tokenizer.NewBPETokenizer()
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize BPE tokenizer: %w", err)
+		return nil, nil, fmt.Errorf("failed to initialize BPE tokenizer: %w", err)
 	}
 
 	hregAdapter := harness.NewRegistry(dossierHome)
@@ -1798,7 +1818,7 @@ func wire(dossierHome string) (*core.Service, error) {
 
 	svc := core.NewService(storeAdapter, searchAdapter, tokAdapter, hregAdapter, clockAdapter, cfg.ToCoreConfig(), syncerAdapter)
 
-	return svc, nil
+	return svc, cfg, nil
 }
 
 func expandTilde(path string) string {

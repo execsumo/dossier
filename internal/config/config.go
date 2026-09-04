@@ -22,6 +22,7 @@ type TeamConfig struct {
 type Config struct {
 	DossierHome string     `yaml:"dossier_home"`
 	Author      string     `yaml:"author"`
+	OpenWith    string     `yaml:"open_with,omitempty"`
 	Interfaces  []string   `yaml:"interfaces"`
 	Leads       []string   `yaml:"leads"`
 	Team        TeamConfig `yaml:"team,omitempty"`
@@ -33,6 +34,7 @@ type Config struct {
 type configFile struct {
 	DossierHome   string     `yaml:"dossier_home"`
 	Author        string     `yaml:"author"`
+	OpenWith      string     `yaml:"open_with,omitempty"`
 	Interfaces    []string   `yaml:"interfaces"`
 	Leads         []string   `yaml:"leads"`
 	Team          TeamConfig `yaml:"team,omitempty"`
@@ -67,6 +69,7 @@ func Default() *Config {
 	return &Config{
 		DossierHome: homePath,
 		Author:      author,
+		OpenWith:    "claude-code",
 		Interfaces:  core.DefaultDiscussionInterfaces(),
 		TokenLimit:  core.DefaultTokenLimit,
 	}
@@ -85,6 +88,7 @@ func Load(path string) (*Config, error) {
 	wire := configFile{
 		DossierHome: cfg.DossierHome,
 		Author:      cfg.Author,
+		OpenWith:    cfg.OpenWith,
 		Interfaces:  cfg.Interfaces,
 		Leads:       cfg.Leads,
 		Team:        cfg.Team,
@@ -96,6 +100,7 @@ func Load(path string) (*Config, error) {
 	}
 	cfg.DossierHome = wire.DossierHome
 	cfg.Author = wire.Author
+	cfg.OpenWith = wire.OpenWith
 	cfg.Interfaces = wire.Interfaces
 	cfg.Leads = wire.Leads
 	cfg.Team = wire.Team

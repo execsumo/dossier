@@ -1,8 +1,8 @@
 # Harness Capabilities
 
-Dossier v1 supports **Claude Code and Pi**. This document records Claude Code's integration capabilities and Pi's, as verified against each harness.
+Dossier v1 has native integration support for **Claude Code and Pi**. It also provides launch profiles for Cursor Agent, Codex, and Antigravity (`agy`). This document records Claude Code's integration capabilities and Pi's, as verified against each harness.
 
-Other harnesses (Codex, Antigravity) remain out of scope for v1. The `Harness` interface and registry remain extensible.
+Other harnesses (Codex, Cursor, Antigravity) remain out of scope for native lifecycle integration in v1. The `Harness` interface and registry remain extensible.
 
 ## 1. Capability Matrix (Claude Code)
 

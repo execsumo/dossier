@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"dossier/internal/core"
+	"dossier/internal/harness"
 
 	"github.com/charmbracelet/bubbles/help"
 	tea "github.com/charmbracelet/bubbletea"
@@ -1590,10 +1591,10 @@ func TestLeadSelectorWindowing(t *testing.T) {
 	}
 }
 
-// --- "open in Claude" handoff (ADR 0006) ---------------------------------
+// --- configured agent handoff ----------------------------------------------
 
-// claudeSpy replaces the Model's launch seams so pressing 'c' resolves a fake
-// binary and captures the command instead of ever spawning a real process.
+// claudeSpy replaces the Model's launch seams so pressing 'c' builds a fake
+// Claude command and captures it instead of ever spawning a real process.
 type claudeSpy struct {
 	bin     string
 	binErr  error
@@ -1602,11 +1603,17 @@ type claudeSpy struct {
 }
 
 func (s *claudeSpy) install(m Model) Model {
-	m.claudeBin = func() (string, error) {
+	m.planOpenWith = func(_ string, req harness.LaunchRequest) (harness.HandoffPlan, error) {
 		if s.binErr != nil {
-			return "", s.binErr
+			return harness.HandoffPlan{}, s.binErr
 		}
-		return s.bin, nil
+		prompt := fmt.Sprintf("Resume the Dossier %q (slug: %s).", req.Name, req.Slug)
+		return harness.HandoffPlan{
+			SessionID: req.SessionID,
+			Bin:       s.bin,
+			Args:      []string{"--session-id", req.SessionID, prompt},
+			Dir:       req.DossierDir,
+		}, nil
 	}
 	m.execProcess = func(cmd *exec.Cmd, fn tea.ExecCallback) tea.Cmd {
 		s.calls++
@@ -1724,12 +1731,12 @@ func TestOpenInClaudeFromDetail(t *testing.T) {
 	assertHandoff(t, store, spy)
 
 	// The callback must route the refresh back to the detail view.
-	msg, ok := cmd().(claudeFinishedMsg)
+	msg, ok := cmd().(agentFinishedMsg)
 	if !ok {
-		t.Fatalf("expected claudeFinishedMsg, got %T", cmd())
+		t.Fatalf("expected agentFinishedMsg, got %T", cmd())
 	}
 	if msg.fromView != ViewDetail || msg.id != "dos1" {
-		t.Errorf("claudeFinishedMsg = %+v, want dos1 from ViewDetail", msg)
+		t.Errorf("agentFinishedMsg = %+v, want dos1 from ViewDetail", msg)
 	}
 }
 
@@ -1762,7 +1769,7 @@ func TestClaudeFinishedRefreshes(t *testing.T) {
 	store := newTestStore()
 	m := claudeTestModel(t, store)
 
-	newM, cmd := m.Update(claudeFinishedMsg{id: "dos1", fromView: ViewDashboard})
+	newM, cmd := m.Update(agentFinishedMsg{id: "dos1", fromView: ViewDashboard})
 	m = newM.(Model)
 	if cmd == nil {
 		t.Fatal("expected a refresh command after returning from Claude")
@@ -1772,7 +1779,7 @@ func TestClaudeFinishedRefreshes(t *testing.T) {
 	}
 
 	// An exec failure is surfaced, not swallowed.
-	newM, cmd = m.Update(claudeFinishedMsg{err: fmt.Errorf("exec failed"), id: "dos1"})
+	newM, cmd = m.Update(agentFinishedMsg{err: fmt.Errorf("exec failed"), id: "dos1"})
 	m = newM.(Model)
 	if cmd != nil {
 		t.Error("expected no refresh command when the launch failed")
@@ -2581,7 +2588,7 @@ func TestMiniHelpTogglesExpandedView(t *testing.T) {
 	if got := len(strings.Split(m.View(), "\n")); got != 30 {
 		t.Fatalf("expanded help rendered %d lines, want 30", got)
 	}
-	if !strings.Contains(stripANSI(m.footerContent(ViewDashboard)), "Claude") {
+	if !strings.Contains(stripANSI(m.footerContent(ViewDashboard)), "open agent") {
 		t.Fatal("expanded help should include contextual bindings")
 	}
 	m, _ = press(t, m, "?")
