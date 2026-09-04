@@ -21,3 +21,7 @@ go.work.sum
 
 # Local CodeGraph index (derived cache)
 .codegraph/
+
+# Agent/tooling state
+/.agtx/
+/.claude/
