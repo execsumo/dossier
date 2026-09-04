@@ -2382,16 +2382,17 @@ func (m Model) renderDetailMetadata() string {
 		sb.WriteString(renderRow("Summary:", fm.Description))
 	}
 	sb.WriteString(renderRow("Slug:", fm.Slug))
-	sb.WriteString(renderRow("Priority:", string(fm.Priority)))
 	sb.WriteString(renderTwoCols(
+		"Priority:", string(fm.Priority),
 		"Stage:", string(fm.Status),
+	))
+	sb.WriteString(renderTwoCols(
 		"Lead:", leadLabel,
+		"Interfaces:", strings.Join(fm.Interfaces, ", "),
 	))
 	if fm.DueDate != "" {
 		sb.WriteString(renderRow("Due:", fm.DueDate))
 	}
-	sb.WriteString(renderRow("Interfaces:", strings.Join(fm.Interfaces, ", ")))
-	sb.WriteString(renderRow("Tokens:", fmt.Sprintf("%d", m.recallResult.TokenEstimate)))
 	sb.WriteString(renderRow("Next:", fm.NextAction))
 
 	w := m.width

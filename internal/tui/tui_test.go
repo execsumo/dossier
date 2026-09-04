@@ -482,8 +482,26 @@ func TestTUI_Detail(t *testing.T) {
 	if !strings.Contains(cleanView, "Interfaces: Pricing WBR, 1:1") {
 		t.Errorf("expected view to contain 'Interfaces: Pricing WBR, 1:1' on one line without wrapped colon, got:\n%s", cleanView)
 	}
+	if strings.Contains(cleanView, "Tokens:") {
+		t.Errorf("expected detail view to omit token count, got:\n%s", cleanView)
+	}
 
-	// Verify field sequence aligns with viewDashboard: Dossier -> Priority -> Stage -> Lead -> Due
+	metadataLines := strings.Split(cleanView, "\n")
+	priorityStageSameRow := false
+	leadInterfacesSameRow := false
+	for _, line := range metadataLines {
+		if strings.Contains(line, "Priority:") && strings.Contains(line, "Stage:") {
+			priorityStageSameRow = true
+		}
+		if strings.Contains(line, "Lead:") && strings.Contains(line, "Interfaces:") {
+			leadInterfacesSameRow = true
+		}
+	}
+	if !priorityStageSameRow || !leadInterfacesSameRow {
+		t.Errorf("expected wide detail metadata pairs on shared rows, got:\n%s", cleanView)
+	}
+
+	// Verify the detail metadata follows the dashboard's field order.
 	dossierIdx := strings.Index(cleanView, "Dossier:")
 	priorityIdx := strings.Index(cleanView, "Priority:")
 	stageIdx := strings.Index(cleanView, "Stage:")
@@ -2292,8 +2310,8 @@ func TestTUI_DetailFieldSequenceWithDueDate(t *testing.T) {
 		t.Fatalf("expected all labels including Due: in detail view, got:\n%s", cleanView)
 	}
 
-	if !(dossierIdx < priorityIdx && priorityIdx < stageIdx && stageIdx < leadIdx && leadIdx < dueIdx && dueIdx < interfacesIdx) {
-		t.Errorf("expected sequence Dossier < Priority < Stage < Lead < Due < Interfaces, got: %d, %d, %d, %d, %d, %d",
+	if !(dossierIdx < priorityIdx && priorityIdx < stageIdx && stageIdx < leadIdx && leadIdx < interfacesIdx && interfacesIdx < dueIdx) {
+		t.Errorf("expected sequence Dossier < Priority < Stage < Lead < Interfaces < Due, got: %d, %d, %d, %d, %d, %d",
 			dossierIdx, priorityIdx, stageIdx, leadIdx, dueIdx, interfacesIdx)
 	}
 }
