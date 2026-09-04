@@ -55,3 +55,35 @@ func TestDelegationContractsHeadingStaysInSyncAcrossGuideAndSkill(t *testing.T) 
 		}
 	}
 }
+
+// TestReferencesAndMonitorsShareOneConvention guards the body contract that
+// keeps ordinary external pointers distinct from live polling obligations while
+// still making them easy for an agent to recognize and parse alike.
+func TestReferencesAndMonitorsShareOneConvention(t *testing.T) {
+	guideBytes, err := FS.ReadFile("guide.md")
+	if err != nil {
+		t.Fatalf("failed to read guide.md: %v", err)
+	}
+	instructionsBytes, err := FS.ReadFile("instructions.md")
+	if err != nil {
+		t.Fatalf("failed to read instructions.md: %v", err)
+	}
+
+	guide := string(guideBytes)
+	instructions := string(instructionsBytes)
+	for _, heading := range []string{"## References", "## Active Monitors"} {
+		if !strings.Contains(guide, heading) {
+			t.Errorf("guide.md no longer defines %q", heading)
+		}
+	}
+	const lineFormat = "[<kind>: <label>](<URL>)"
+	if strings.Count(guide, lineFormat) < 2 {
+		t.Errorf("guide.md must define the shared link format for both sections")
+	}
+	if !strings.Contains(guide, "(Last polled: <YYYY-MM-DD>)") {
+		t.Errorf("guide.md must require a last-polled date for monitors")
+	}
+	if !strings.Contains(instructions, "`## References` is navigational and must not be polled") {
+		t.Errorf("instructions.md must explicitly keep References out of the polling loop")
+	}
+}

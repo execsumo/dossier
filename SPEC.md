@@ -166,6 +166,20 @@ estimate is returned by recall but is not stored in the Dossier.
 Open questions are ordinary Markdown, not frontmatter. When present, record
 them under `## Open Questions` in the Distilled State body.
 
+External references and active monitors are also ordinary Markdown body
+sections, not frontmatter. They share one canonical link line:
+
+```markdown
+- [<kind>: <label>](<URL>) — <purpose or description>.
+```
+
+Use tool-agnostic kinds such as `comms`, `ticket`, `document`, or `other`.
+`## References` contains navigational pointers and does not imply polling.
+`## Active Monitors` contains live external streams that must be checked when
+resuming; each entry adds `(Last polled: YYYY-MM-DD)`. A monitor is not
+duplicated in both sections. A URL is not evidence by itself: captured external
+content belongs in an Archive artifact and is cited with `[src:art_<id>]`.
+
 Required section order:
 
 ```markdown
@@ -178,6 +192,10 @@ Required section order:
 ## Findings
 
 ## Open Questions
+
+## References (optional)
+
+## Active Monitors (optional)
 
 ## Current State
 

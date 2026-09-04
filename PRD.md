@@ -62,7 +62,7 @@ A distinct topic of work. Its distilled state lives in **one Markdown file** (D9
   - Open questions belong in the Distilled State body under `## Open Questions`.
 
   These prioritization fields feed surfacing (§4.1). Frontmatter is what the open-work view scans and what Obsidian-style readers render natively.
-- **Body — Distilled State (D2):** the topic's **critical information with noise removed** (not a chat recap). Sections: Situation, Decisions, Findings, Open Questions, Current State, Next Steps. The agent keeps everything that informs the topic and strips niceties, small talk, and dead ends. The Distilled State has a **100k-token target** for recall ergonomics; over-target state is allowed but must warn (see §6).
+- **Body — Distilled State (D2):** the topic's **critical information with noise removed** (not a chat recap). Sections: Situation, Decisions, Findings, Open Questions, optional References, optional Active Monitors, Current State, Next Steps. References and monitors share one tool-agnostic Markdown link convention; only Active Monitors imply polling. The agent keeps everything that informs the topic and strips niceties, small talk, and dead ends. The Distilled State has a **100k-token target** for recall ergonomics; over-target state is allowed but must warn (see §6).
 - **Archive (D2):** the Dossier's `artifacts/` directory of **Artifacts**.
 - **Audit log:** append-only `audit.log` — writes, merges, snapshot refreshes/freezes (also the provenance backbone).
 

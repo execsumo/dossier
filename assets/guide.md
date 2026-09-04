@@ -25,7 +25,9 @@ A world-class dossier ruthlessly prunes linguistic fat while preserving all mate
 - **A Dossier Can Be Too Thin:** The token target is a ceiling, not a goal. Under-citation is the more common failure: if the Archive holds evidence the Distilled State never points at, the curated view has drifted off its own record. `dossier_recall` returns the evidence index and warns about uncited artifacts—treat that warning as a defect, not noise.
 - **No Conversational Noise (Prune Mechanics, Retain Trajectories):** Eliminate greetings, pleasantries, tool-call mechanics, and verbose restatements. However, compress (do not delete) the conclusions of dead-end investigative paths so future resumption avoids repeating mistakes.
 - **Durable State Only:** The Distilled State must represent the current, clean, consolidated truth of the topic.
-- **Archival Sources vs Active Monitors:** Distinguish between *static* historical context (inline links like `[src:art_id]`) and *live* context streams that must be polled (like ongoing Slack threads). Live context belongs in `## Active Monitors`.
+- **References vs Active Monitors:** Distinguish between *navigational* external pointers and *live* context streams that must be polled. Both use the same canonical Markdown link line:
+  `- [<kind>: <label>](<URL>) — <purpose or description>.`
+  Use `kind` values such as `comms`, `ticket`, `document`, or `other`; the kind is intentionally tool-agnostic. Put ordinary pointers in `## References`; put live streams that require resumption polling in `## Active Monitors`. A monitor is not duplicated in both sections. A URL alone is not evidence: when external content supports a claim, capture it as an Archive artifact and cite it with `[src:art_id]`.
 - **Keep Context Current:** Maintain the session's active Dossier using a best-effort approach each turn. Save state on lifecycle events (session end, `/clear`, `/exit`, pre-compaction).
 - **Never Silently Truncate:** Never truncate the Distilled State to meet arbitrary token limits. If approaching limits, warn the user.
 - **Optimistic Concurrency & Disambiguation:** Concurrent edits produce conflict files. Prompt the user for ambiguous link targets and manual merge conflict resolution. Never rely on last-write-wins.
@@ -71,9 +73,13 @@ Index of the Archive: what is stored, what is in it, and where the citable spans
 Unresolved questions that materially affect the topic or next move.
 - <Question that needs an answer or decision>
 
+## References
+*Conditional*—omit when there are no durable external pointers. These links are for navigation and context; they do not imply polling or constitute citable evidence.
+- [<kind>: <label>](<URL>) — <purpose or description>.
+
 ## Active Monitors
-Live external context streams that must be polled for updates upon resuming this Dossier.
-- [<NAMESPACE>: <ID>](<URL>): <Reason to poll>. (Last polled: <YYYY-MM-DD>)
+*Conditional*—omit when there are no live external streams to check. Use the same link line as `## References`, adding the required polling marker.
+- [<kind>: <label>](<URL>) — <reason to poll>. (Last polled: <YYYY-MM-DD>)
 
 ## Current State
 Immediate execution context. Active files, blockers, or configurations.
@@ -136,8 +142,11 @@ Every line is terse and every line is cited, so this passes a mechanical provena
 >   - `art_01jz8redis_eval` (decision_evidence, 88 lines): Redis lock latency benchmark. Key spans: L44-L61 p50/p99 table.
 >   - `art_01jz8test_results` (decision_evidence, 210 lines): concurrency suite output. Key spans: L102-L118 timeout sweep.
 >   - `art_01jz8session` (transcript, 9,140 lines): full session capture; background only.
+> - **References:**
+>   - [ticket: PROJ-123](https://jira.example.com/browse/PROJ-123) — Pricing migration work.
+>   - [document: Pricing launch plan](https://confluence.example.com/display/PRICING/Launch+plan) — Current rollout plan.
 > - **Active Monitors:**
->   - [SLACK: #pricing-bug](https://slack.com/...): Ongoing discussion regarding usage-tier lock timeouts. (Last polled: 2026-06-14)
+>   - [comms: #pricing-bug](https://slack.com/...) — Ongoing discussion regarding usage-tier lock timeouts. (Last polled: 2026-06-14)
 > - **Current State:** Lock timeout increased to 500ms in `internal/billing/lock.go`; local suite green.
 > - **Next Steps:** Merge pricing patch; verify the load-test assumption against production telemetry.
 
