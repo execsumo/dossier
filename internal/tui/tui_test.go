@@ -487,32 +487,46 @@ func TestTUI_Detail(t *testing.T) {
 	}
 
 	metadataLines := strings.Split(cleanView, "\n")
-	priorityStageSameRow := false
+	dossierLine := -1
+	slugLine := -1
+	stagePrioritySameRow := false
 	leadInterfacesSameRow := false
-	for _, line := range metadataLines {
-		if strings.Contains(line, "Priority:") && strings.Contains(line, "Stage:") {
-			priorityStageSameRow = true
+	for i, line := range metadataLines {
+		if strings.Contains(line, "Dossier:") {
+			dossierLine = i
+		}
+		if strings.Contains(line, "Slug:") {
+			slugLine = i
+		}
+		if strings.Contains(line, "Stage:") && strings.Contains(line, "Priority:") {
+			stagePrioritySameRow = true
 		}
 		if strings.Contains(line, "Lead:") && strings.Contains(line, "Interfaces:") {
 			leadInterfacesSameRow = true
 		}
 	}
-	if !priorityStageSameRow || !leadInterfacesSameRow {
+	if dossierLine == -1 || slugLine != dossierLine+1 {
+		t.Errorf("expected Slug immediately below Dossier in the first column, got:\n%s", cleanView)
+	}
+	if !stagePrioritySameRow || !leadInterfacesSameRow {
 		t.Errorf("expected wide detail metadata pairs on shared rows, got:\n%s", cleanView)
+	}
+	if strings.Index(cleanView, "Stage:") > strings.Index(cleanView, "Priority:") {
+		t.Errorf("expected Stage to precede Priority in wide detail view, got:\n%s", cleanView)
 	}
 
 	// Verify the detail metadata follows the dashboard's field order.
 	dossierIdx := strings.Index(cleanView, "Dossier:")
-	priorityIdx := strings.Index(cleanView, "Priority:")
 	stageIdx := strings.Index(cleanView, "Stage:")
+	priorityIdx := strings.Index(cleanView, "Priority:")
 	leadIdx := strings.Index(cleanView, "Lead:")
 	interfacesIdx := strings.Index(cleanView, "Interfaces:")
 
 	if dossierIdx == -1 || priorityIdx == -1 || stageIdx == -1 || leadIdx == -1 || interfacesIdx == -1 {
 		t.Fatalf("expected all metadata labels in detail view, got view:\n%s", cleanView)
 	}
-	if !(dossierIdx < priorityIdx && priorityIdx < stageIdx && stageIdx < leadIdx && leadIdx < interfacesIdx) {
-		t.Errorf("expected field order Dossier < Priority < Stage < Lead < Interfaces, got indices: Dossier=%d, Priority=%d, Stage=%d, Lead=%d, Interfaces=%d",
+	if !(dossierIdx < stageIdx && stageIdx < priorityIdx && priorityIdx < leadIdx && leadIdx < interfacesIdx) {
+		t.Errorf("expected field order Dossier < Stage < Priority < Lead < Interfaces, got indices: Dossier=%d, Priority=%d, Stage=%d, Lead=%d, Interfaces=%d",
 			dossierIdx, priorityIdx, stageIdx, leadIdx, interfacesIdx)
 	}
 
@@ -2310,8 +2324,8 @@ func TestTUI_DetailFieldSequenceWithDueDate(t *testing.T) {
 		t.Fatalf("expected all labels including Due: in detail view, got:\n%s", cleanView)
 	}
 
-	if !(dossierIdx < priorityIdx && priorityIdx < stageIdx && stageIdx < leadIdx && leadIdx < interfacesIdx && interfacesIdx < dueIdx) {
-		t.Errorf("expected sequence Dossier < Priority < Stage < Lead < Interfaces < Due, got: %d, %d, %d, %d, %d, %d",
+	if !(dossierIdx < stageIdx && stageIdx < priorityIdx && priorityIdx < leadIdx && leadIdx < interfacesIdx && interfacesIdx < dueIdx) {
+		t.Errorf("expected sequence Dossier < Stage < Priority < Lead < Interfaces < Due, got: %d, %d, %d, %d, %d, %d",
 			dossierIdx, priorityIdx, stageIdx, leadIdx, dueIdx, interfacesIdx)
 	}
 }

@@ -2378,13 +2378,13 @@ func (m Model) renderDetailMetadata() string {
 	}
 
 	sb.WriteString(renderRow("Dossier:", fm.Name))
+	sb.WriteString(renderRow("Slug:", fm.Slug))
 	if fm.Description != "" {
 		sb.WriteString(renderRow("Summary:", fm.Description))
 	}
-	sb.WriteString(renderRow("Slug:", fm.Slug))
 	sb.WriteString(renderTwoCols(
-		"Priority:", string(fm.Priority),
 		"Stage:", string(fm.Status),
+		"Priority:", string(fm.Priority),
 	))
 	sb.WriteString(renderTwoCols(
 		"Lead:", leadLabel,
