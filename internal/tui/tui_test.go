@@ -2213,3 +2213,67 @@ func TestTUI_DetailFieldSequenceWithDueDate(t *testing.T) {
 			dossierIdx, priorityIdx, stageIdx, leadIdx, dueIdx, interfacesIdx)
 	}
 }
+
+// TestEmptyStateKeepsHeadersPinned covers a search that matches nothing on both
+// home surfaces. The frame — the dashboard's column titles, the board's stage
+// columns — has to stay on screen: emptying the body is the answer, erasing the
+// surface the user is searching within is not. The line count is asserted too,
+// because a full-height surface only converges on the footer if the board budget
+// accounts for the search bar above it.
+func TestEmptyStateKeepsHeadersPinned(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "billing", "Billing Review", core.StatusSpark)
+
+	const width, height = 120, 40
+
+	for _, surface := range []struct {
+		name   string
+		view   View
+		header string
+	}{
+		{"dashboard", ViewDashboard, "Dossier"},
+		{"board", ViewKanban, "SPARK"},
+	} {
+		m := boardModel(t, store, width, height)
+		m.currentView = surface.view
+		m.listView = surface.view
+		m.searchActive = true
+		m.searchInput.Focus()
+		m.searchInput.SetValue("zzz-nothing-matches-this")
+		m.searchQuery = core.NewQuery(m.searchInput.Value())
+		m.applyFilters()
+		m.populateTableRows()
+
+		newM, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: height})
+		out := stripANSI(newM.(Model).View())
+		lines := strings.Split(out, "\n")
+
+		headerIdx := -1
+		for i, line := range lines {
+			if strings.Contains(line, surface.header) {
+				headerIdx = i
+				break
+			}
+		}
+		if headerIdx < 0 {
+			t.Fatalf("%s: expected the %q header to survive an empty search, got:\n%s", surface.name, surface.header, out)
+		}
+
+		noticeIdx := -1
+		for i, line := range lines {
+			if strings.Contains(line, "No dossiers match") {
+				noticeIdx = i
+				break
+			}
+		}
+		if noticeIdx < 0 {
+			t.Fatalf("%s: expected the empty-search notice, got:\n%s", surface.name, out)
+		}
+		if noticeIdx <= headerIdx {
+			t.Errorf("%s: notice at line %d is above the header at line %d", surface.name, noticeIdx, headerIdx)
+		}
+		if len(lines) != height {
+			t.Errorf("%s: rendered %d lines, want %d", surface.name, len(lines), height)
+		}
+	}
+}

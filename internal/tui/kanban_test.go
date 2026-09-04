@@ -626,9 +626,9 @@ func TestListSubtitlesFitTerminalWidth(t *testing.T) {
 // TestEmptyStateFitsTerminalWidth covers the same overflow on the screen most
 // likely to show it: an empty home surface right after a filter change. The
 // message interpolates the lead and interface labels, so a long lead name pushes
-// it well past a narrow terminal. Line count is deliberately not asserted — the
-// empty state renders a single message rather than a full-height table, so its
-// footer floats, which is pre-existing and unrelated to wrapping.
+// it well past a narrow terminal. Where the message sits relative to the pinned
+// headers is TestEmptyStateKeepsHeadersPinned's job; this one only cares that it
+// is cut to the terminal width.
 func TestEmptyStateFitsTerminalWidth(t *testing.T) {
 	store := newTestStore()
 	seedDossier(store, "a", "Alpha", core.StatusSpark)

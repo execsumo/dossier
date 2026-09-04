@@ -205,11 +205,15 @@ func (m Model) kanbanColumnWidth(visible int) int {
 
 // kanbanBodyHeight is the number of lines available for cards beneath each
 // column's header and rule. It mirrors recalculateTableLayout's arithmetic (the
-// 4 lines of screen chrome plus the footer) and subtracts the board's own two
-// header lines, so the footer converges on the bottom of the terminal exactly as
-// it does on the dashboard.
+// 4 lines of screen chrome, the footer, and the search bar when it is showing)
+// and subtracts the board's own two header lines, so the footer converges on the
+// bottom of the terminal exactly as it does on the dashboard.
 func (m Model) kanbanBodyHeight() int {
-	h := m.height - 4 - m.footerHeight(ViewKanban) - 2
+	searchH := 0
+	if m.searchBarVisible() {
+		searchH = 1
+	}
+	h := m.height - 4 - m.footerHeight(ViewKanban) - searchH - 2
 	if h < 3 {
 		h = 3
 	}

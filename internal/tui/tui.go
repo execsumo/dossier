@@ -2669,6 +2669,29 @@ func (m Model) renderListSubtitle(text string) string {
 	return subtitleStyle.Render(truncateCell(text, m.width))
 }
 
+// emptyListNotice is the message a home surface shows when nothing survives the
+// active search or filters. Both surfaces share it so the wording — and the way
+// it is fitted to the terminal — cannot drift between the dashboard and board.
+func (m Model) emptyListNotice() string {
+	if !m.searchQuery.IsEmpty() {
+		return m.renderListSubtitle(fmt.Sprintf(" No dossiers match %q — esc to clear", m.searchInput.Value()))
+	}
+	return m.renderListSubtitle(fmt.Sprintf(" No dossiers for lead: %s / interface: %s — press f or i to change filters.", m.leadFilter.label(), m.interfaceFilter.label()))
+}
+
+// pinEmptyNotice writes notice over the first body line of an already rendered
+// surface, leaving its first headerLines lines untouched. Headers are the frame
+// the user is searching within: a query that matches nothing should empty the
+// body, not erase the columns that explain what the body would have held.
+func pinEmptyNotice(view, notice string, headerLines int) string {
+	lines := strings.Split(view, "\n")
+	if len(lines) <= headerLines {
+		return view + "\n" + notice
+	}
+	lines[headerLines] = notice
+	return strings.Join(lines, "\n")
+}
+
 // View renders the screen based on state.
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
@@ -2711,17 +2734,14 @@ func (m Model) View() string {
 
 		if m.loading && len(m.items) == 0 {
 			sb.WriteString(" Loading dossiers...\n")
-		} else if len(m.visibleItems) == 0 && m.extrasCount == 0 {
+		} else {
+			view := m.table.View()
+			if len(m.visibleItems) == 0 && m.extrasCount == 0 {
+				view = pinEmptyNotice(view, m.emptyListNotice(), 1)
+			}
 			// The newline stays outside the fitted text so a width cut can never
 			// eat it and collapse the layout.
-			if !m.searchQuery.IsEmpty() {
-				sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" No dossiers match %q — esc to clear", m.searchInput.Value())))
-			} else {
-				sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" No dossiers for lead: %s / interface: %s — press f or i to change filters.", m.leadFilter.label(), m.interfaceFilter.label())))
-			}
-			sb.WriteString("\n")
-		} else {
-			sb.WriteString(m.table.View())
+			sb.WriteString(view)
 			sb.WriteString("\n")
 		}
 
@@ -2744,17 +2764,15 @@ func (m Model) View() string {
 
 		if m.loading && len(m.items) == 0 {
 			sb.WriteString(" Loading dossiers...\n")
-		} else if m.kanbanIsEmpty() {
+		} else {
+			view := m.renderKanban()
+			if m.kanbanIsEmpty() {
+				// Two lines of frame per column: the stage label and its rule.
+				view = pinEmptyNotice(view, m.emptyListNotice(), 2)
+			}
 			// The newline stays outside the fitted text so a width cut can never
 			// eat it and collapse the layout.
-			if !m.searchQuery.IsEmpty() {
-				sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" No dossiers match %q — esc to clear", m.searchInput.Value())))
-			} else {
-				sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" No dossiers for lead: %s / interface: %s — press f or i to change filters.", m.leadFilter.label(), m.interfaceFilter.label())))
-			}
-			sb.WriteString("\n")
-		} else {
-			sb.WriteString(m.renderKanban())
+			sb.WriteString(view)
 			sb.WriteString("\n")
 		}
 
