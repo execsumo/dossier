@@ -44,4 +44,15 @@ type SessionBinding struct {
 	BoundAt          time.Time    `json:"bound_at"`
 	LastSeenRevision string       `json:"last_seen_revision"`
 	Capabilities     Capabilities `json:"capabilities"`
+
+	// GuideDeliveredAt records when the Distillation Guide was last emitted into
+	// this session's context, so the two delivery paths — the session-start hook
+	// and the dossier_session response — don't both spend ~3.5k tokens on the
+	// same text within one session. Zero means undelivered.
+	//
+	// This must stay a per-session record rather than a per-bind one: it is reset
+	// by a fresh session-start (including the one that fires after compaction,
+	// where the previous copy was just evicted from context) and carried across a
+	// Switch (the Guide is dossier-independent, so re-binding earns no re-send).
+	GuideDeliveredAt time.Time `json:"guide_delivered_at,omitzero"`
 }

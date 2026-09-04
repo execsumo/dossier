@@ -1,7 +1,7 @@
 # Dossier Operating Instructions
 
 - **Poll Monitors:** Evaluate `(Last polled: date)` in `## Active Monitors`. Fetch updates solely if outdated. Distill findings; update timestamp.
-- **Eager Saves:** Execute `dossier_save` immediately upon material decisions or milestones. End-of-session batching: [Rejected].
+- **Eager Saves:** Execute `dossier_save` immediately upon material decisions or milestones. End-of-session batching: [Rejected]. Rationale, load-bearing: the session-end and pre-compaction hooks run a binary, not an agent — they archive the transcript and **cannot distill on your behalf**. Nothing you did not save with `dossier_save` reaches the Distilled State. A session that saves only at the boundary saves nothing; the boundary reports that as a warning, after it is too late to act on.
 - **Concurrency:** Inject `base_revision` into `dossier_save`. Mitigates concurrent TUI overwrite conflicts.
 - **Artifacts:** Pass raw logs/transcripts as structured artifacts via `dossier_save`. Hand-written files into `<slug>/artifacts/`: [Rejected] — that namespace is frontmatter-only and a loose file there is silently discarded (see **Working Files**). Prefer small, purpose-built artifacts (`decision_evidence`, `file_snapshot`, `query`, `link`) captured when the evidence appears, over one coarse end-of-session `transcript`.
 - **Resolve Citations:** `dossier_artifact` fetches a cited artifact, or a cited span via `fragment: "L42-L68"`. Follow a `[src:]` pointer instead of guessing at what was compressed away, and instead of re-deriving what a past session already established.

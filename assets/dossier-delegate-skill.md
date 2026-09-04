@@ -39,7 +39,16 @@ difference.
 
 Pull the Dossier's current `next_action`, `lead`, `status`, `due_date`, and body
 (via `dossier_recall`). Read the body's `## Open Questions` section as part of
-that context. Then run one framing pass, not a checklist walk:
+that context.
+
+**Check `## Delegation Contracts` first.** If that section already holds a
+contract for this work, this invocation is a *resumption*, not fresh scoping:
+the settled `[decided]` blocks are agreed and are not reopened, and the gap-check
+narrows to the `[proposed]` ones plus whatever the paired `## Open Questions`
+entries record. Re-asking a question the previous session already answered is
+the specific failure to avoid here — the answer is in the body, so read it.
+
+Then run one framing pass, not a checklist walk:
 
 > **Read this as the teammate — waking up at the start of their day, with no
 > way to reach the sender until theirs ends. Where do they stall?**
@@ -124,20 +133,35 @@ point. The Dossier's Distilled State is terse by design — the Distillation
 Guide actively fights bloat. Those two disciplines don't have to fight each
 other if you separate **what's committed** from **how it's presented**:
 
-- **The contract is committed state.** Once the seven blocks are resolved,
-  write them into the Dossier body as a compressed, telegraphic section via
-  `dossier_save` (or `dossier_update` for frontmatter fields),
-  e.g.:
+- **The contract is committed state, and it is written incrementally.** Do
+  not wait for all seven blocks to resolve before persisting — write the
+  section as soon as the first blocks settle, and re-save as each further
+  one lands. A contract that exists only in the conversation does not
+  survive the session; end-of-session capture is best-effort, and this is
+  exactly the material that must not depend on it.
+
+  It goes into the Dossier body via `dossier_save` (or `dossier_update` for
+  frontmatter fields) under the reserved `## Delegation Contracts` section
+  defined in the Distillation Guide §4 — a stable heading, one `###` per
+  contract, blocks in the Guide's fixed order:
 
   ```
-  ## Delegated: <short task label> (<date>, owner: <lead>)
-  - Objective: ...
-  - Success Criteria: ...
-  - Validation: ...
-  - Constraints: ...
-  - Decision Rights: ...
-  - Escalation: ...
+  ## Delegation Contracts
+  ### <Task label> — owner: <Lead>, agreed <YYYY-MM-DD> [src:art_<id>]
+  - Objective: [decided] ...
+  - Context: [decided] ...
+  - Success Criteria: [decided] ...
+  - Validation: [proposed] ...
+  - Constraints: [decided] ...
+  - Decision Rights: [proposed] ...
+  - Escalation: [proposed] ...
   ```
+
+  The heading is fixed, not templated — never fold the task label or date
+  into the `##`, or nothing downstream can find the section by name.
+  A block still under discussion is written `[proposed]`, not omitted: an
+  absent block and an unresolved one look identical to the next reader, and
+  they are not the same thing.
 
   This is what answers "how do I check success criteria was met without
   moving the goalpost": the contract goes through the same `Save` path as
@@ -161,6 +185,35 @@ other if you separate **what's committed** from **how it's presented**:
   e.g. "reply in-thread with: (1) status — done / blocked, (2) one line per
   success criterion — met / not met / n-a, (3) link to the output, (4)
   anything you decided under your own decision rights, so it gets logged."
+
+## Leaving mid-contract
+
+Scoping a delegation often spans sessions — the user goes to check something,
+or the day ends, before all seven blocks resolve. A session binding is
+per-session, so the next session starts unbound and begins from what is on
+disk. Leave three things behind, all of which survive a restart:
+
+1. **The partial contract, persisted**, with unresolved blocks marked
+   `[proposed]`. This is the incremental-write rule above; it is what makes
+   resumption possible at all.
+2. **One `## Open Questions` entry per unresolved block**, phrased as the
+   question that would settle it ("Can Priya ship copy fixes without
+   sign-off?"). This is the handle the next session actually finds — the
+   Distillation Guide gives that section a fixed slot, and this skill reads
+   it on invocation.
+3. **`next_action` and stage set to say so** — `next_action` naming the
+   contract as unfinished ("Settle decision rights + escalation for the
+   pricing copy handoff"), and status left at `define`, not `delegated`.
+   Both are frontmatter, so they surface in the session-start library
+   listing, `dossier ls`, and the board without anyone opening the Dossier.
+   Moving to `delegated` before the contract is complete asserts a handoff
+   that hasn't happened.
+
+Never report a partial contract as complete, and never fill a `[proposed]`
+block on resumption by inference to make the note renderable — an invented
+criterion is worse than an absent one, because the reader can't tell the
+difference. If the user asks for the note while blocks are open, render what
+is settled and name the open blocks in plain text above it.
 
 ## Checking completion later
 
@@ -191,19 +244,32 @@ highest-leverage gaps for an 8-hour offset.
 
 **Contract persisted into the Dossier body:**
 ```
-## Delegated: Pricing page copy review (2026-06-30, owner: Priya)
-- Objective: Pricing page copy is factually correct and ready to publish.
-- Success Criteria: Every dollar figure and plan name matches the approved
-  pricing sheet; no claims beyond what Legal already signed off on.
-- Validation: Priya diffs the copy against the pricing sheet line by line;
-  same check I'd run.
-- Constraints: Don't touch layout/design — copy only.
-- Decision Rights: Priya can fix factual errors and typos unilaterally.
-  Anything that changes claims/tone needs my sign-off.
-- Escalation: If a figure in the sheet itself looks wrong, flag and move to
-  the next page rather than blocking — don't wait on me to unblock.
+## Delegation Contracts
+### Pricing page copy review — owner: Priya, agreed 2026-06-30 [src:art_01jz8pricing_sheet]
+- Objective: [decided] Pricing page copy is factually correct and ready to
+  publish.
+- Context: [decided] Copy follows the 2026-06-14 usage-tier pricing decision;
+  approved figures live in the pricing sheet.
+- Success Criteria: [decided] Every dollar figure and plan name matches the
+  approved pricing sheet; no claims beyond what Legal already signed off on.
+- Validation: [decided] Priya diffs the copy against the pricing sheet line by
+  line; same check I'd run.
+- Constraints: [decided] Don't touch layout/design — copy only.
+- Decision Rights: [decided] Priya can fix factual errors and typos
+  unilaterally. Anything that changes claims/tone needs my sign-off.
+- Escalation: [decided] If a figure in the sheet itself looks wrong, flag and
+  move to the next page rather than blocking — don't wait on me to unblock.
 ```
 
 **Rendered note** (what actually gets pasted to Priya): the same content
 expanded into full sentences with a greeting and the return-contract shape,
 built entirely from the block above — nothing new introduced at render time.
+
+**Had the session ended after the first two questions** — Decision Rights
+settled, Escalation still open — the same section would persist with
+`- Escalation: [proposed] ...` or the block left explicitly unresolved,
+`## Open Questions` would carry "If Priya hits a wrong figure in the pricing
+sheet itself, does she stop or work around it?", `next_action` would read
+"Settle escalation path for the pricing copy handoff", and status would stay
+`define`. The next session resumes from those three signals without re-asking
+what Priya can decide.

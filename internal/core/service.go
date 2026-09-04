@@ -1930,8 +1930,14 @@ func (s *Service) Switch(ctx context.Context, req SwitchReq) (Result, error) {
 	}
 
 	oldBinding, err := s.store.GetSessionBinding(req.SessionID)
-	if err == nil && oldBinding != nil && oldBinding.DossierID != "" {
-		_ = s.store.ClearSessionBinding(req.SessionID)
+	// The Guide is dossier-independent, so switching topics inside one session
+	// earns no re-send; carry the delivery marker across the rebind.
+	var guideDeliveredAt time.Time
+	if err == nil && oldBinding != nil {
+		guideDeliveredAt = oldBinding.GuideDeliveredAt
+		if oldBinding.DossierID != "" {
+			_ = s.store.ClearSessionBinding(req.SessionID)
+		}
 	}
 
 	d, rev, err := s.store.Read(req.ID)
@@ -1956,6 +1962,7 @@ func (s *Service) Switch(ctx context.Context, req SwitchReq) (Result, error) {
 		BoundAt:          s.clock.Now(),
 		LastSeenRevision: string(rev),
 		Capabilities:     activeCaps,
+		GuideDeliveredAt: guideDeliveredAt,
 	}
 	if err := s.store.SaveSessionBinding(binding); err != nil {
 		return Result{}, WrapError(ErrInternal, "failed to save session binding", err)
@@ -2097,10 +2104,15 @@ func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, e
 	))
 
 	if activeDossierID != "" {
-		guidePath := filepath.Join(s.cfg.DossierHome, "context", "guide.md")
-		if guideBytes, err := os.ReadFile(guidePath); err == nil {
+		// Deliver the Guide here, at the earliest point in the session, so it is
+		// in context ahead of any tool call the agent makes rather than arriving
+		// alongside one. Resetting first is what makes that true after a
+		// compaction: the marker survives in the binding, but the context the
+		// Guide was written into does not.
+		s.resetGuideDelivery(sessionID)
+		if guide := s.GuideForSession(sessionID); guide != "" {
 			sb.WriteString("\nDistillation Guide:\n")
-			sb.WriteString(string(guideBytes))
+			sb.WriteString(guide)
 			sb.WriteString("\n")
 		}
 
@@ -2128,6 +2140,51 @@ func (s *Service) GetGuide() string {
 	return ""
 }
 
+// GuideForSession returns the Distillation Guide the first time it is requested
+// within a session and "" on every request after that, so the session-start hook
+// and the dossier_session response stop spending the same ~3.5k tokens twice on
+// a resumed or post-compaction session.
+//
+// Suppression is deliberately biased toward delivering: an unknown session, an
+// unreadable binding, or a failed write of the marker all return the Guide. The
+// Guide must be in context *before* the agent composes a write, so a duplicate
+// copy is a cost and a missing copy is a correctness failure — when the two
+// trade off, pay the cost.
+func (s *Service) GuideForSession(sessionID string) string {
+	guide := s.GetGuide()
+	if guide == "" || sessionID == "" {
+		return guide
+	}
+
+	binding, err := s.store.GetSessionBinding(sessionID)
+	if err != nil || binding == nil {
+		return guide
+	}
+	if !binding.GuideDeliveredAt.IsZero() {
+		return ""
+	}
+
+	binding.GuideDeliveredAt = s.clock.Now()
+	_ = s.store.SaveSessionBinding(binding)
+	return guide
+}
+
+// resetGuideDelivery clears the delivery marker so the next GuideForSession call
+// re-sends. Called at session start, where the context window is new by
+// definition — a startup, a resume, or the rebuild that follows compaction — and
+// any Guide delivered earlier in the session is no longer in it.
+func (s *Service) resetGuideDelivery(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	binding, err := s.store.GetSessionBinding(sessionID)
+	if err != nil || binding == nil || binding.GuideDeliveredAt.IsZero() {
+		return
+	}
+	binding.GuideDeliveredAt = time.Time{}
+	_ = s.store.SaveSessionBinding(binding)
+}
+
 func (s *Service) GetInstructions() string {
 	instructionsPath := filepath.Join(s.cfg.DossierHome, "context", "instructions.md")
 	if instructionsBytes, err := os.ReadFile(instructionsPath); err == nil {
@@ -2146,6 +2203,14 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 	now := s.clock.Now()
 	finalRevision := Revision(binding.LastSeenRevision)
 	var warnings []Warning
+
+	// Read the revision before anything below writes, so this reflects only what
+	// the session itself persisted. Sampling it later would fold in this hook's
+	// own transcript artifact and report every session as having saved.
+	var persistedDuringSession bool
+	if _, revAtBoundary, revErr := s.store.Read(binding.DossierID); revErr == nil {
+		persistedDuringSession = string(revAtBoundary) != binding.LastSeenRevision
+	}
 
 	if distilledState != "" {
 		saveRes, err := s.Save(ctx, SaveReq{
@@ -2228,14 +2293,34 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 	}
 
 	if distilledState == "" {
-		_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
-			TS:        now,
-			Event:     AuditEventSave,
-			Author:    s.cfg.Author,
-			DossierID: binding.DossierID,
-			SessionID: sessionID,
-			Message:   "Session boundary reached without distilled_state payload; retained available artifacts and left Distilled State unchanged.",
-		})
+		// No harness in the registry supplies a distilled_state payload on its
+		// lifecycle hooks — a hook runs a binary, it cannot ask the agent to
+		// distill. So this branch is the normal path, and the only question is
+		// whether the session persisted anything on its own.
+		if persistedDuringSession {
+			_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
+				TS:        now,
+				Event:     AuditEventSave,
+				Author:    s.cfg.Author,
+				DossierID: binding.DossierID,
+				SessionID: sessionID,
+				Message:   "Session boundary reached without distilled_state payload; Distilled State was already saved during the session.",
+			})
+		} else {
+			// Nothing reached the Distilled State this session and the boundary
+			// cannot distill on the agent's behalf. Per the degrade-visibly rule
+			// this is a surfaced warning, not an audit line nobody reads.
+			w := Warning("Distilled State was not updated this session — the session-end boundary cannot distill on the agent's behalf, and nothing was saved while the session ran. The transcript is archived, so nothing is lost, but resuming this Dossier will show the state as of its last explicit save. Save during the session (dossier_save) as decisions land.")
+			warnings = append(warnings, w)
+			_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
+				TS:        now,
+				Event:     AuditEventDistilledStateNotCaptured,
+				Author:    s.cfg.Author,
+				DossierID: binding.DossierID,
+				SessionID: sessionID,
+				Message:   string(w),
+			})
+		}
 	}
 
 	if finalRevision != "" && string(finalRevision) != binding.LastSeenRevision {

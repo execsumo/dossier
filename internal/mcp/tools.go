@@ -477,13 +477,31 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 				type SessionResponse struct {
 					State                 interface{} `json:"state"`
 					Guide                 string      `json:"distillation_guide,omitempty"`
+					GuideRef              string      `json:"distillation_guide_ref,omitempty"`
 					OperatingInstructions string      `json:"operating_instructions,omitempty"`
 				}
-				res.Data = SessionResponse{
+				// The Guide is sent once per session (see Service.GuideForSession).
+				// When it is suppressed, say where it went: an absent field would
+				// otherwise read as "this store has no Guide", and the agent needs
+				// to know it is still bound by one it can re-read on demand.
+				resp := SessionResponse{
 					State:                 res.Data,
-					Guide:                 s.svc.GetGuide(),
+					Guide:                 s.svc.GuideForSession(sid),
 					OperatingInstructions: s.svc.GetInstructions(),
 				}
+				if resp.Guide == "" {
+					// An empty Guide has two very different causes, and reporting
+					// the wrong one is worse than reporting nothing: suppression
+					// means the rules are in force and already in context, while
+					// an unreadable store copy means there are no rules loaded at
+					// all. Distinguish them rather than assuming suppression.
+					if s.svc.GetGuide() == "" {
+						resp.GuideRef = "WARNING: the Distillation Guide is unavailable — ~/.dossier/context/guide.md is missing or unreadable, so no distillation rules are loaded for this session. Run `dossier init` to restore it; until then, treat saves as unguided and say so."
+					} else {
+						resp.GuideRef = "Distillation Guide already delivered in this session; it remains in force. Re-read at ~/.dossier/context/guide.md if it has left context."
+					}
+				}
+				res.Data = resp
 			}
 		}
 

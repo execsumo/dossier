@@ -35,4 +35,5 @@ const (
 	AuditEventConflictResolved             = "conflict_resolved"
 	AuditEventTranscriptCaptureUnavailable = "transcript_capture_unavailable"
 	AuditEventInstallWarning               = "install_warning"
+	AuditEventDistilledStateNotCaptured    = "distilled_state_not_captured"
 )

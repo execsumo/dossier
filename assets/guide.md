@@ -46,7 +46,7 @@ Identical text means different things in different positions: an *intention* is 
 
 ## 4. Structure of the Distilled State
 
-Every `dossier.md` body must rigidly follow this schema:
+Every `dossier.md` body must rigidly follow this schema. Sections marked *conditional* are omitted entirely when they do not apply—an empty header is not neutral, it asserts that the section was considered and came back empty. Every other section is unconditional and keeps its position even while thin.
 
 ```markdown
 # <Dossier Name>
@@ -77,6 +77,17 @@ Live external context streams that must be polled for updates upon resuming this
 
 ## Current State
 Immediate execution context. Active files, blockers, or configurations.
+
+## Delegation Contracts
+*Conditional*—present only when a piece of this topic is delegated to someone. One `###` per contract; a Dossier can carry several over its life. Blocks appear in this fixed order, every time, so a reader (or a later session) finds them without searching. Tag each block: `[decided]` once settled and binding, `[proposed]` while still under discussion. An unsettled block stays in the contract as `[proposed]` and its resolution is mirrored as an entry in `## Open Questions`—that pairing is what makes a half-written contract legible on resumption.
+### <Task label> — owner: <Lead>, agreed <YYYY-MM-DD> [src:art_<id>#L<a>-L<b>]
+- Objective: <One sentence; the end state "done" produces, not a task list.>
+- Context: <Self-contained; assume the reader has no shared memory beyond this Dossier.>
+- Success Criteria: <The target state in testable terms, not adjectives.>
+- Validation: <How the criteria get checked—the same check whether the owner self-reports or you run it.>
+- Constraints: <What must not change, be touched, or be assumed.>
+- Decision Rights: <What the owner decides unilaterally vs. what needs sign-off.>
+- Escalation: <Conditions to stop and flag rather than guess, and what to do while waiting.>
 
 ## Next Steps
 Immediate required actions. Must align with `next_action` and the `## Open Questions` section in the Distilled State body.

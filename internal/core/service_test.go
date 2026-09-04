@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -419,8 +421,21 @@ func TestSessionEndCapturesTranscriptWithoutDistilledState(t *testing.T) {
 		t.Fatalf("binding failed: %v", err)
 	}
 
-	if _, err := svc.SessionEnd(ctx, "sess_test", "", "transcript payload"); err != nil {
+	warnings, err := svc.SessionEnd(ctx, "sess_test", "", "transcript payload")
+	if err != nil {
 		t.Fatalf("SessionEnd failed: %v", err)
+	}
+	// Nothing was saved while this session ran, so the boundary must say so out
+	// loud rather than only in the audit log — the transcript survives, but the
+	// Distilled State is stale and the user cannot tell from the outside.
+	var sawWarning bool
+	for _, w := range warnings {
+		if strings.Contains(string(w), "Distilled State was not updated this session") {
+			sawWarning = true
+		}
+	}
+	if !sawWarning {
+		t.Fatalf("expected a surfaced warning for an unsaved session, got %v", warnings)
 	}
 
 	d, revAfter, err := fakeStore.Read("dos_fake_id")
@@ -445,12 +460,62 @@ func TestSessionEndCapturesTranscriptWithoutDistilledState(t *testing.T) {
 	}
 	var sawNoDistilledAudit bool
 	for _, event := range fakeStore.audits["dos_fake_id"] {
-		if strings.Contains(event.Message, "without distilled_state payload") {
+		if event.Event == AuditEventDistilledStateNotCaptured {
 			sawNoDistilledAudit = true
 		}
 	}
 	if !sawNoDistilledAudit {
-		t.Fatalf("expected audit entry for missing distilled_state payload")
+		t.Fatalf("expected a %s audit entry", AuditEventDistilledStateNotCaptured)
+	}
+}
+
+// A session that saved as it went hits the same no-payload branch at the
+// boundary, but has lost nothing — warning there would train the user to ignore
+// the one that matters.
+func TestSessionEndDoesNotWarnWhenSessionSavedEagerly(t *testing.T) {
+	fakeStore := newLocalFakeStore()
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}, Config{}, nil)
+	ctx := context.Background()
+
+	createRes, err := svc.Save(ctx, SaveReq{
+		DistilledStateMarkdown: "# Eager\n\n## Situation\nBound here.",
+		FrontmatterUpdates:     map[string]any{"name": "Eager", "status": "active", "priority": "medium"},
+	})
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	boundRev := createRes.Data.(Revision)
+	if err := fakeStore.SaveSessionBinding(&SessionBinding{
+		SessionBindingID: "sess_eager",
+		Harness:          "claude-code",
+		DossierID:        "dos_fake_id",
+		LastSeenRevision: string(boundRev),
+	}); err != nil {
+		t.Fatalf("binding failed: %v", err)
+	}
+
+	// The eager save the Operating Instructions mandate.
+	if _, err := svc.Save(ctx, SaveReq{
+		ID:                     "dos_fake_id",
+		BaseRevision:           boundRev,
+		DistilledStateMarkdown: "# Eager\n\n## Situation\nSaved mid-session.",
+	}); err != nil {
+		t.Fatalf("eager save failed: %v", err)
+	}
+
+	warnings, err := svc.SessionEnd(ctx, "sess_eager", "", "transcript payload")
+	if err != nil {
+		t.Fatalf("SessionEnd failed: %v", err)
+	}
+	for _, w := range warnings {
+		if strings.Contains(string(w), "Distilled State was not updated this session") {
+			t.Fatalf("unexpected unsaved-session warning after an eager save: %q", w)
+		}
+	}
+	for _, event := range fakeStore.audits["dos_fake_id"] {
+		if event.Event == AuditEventDistilledStateNotCaptured {
+			t.Fatalf("unexpected %s audit entry after an eager save", AuditEventDistilledStateNotCaptured)
+		}
 	}
 }
 
@@ -920,4 +985,140 @@ func TestRecallConfiguredTokenLimit(t *testing.T) {
 			t.Errorf("expected TokenLimit() = %d, got %d", DefaultTokenLimit, svc.TokenLimit())
 		}
 	})
+}
+
+// The Distillation Guide must reach context before the agent composes a write,
+// and must not arrive twice for the same context window. These tests pin both
+// halves, including the case where the trade-off is forced.
+func TestGuideDeliveredOncePerSession(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "context"), 0755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "context", "guide.md"), []byte("GUIDE BODY"), 0644); err != nil {
+		t.Fatalf("write guide failed: %v", err)
+	}
+
+	fakeStore := newLocalFakeStore()
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}, Config{DossierHome: home}, nil)
+
+	if err := fakeStore.SaveSessionBinding(&SessionBinding{
+		SessionBindingID: "sess_guide",
+		Harness:          "claude-code",
+		DossierID:        "dos_fake_id",
+	}); err != nil {
+		t.Fatalf("binding failed: %v", err)
+	}
+
+	if got := svc.GuideForSession("sess_guide"); got != "GUIDE BODY" {
+		t.Fatalf("first delivery should carry the Guide, got %q", got)
+	}
+	if got := svc.GuideForSession("sess_guide"); got != "" {
+		t.Fatalf("second delivery in the same session should be suppressed, got %q", got)
+	}
+
+	// A different session shares the store but not the context window.
+	if err := fakeStore.SaveSessionBinding(&SessionBinding{
+		SessionBindingID: "sess_other",
+		Harness:          "claude-code",
+		DossierID:        "dos_fake_id",
+	}); err != nil {
+		t.Fatalf("binding failed: %v", err)
+	}
+	if got := svc.GuideForSession("sess_other"); got != "GUIDE BODY" {
+		t.Fatalf("a separate session must get its own copy, got %q", got)
+	}
+
+	// An unbound session cannot be tracked; deliver rather than withhold.
+	if got := svc.GuideForSession("sess_unknown"); got != "GUIDE BODY" {
+		t.Fatalf("an untrackable session must still receive the Guide, got %q", got)
+	}
+}
+
+func TestSessionStartResendsGuideAfterCompaction(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "context"), 0755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "context", "guide.md"), []byte("GUIDE BODY"), 0644); err != nil {
+		t.Fatalf("write guide failed: %v", err)
+	}
+
+	fakeStore := newLocalFakeStore()
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}, Config{DossierHome: home}, nil)
+	ctx := context.Background()
+
+	if _, err := svc.Save(ctx, SaveReq{
+		DistilledStateMarkdown: "# Guided\n\n## Situation\nBody.",
+		FrontmatterUpdates:     map[string]any{"name": "Guided", "status": "active", "priority": "medium"},
+	}); err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if err := fakeStore.SaveSessionBinding(&SessionBinding{
+		SessionBindingID: "sess_compact",
+		Harness:          "claude-code",
+		DossierID:        "dos_fake_id",
+	}); err != nil {
+		t.Fatalf("binding failed: %v", err)
+	}
+
+	first, err := svc.SessionStart(ctx, "sess_compact")
+	if err != nil {
+		t.Fatalf("SessionStart failed: %v", err)
+	}
+	if !strings.Contains(first, "GUIDE BODY") {
+		t.Fatalf("a bound session start must carry the Guide ahead of any tool call")
+	}
+
+	// The MCP bind that follows recognises it as already delivered.
+	if got := svc.GuideForSession("sess_compact"); got != "" {
+		t.Fatalf("the bind following a session start should not repeat the Guide, got %q", got)
+	}
+
+	// Compaction rebuilds the context window and fires SessionStart again; the
+	// previous copy is gone, so this one must resend.
+	second, err := svc.SessionStart(ctx, "sess_compact")
+	if err != nil {
+		t.Fatalf("second SessionStart failed: %v", err)
+	}
+	if !strings.Contains(second, "GUIDE BODY") {
+		t.Fatalf("the session start after compaction must resend the Guide")
+	}
+}
+
+func TestSwitchCarriesGuideDeliveryAcrossRebind(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "context"), 0755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "context", "guide.md"), []byte("GUIDE BODY"), 0644); err != nil {
+		t.Fatalf("write guide failed: %v", err)
+	}
+
+	fakeStore := newLocalFakeStore()
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)}, Config{DossierHome: home}, nil)
+	ctx := context.Background()
+
+	if _, err := svc.Save(ctx, SaveReq{
+		DistilledStateMarkdown: "# Switch Target\n\n## Situation\nBody.",
+		FrontmatterUpdates:     map[string]any{"name": "Switch Target", "status": "active", "priority": "medium"},
+	}); err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+
+	if _, err := svc.Switch(ctx, SwitchReq{ID: "dos_fake_id", SessionID: "sess_switch"}); err != nil {
+		t.Fatalf("first switch failed: %v", err)
+	}
+	if got := svc.GuideForSession("sess_switch"); got != "GUIDE BODY" {
+		t.Fatalf("first bind should deliver the Guide, got %q", got)
+	}
+
+	// Re-binding within the session must not re-send: the Guide is
+	// dossier-independent, so a switch adds no new instruction to follow.
+	if _, err := svc.Switch(ctx, SwitchReq{ID: "dos_fake_id", SessionID: "sess_switch"}); err != nil {
+		t.Fatalf("second switch failed: %v", err)
+	}
+	if got := svc.GuideForSession("sess_switch"); got != "" {
+		t.Fatalf("re-binding in the same session should not repeat the Guide, got %q", got)
+	}
 }
