@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"dossier/internal/core"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +45,126 @@ func TestFSStoreInit(t *testing.T) {
 	}
 	if !strings.Contains(string(guideBytes), "Dossier Distillation Guide") {
 		t.Errorf("expected guide.md to contain signature title")
+	}
+}
+
+func TestFSStoreRenameSlugMovesCompleteDirectoryAndKeepsAliases(t *testing.T) {
+	home := t.TempDir()
+	store := NewFSStore(home)
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	now := time.Now().Truncate(time.Second)
+	d := &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID: "dos_rename", Name: "Rename Me", Slug: "old-slug",
+			CreatedAt: now, UpdatedAt: now, Status: core.StatusSpark, Priority: core.PriorityMedium,
+		},
+		DistilledState: core.DistilledState{Body: "# State\n"},
+	}
+	rev, err := store.Write(d, "")
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	sentinels := map[string]string{
+		"artifacts/sentinel.txt": "artifact", "files/work.txt": "work",
+		"conflicts/conf_test.md": "conflict", "sessions/alice/sess.md": "session",
+		"audit/alice.log": "audit", "unknown/nested.txt": "unknown",
+	}
+	for rel, content := range sentinels {
+		path := filepath.Join(home, "old-slug", filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("MkdirAll(%s): %v", rel, err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("WriteFile(%s): %v", rel, err)
+		}
+	}
+
+	updated, newRev, err := store.RenameSlug(d.Frontmatter.ID, "clearer-slug", rev)
+	if err != nil {
+		t.Fatalf("RenameSlug() error = %v", err)
+	}
+	if updated.Frontmatter.ID != d.Frontmatter.ID || updated.Frontmatter.Slug != "clearer-slug" {
+		t.Fatalf("renamed frontmatter = %+v", updated.Frontmatter)
+	}
+	if len(updated.Frontmatter.Aliases) != 1 || updated.Frontmatter.Aliases[0] != "old-slug" {
+		t.Fatalf("aliases = %v, want [old-slug]", updated.Frontmatter.Aliases)
+	}
+	if newRev == rev {
+		t.Fatal("rename did not change revision")
+	}
+	if _, err := os.Stat(filepath.Join(home, "old-slug")); !os.IsNotExist(err) {
+		t.Fatalf("old directory still exists: %v", err)
+	}
+	for rel, want := range sentinels {
+		got, err := os.ReadFile(filepath.Join(home, "clearer-slug", filepath.FromSlash(rel)))
+		if err != nil || string(got) != want {
+			t.Fatalf("sentinel %s after rename = %q, %v; want %q", rel, got, err, want)
+		}
+	}
+	for _, ref := range []string{d.Frontmatter.ID, "clearer-slug", "old-slug"} {
+		got, gotRev, err := store.Read(ref)
+		if err != nil {
+			t.Fatalf("Read(%q) error = %v", ref, err)
+		}
+		if got.Frontmatter.ID != d.Frontmatter.ID || gotRev != newRev {
+			t.Fatalf("Read(%q) = id %q rev %q", ref, got.Frontmatter.ID, gotRev)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, "clearer-slug", "history", string(rev)+".md")); err != nil {
+		t.Fatalf("pre-rename history missing: %v", err)
+	}
+
+	updated, _, err = store.RenameSlug(d.Frontmatter.ID, "old-slug", newRev)
+	if err != nil {
+		t.Fatalf("RenameSlug() back error = %v", err)
+	}
+	if got, want := updated.Frontmatter.Aliases, []string{"clearer-slug"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("aliases after rename-back = %v, want %v", got, want)
+	}
+	if _, _, err := store.Read("clearer-slug"); err != nil {
+		t.Fatalf("intermediate slug alias no longer resolves: %v", err)
+	}
+}
+
+func TestFSStoreRenameSlugRejectsCollisionsAndStaleRevision(t *testing.T) {
+	home := t.TempDir()
+	store := NewFSStore(home)
+	if err := store.Init(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Truncate(time.Second)
+	write := func(id, slug string) core.Revision {
+		d := &core.Dossier{Frontmatter: core.Frontmatter{
+			ID: id, Name: slug, Slug: slug, CreatedAt: now, UpdatedAt: now,
+			Status: core.StatusSpark, Priority: core.PriorityMedium,
+		}}
+		rev, err := store.Write(d, "")
+		if err != nil {
+			t.Fatalf("Write(%s): %v", slug, err)
+		}
+		return rev
+	}
+	revA := write("dos_a", "alpha")
+	_ = write("dos_b", "beta")
+
+	assertCode := func(err error, want core.ErrorCode) {
+		t.Helper()
+		var domainErr *core.DomainError
+		if !errors.As(err, &domainErr) || domainErr.Code != want {
+			t.Fatalf("error = %v, want code %s", err, want)
+		}
+	}
+	_, _, err := store.RenameSlug("dos_a", "beta", revA)
+	assertCode(err, core.ErrInvalidFrontmatter)
+	_, _, err = store.RenameSlug("dos_a", "Bad Slug", revA)
+	assertCode(err, core.ErrInvalidFrontmatter)
+	_, _, err = store.RenameSlug("dos_a", "gamma", core.Revision("rev_stale"))
+	assertCode(err, core.ErrConcurrentEdit)
+	if got, _, err := store.Read("alpha"); err != nil || got.Frontmatter.Slug != "alpha" {
+		t.Fatalf("failed rename changed original dossier: %+v, %v", got, err)
 	}
 }
 

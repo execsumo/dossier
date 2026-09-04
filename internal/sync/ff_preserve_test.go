@@ -1,9 +1,12 @@
 package sync
 
 import (
+	"dossier/internal/core"
+	storepkg "dossier/internal/store"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestSync_FastForwardPreservesMachineLocal is the regression guard for the bug
@@ -36,6 +39,46 @@ func TestSync_FastForwardPreservesMachineLocal(t *testing.T) {
 	// And B must have actually received A's dossier.
 	if _, err := os.Stat(filepath.Join(storeB, "topic", "dossier.md")); err != nil {
 		t.Fatalf("B did not receive A's dossier on fast-forward: %v", err)
+	}
+}
+
+func TestSync_FastForwardRenameMovesMachineLocalSessionByDossierID(t *testing.T) {
+	bareDir, storeA, storeB := setupPair(t)
+	fsA := storepkg.NewFSStore(storeA)
+	if err := fsA.Init(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Truncate(time.Second)
+	d := &core.Dossier{Frontmatter: core.Frontmatter{
+		ID: "dos_ff_rename", Name: "Fast Forward Rename", Slug: "old-ff-topic",
+		CreatedAt: now, UpdatedAt: now, Status: core.StatusSpark, Priority: core.PriorityMedium,
+	}}
+	if _, err := fsA.Write(d, ""); err != nil {
+		t.Fatal(err)
+	}
+	mustSync(t, newSyncer(storeA, bareDir, "alice"))
+	mustSync(t, newSyncer(storeB, bareDir, "bob"))
+
+	stash := filepath.Join(storeB, "old-ff-topic", "sessions", "bob", "session.md")
+	if err := os.MkdirAll(filepath.Dir(stash), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stash, []byte("private"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, rev, err := fsA.Read("old-ff-topic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := fsA.RenameSlug("dos_ff_rename", "new-ff-topic", rev); err != nil {
+		t.Fatal(err)
+	}
+	mustSync(t, newSyncer(storeA, bareDir, "alice"))
+	mustSync(t, newSyncer(storeB, bareDir, "bob"))
+
+	assertFile(t, storeB, "new-ff-topic/sessions/bob/session.md", "private")
+	if _, err := os.Stat(filepath.Join(storeB, "old-ff-topic")); !os.IsNotExist(err) {
+		t.Fatalf("old dossier directory remains: %v", err)
 	}
 }
 

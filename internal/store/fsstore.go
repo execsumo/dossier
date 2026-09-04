@@ -3,8 +3,10 @@ package store
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
 	"dossier/assets"
 	"dossier/internal/core"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -30,12 +32,31 @@ func NewFSStore(dossierHome string) *FSStore {
 	}
 }
 
+// lockDossier uses the immutable dossier ID, not its movable directory, so a
+// writer can never recreate the old slug directory after a concurrent rename.
+func (s *FSStore) lockDossier(id string) (*FileLock, error) {
+	sum := sha256.Sum256([]byte(id))
+	locksDir := filepath.Join(s.dossierHome, ".locks")
+	if err := os.MkdirAll(locksDir, 0755); err != nil {
+		return nil, err
+	}
+	return Lock(filepath.Join(locksDir, hex.EncodeToString(sum[:16])+".lock"))
+}
+
+func (s *FSStore) lockNamespace() (*FileLock, error) {
+	if err := os.MkdirAll(s.dossierHome, 0755); err != nil {
+		return nil, err
+	}
+	return Lock(filepath.Join(s.dossierHome, ".lock"))
+}
+
 // Init creates storage directories, writes the guide, and generates the library context.
 func (s *FSStore) Init() error {
 	dirs := []string{
 		s.dossierHome,
 		filepath.Join(s.dossierHome, "context"),
 		filepath.Join(s.dossierHome, "sessions"),
+		filepath.Join(s.dossierHome, ".locks"),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -195,9 +216,23 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 		d.Frontmatter.ID = id
 	}
 
+	// New dossiers claim a top-level namespace entry. Existing writes use a
+	// stable ID lock; slug movement is reserved for RenameSlug below.
+	if base == "" {
+		namespaceLock, err := s.lockNamespace()
+		if err != nil {
+			return "", fmt.Errorf("failed to acquire store namespace lock: %w", err)
+		}
+		defer namespaceLock.Unlock()
+	}
+	dossierLock, err := s.lockDossier(id)
+	if err != nil {
+		return "", fmt.Errorf("failed to acquire dossier lock: %w", err)
+	}
+	defer dossierLock.Unlock()
+
 	dossierDir := filepath.Join(s.dossierHome, slug)
 
-	// If editing an existing dossier, locate its path by ID first to handle renamed slugs
 	var existingDir string
 	if base != "" {
 		existingDir, _ = s.findDossierDir(id)
@@ -206,9 +241,26 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 	if existingDir != "" {
 		dossierDir = existingDir
 	} else {
-		// New dossier, check for slug collision
-		if _, err := os.Stat(dossierDir); err == nil {
-			slug = SlugWithSuffix(slug, id)
+		// New dossiers cannot claim another dossier's historical alias either:
+		// old references must remain unambiguous after a rename.
+		baseSlug := slug
+		for attempt := 0; ; attempt++ {
+			owner, ownerErr := s.slugOwner(slug)
+			if ownerErr != nil {
+				return "", ownerErr
+			}
+			_, pathErr := os.Lstat(dossierDir)
+			if owner == "" && os.IsNotExist(pathErr) {
+				break
+			}
+			if pathErr != nil && !os.IsNotExist(pathErr) {
+				return "", pathErr
+			}
+			suffixed := SlugWithSuffix(baseSlug, id)
+			if attempt > 0 {
+				suffixed = fmt.Sprintf("%s-%d", suffixed, attempt+1)
+			}
+			slug = suffixed
 			d.Frontmatter.Slug = slug
 			dossierDir = filepath.Join(s.dossierHome, slug)
 		}
@@ -235,13 +287,6 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 		return "", err
 	}
 
-	// Acquire Lock
-	lock, err := Lock(filepath.Join(dossierDir, ".lock"))
-	if err != nil {
-		return "", fmt.Errorf("failed to acquire dossier lock: %w", err)
-	}
-	defer lock.Unlock()
-
 	dossierPath := filepath.Join(dossierDir, "dossier.md")
 	var currentRevision core.Revision
 	var currentArtifacts []core.Artifact
@@ -254,6 +299,9 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 		currFM, currBody, err := ParseDossierFile(string(data))
 		if err != nil {
 			return "", fmt.Errorf("failed to parse existing dossier: %w", err)
+		}
+		if d.Frontmatter.Slug != currFM.Slug {
+			return "", core.NewError(core.ErrInvalidFrontmatter, "slug cannot be changed through Write; use RenameSlug")
 		}
 
 		currentArtifacts, _ = s.listArtifactsInternal(id, dossierDir)
@@ -316,18 +364,150 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 	return newRevision, nil
 }
 
-// WriteArtifact stores a source artifact file atomically.
-func (s *FSStore) WriteArtifact(dossierID string, a *core.Artifact) error {
-	dossierDir, err := s.findDossierDir(dossierID)
+// RenameSlug commits a slug/frontmatter change and a same-parent directory move
+// as one store operation. If the directory move fails, the old dossier.md is
+// restored before the error is returned.
+func (s *FSStore) RenameSlug(dossierID string, newSlug string, base core.Revision) (*core.Dossier, core.Revision, error) {
+	if err := core.ValidateCanonicalSlug(newSlug); err != nil {
+		return nil, "", core.WrapError(core.ErrInvalidFrontmatter, "invalid slug", err)
+	}
+
+	// A directory rename must not race Team Sync's working-tree checkout.
+	syncLock, err := Lock(filepath.Join(s.dossierHome, ".sync.lock"))
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to acquire sync lock: %w", err)
+	}
+	defer syncLock.Unlock()
+	namespaceLock, err := s.lockNamespace()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to acquire store namespace lock: %w", err)
+	}
+	defer namespaceLock.Unlock()
+	dossierLock, err := s.lockDossier(dossierID)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to acquire dossier lock: %w", err)
+	}
+	defer dossierLock.Unlock()
+
+	oldDir, err := s.findDossierDir(dossierID)
+	if err != nil {
+		return nil, "", err
+	}
+	oldPath := filepath.Join(oldDir, "dossier.md")
+	oldData, err := os.ReadFile(oldPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("read dossier before slug rename: %w", err)
+	}
+	fm, body, err := ParseDossierFile(string(oldData))
+	if err != nil {
+		return nil, "", fmt.Errorf("parse dossier before slug rename: %w", err)
+	}
+	if fm.ID != dossierID {
+		return nil, "", core.NewError(core.ErrNotFound, fmt.Sprintf("dossier %q not found", dossierID))
+	}
+	artifacts, err := s.listArtifactsInternal(dossierID, oldDir)
+	if err != nil {
+		return nil, "", err
+	}
+	currentRev := core.CalculateRevision(*fm, body, artifacts)
+	if base != "" && currentRev != base {
+		return nil, "", core.NewError(core.ErrConcurrentEdit, fmt.Sprintf("concurrency mismatch: base is %q but current is %q", base, currentRev))
+	}
+	if fm.Slug == newSlug {
+		return &core.Dossier{Frontmatter: *fm, DistilledState: core.DistilledState{Body: body}}, currentRev, nil
+	}
+
+	if owner, err := s.slugOwner(newSlug); err != nil {
+		return nil, "", err
+	} else if owner != "" && owner != dossierID {
+		return nil, "", core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("slug %q is already used by another dossier", newSlug))
+	}
+	newDir := filepath.Join(s.dossierHome, newSlug)
+	if _, err := os.Lstat(newDir); err == nil {
+		return nil, "", core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("slug %q is already occupied in the store", newSlug))
+	} else if !os.IsNotExist(err) {
+		return nil, "", fmt.Errorf("inspect rename destination: %w", err)
+	}
+
+	aliases := append(append([]string(nil), fm.Aliases...), fm.Slug)
+	aliases, err = core.NormalizeSlugAliases(newSlug, aliases)
+	if err != nil {
+		return nil, "", core.WrapError(core.ErrInvalidFrontmatter, "invalid slug aliases", err)
+	}
+	fm.Slug = newSlug
+	fm.Aliases = aliases
+	fm.UpdatedAt = time.Now().Truncate(time.Second)
+	if err := fm.Validate(); err != nil {
+		return nil, "", core.WrapError(core.ErrInvalidFrontmatter, "invalid frontmatter details", err)
+	}
+
+	historyDir := filepath.Join(oldDir, "history")
+	if err := os.MkdirAll(historyDir, 0755); err != nil {
+		return nil, "", err
+	}
+	historyPath := filepath.Join(historyDir, fmt.Sprintf("%s.md", currentRev))
+	if _, err := os.Stat(historyPath); os.IsNotExist(err) {
+		if err := os.WriteFile(historyPath, oldData, 0644); err != nil {
+			return nil, "", fmt.Errorf("archive pre-rename revision: %w", err)
+		}
+	}
+
+	serialized, err := FormatDossierFile(*fm, body)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := replaceReadOnlyFile(oldPath, []byte(serialized)); err != nil {
+		return nil, "", fmt.Errorf("write renamed dossier frontmatter: %w", err)
+	}
+	if err := os.Rename(oldDir, newDir); err != nil {
+		if restoreErr := replaceReadOnlyFile(oldPath, oldData); restoreErr != nil {
+			return nil, "", fmt.Errorf("move dossier directory: %v (also failed to restore old frontmatter: %v)", err, restoreErr)
+		}
+		return nil, "", fmt.Errorf("move dossier directory: %w", err)
+	}
+
+	updated := &core.Dossier{Frontmatter: *fm, DistilledState: core.DistilledState{Body: body}}
+	newRev := core.CalculateRevision(*fm, body, artifacts)
+	return updated, newRev, nil
+}
+
+func replaceReadOnlyFile(path string, content []byte) error {
+	dir := filepath.Dir(path)
+	temp, err := os.CreateTemp(dir, "dossier.md.tmp.*")
 	if err != nil {
 		return err
 	}
+	tempName := temp.Name()
+	defer os.Remove(tempName)
+	if _, err := temp.Write(content); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tempName, 0444); err != nil {
+		return err
+	}
+	return os.Rename(tempName, path)
+}
 
-	lock, err := Lock(filepath.Join(dossierDir, ".lock"))
+// WriteArtifact stores a source artifact file atomically.
+func (s *FSStore) WriteArtifact(dossierID string, a *core.Artifact) error {
+	lock, err := s.lockDossier(dossierID)
 	if err != nil {
 		return fmt.Errorf("failed to acquire dossier lock: %w", err)
 	}
 	defer lock.Unlock()
+
+	dossierDir, err := s.findDossierDir(dossierID)
+	if err != nil {
+		return err
+	}
 
 	dossierPath := filepath.Join(dossierDir, "dossier.md")
 	if data, err := os.ReadFile(dossierPath); err == nil {
@@ -508,6 +688,12 @@ func SanitizeAuthorString(author string) string {
 
 // AppendAudit logs a JSONL event.
 func (s *FSStore) AppendAudit(dossierID string, e core.AuditEvent) error {
+	lock, err := s.lockDossier(dossierID)
+	if err != nil {
+		return fmt.Errorf("failed to acquire dossier lock: %w", err)
+	}
+	defer lock.Unlock()
+
 	dossierDir, err := s.findDossierDir(dossierID)
 	if err != nil {
 		return err
@@ -631,6 +817,12 @@ func (s *FSStore) ValidateAuditShards(dossierID string) []string {
 
 // EnsureAuditDir creates the audit directory for a dossier.
 func (s *FSStore) EnsureAuditDir(dossierID string) error {
+	lock, err := s.lockDossier(dossierID)
+	if err != nil {
+		return fmt.Errorf("failed to acquire dossier lock: %w", err)
+	}
+	defer lock.Unlock()
+
 	dossierDir, err := s.findDossierDir(dossierID)
 	if err != nil {
 		return err
@@ -641,6 +833,12 @@ func (s *FSStore) EnsureAuditDir(dossierID string) error {
 
 // WriteSessionStash writes a session transcript snapshot to the per-dossier stash.
 func (s *FSStore) WriteSessionStash(dossierID string, author string, sessionID string, content string) error {
+	lock, err := s.lockDossier(dossierID)
+	if err != nil {
+		return fmt.Errorf("failed to acquire dossier lock: %w", err)
+	}
+	defer lock.Unlock()
+
 	dossierDir, err := s.findDossierDir(dossierID)
 	if err != nil {
 		return err
@@ -699,6 +897,12 @@ func (s *FSStore) ClearSessionBinding(sessionID string) error {
 
 // WriteConflict logs conflict states.
 func (s *FSStore) WriteConflict(conflict *core.Conflict) error {
+	lock, err := s.lockDossier(conflict.DossierID)
+	if err != nil {
+		return fmt.Errorf("failed to acquire dossier lock: %w", err)
+	}
+	defer lock.Unlock()
+
 	dossierDir, err := s.findDossierDir(conflict.DossierID)
 	if err != nil {
 		return err
@@ -801,12 +1005,61 @@ func (s *FSStore) ListConflicts() ([]core.Conflict, error) {
 
 // Private helper methods
 
+func slugMatches(fm *core.Frontmatter, value string) bool {
+	if fm.ID == value || fm.Slug == value {
+		return true
+	}
+	for _, alias := range fm.Aliases {
+		if alias == value {
+			return true
+		}
+	}
+	return false
+}
+
+// slugOwner returns the immutable ID that owns a canonical slug or alias.
+func (s *FSStore) slugOwner(slug string) (string, error) {
+	entries, err := os.ReadDir(s.dossierHome)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "context" || entry.Name() == "sessions" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(s.dossierHome, entry.Name(), "dossier.md"))
+		if err != nil {
+			continue
+		}
+		fm, _, err := ParseDossierFile(string(data))
+		if err != nil {
+			continue
+		}
+		if fm.Slug == slug {
+			return fm.ID, nil
+		}
+		for _, alias := range fm.Aliases {
+			if alias == slug {
+				return fm.ID, nil
+			}
+		}
+	}
+	return "", nil
+}
+
 func (s *FSStore) findDossierDir(slugOrID string) (string, error) {
-	directPath := filepath.Join(s.dossierHome, slugOrID)
-	if info, err := os.Stat(directPath); err == nil && info.IsDir() {
-		if slugOrID != "context" && slugOrID != "sessions" {
-			if _, err := os.Stat(filepath.Join(directPath, "dossier.md")); err == nil {
-				return directPath, nil
+	// Only a single path component may take the direct-path fast path. IDs and
+	// aliases still resolve through the scan below, while traversal strings can
+	// never cause a read outside dossierHome.
+	if slugOrID == filepath.Base(slugOrID) && slugOrID != "." && slugOrID != ".." {
+		directPath := filepath.Join(s.dossierHome, slugOrID)
+		if info, err := os.Stat(directPath); err == nil && info.IsDir() {
+			if slugOrID != "context" && slugOrID != "sessions" {
+				if data, err := os.ReadFile(filepath.Join(directPath, "dossier.md")); err == nil {
+					if fm, _, err := ParseDossierFile(string(data)); err == nil && slugMatches(fm, slugOrID) {
+						return directPath, nil
+					}
+				}
 			}
 		}
 	}
@@ -832,7 +1085,7 @@ func (s *FSStore) findDossierDir(slugOrID string) (string, error) {
 			continue
 		}
 
-		if !bytes.Contains(data, []byte("id: "+slugOrID)) && !bytes.Contains(data, []byte("slug: "+slugOrID)) {
+		if !bytes.Contains(data, []byte(slugOrID)) {
 			continue
 		}
 
@@ -841,7 +1094,7 @@ func (s *FSStore) findDossierDir(slugOrID string) (string, error) {
 			continue
 		}
 
-		if fm.ID == slugOrID || fm.Slug == slugOrID {
+		if slugMatches(fm, slugOrID) {
 			return dirPath, nil
 		}
 	}
@@ -859,6 +1112,7 @@ type dossierFrontmatterFile struct {
 	Name          string         `yaml:"name"`
 	Description   string         `yaml:"description,omitempty"`
 	Slug          string         `yaml:"slug"`
+	Aliases       []string       `yaml:"aliases,omitempty"`
 	CreatedAt     time.Time      `yaml:"created_at"`
 	UpdatedAt     time.Time      `yaml:"updated_at"`
 	Status        core.Status    `yaml:"status"`
@@ -907,6 +1161,7 @@ func ParseDossierFile(content string) (*core.Frontmatter, string, error) {
 		Name:        wire.Name,
 		Description: wire.Description,
 		Slug:        wire.Slug,
+		Aliases:     wire.Aliases,
 		CreatedAt:   wire.CreatedAt,
 		UpdatedAt:   wire.UpdatedAt,
 		Status:      core.NormalizeStatus(wire.Status),

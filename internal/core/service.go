@@ -70,6 +70,7 @@ type ListItem struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Slug        string   `json:"slug"`
+	Aliases     []string `json:"aliases,omitempty"`
 	Status      string   `json:"status"`
 	Lead        string   `json:"lead,omitempty"`
 	Interfaces  []string `json:"interfaces,omitempty"`
@@ -1042,6 +1043,12 @@ func describeFrontmatterChanges(before, after Frontmatter) string {
 }
 
 func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
+	if _, ok := req.FrontmatterUpdates["slug"]; ok {
+		return Result{}, NewError(ErrInvalidFrontmatter, "slug cannot be changed through Save; use RenameSlug")
+	}
+	if _, ok := req.FrontmatterUpdates["aliases"]; ok {
+		return Result{}, NewError(ErrInvalidFrontmatter, "slug aliases cannot be changed through Save; use RenameSlug")
+	}
 	if err := s.validateConfiguredFrontmatterUpdates(req.FrontmatterUpdates); err != nil {
 		return Result{}, WrapError(ErrInvalidFrontmatter, "invalid frontmatter details", err)
 	}
@@ -1247,6 +1254,74 @@ func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 		Data:     newRev,
 		Warnings: warnings,
 	}, nil
+}
+
+// RenameSlugReq changes a dossier's canonical slug. BaseRevision is optional
+// for interactive callers; when provided it protects against a stale rename.
+type RenameSlugReq struct {
+	ID           string
+	NewSlug      string
+	BaseRevision Revision
+}
+
+// RenameSlugResult describes the committed rename. The immutable ID remains the
+// durable identity, and prior slugs remain usable through Aliases.
+type RenameSlugResult struct {
+	ID       string   `json:"id"`
+	OldSlug  string   `json:"old_slug"`
+	Slug     string   `json:"slug"`
+	Aliases  []string `json:"aliases,omitempty"`
+	Revision Revision `json:"revision"`
+	Path     string   `json:"path"`
+}
+
+// RenameSlug performs the only supported slug mutation. Keeping this separate
+// from Save ensures adapters cannot accidentally update frontmatter without
+// moving the backing directory.
+func (s *Service) RenameSlug(ctx context.Context, req RenameSlugReq) (Result, error) {
+	if req.ID == "" {
+		return Result{}, NewError(ErrInvalidFrontmatter, "dossier id or slug is required")
+	}
+	if err := ValidateCanonicalSlug(req.NewSlug); err != nil {
+		return Result{}, WrapError(ErrInvalidFrontmatter, "invalid slug", err)
+	}
+
+	current, currentRev, err := s.store.Read(req.ID)
+	if err != nil {
+		return Result{}, err
+	}
+	oldSlug := current.Frontmatter.Slug
+	if req.NewSlug == oldSlug {
+		return Result{OK: true, Data: RenameSlugResult{
+			ID: current.Frontmatter.ID, OldSlug: oldSlug, Slug: oldSlug,
+			Aliases:  append([]string(nil), current.Frontmatter.Aliases...),
+			Revision: currentRev, Path: filepath.Join(s.cfg.DossierHome, oldSlug),
+		}}, nil
+	}
+
+	base := req.BaseRevision
+	if base == "" {
+		base = currentRev
+	}
+	updated, newRev, err := s.store.RenameSlug(current.Frontmatter.ID, req.NewSlug, base)
+	if err != nil {
+		return Result{}, err
+	}
+
+	result := RenameSlugResult{
+		ID: updated.Frontmatter.ID, OldSlug: oldSlug, Slug: updated.Frontmatter.Slug,
+		Aliases: append([]string(nil), updated.Frontmatter.Aliases...), Revision: newRev,
+		Path: filepath.Join(s.cfg.DossierHome, updated.Frontmatter.Slug),
+	}
+	var warnings []Warning
+	if err := s.store.AppendAudit(updated.Frontmatter.ID, AuditEvent{
+		TS: s.clock.Now(), Event: AuditEventSlugRenamed, Author: s.cfg.Author,
+		DossierID: updated.Frontmatter.ID, BeforeRevision: string(base),
+		AfterRevision: string(newRev), Message: fmt.Sprintf("slug %q→%q", oldSlug, updated.Frontmatter.Slug),
+	}); err != nil {
+		warnings = append(warnings, Warning(fmt.Sprintf("Slug was renamed, but the audit event could not be written: %v", err)))
+	}
+	return Result{OK: true, Data: result, Warnings: warnings}, nil
 }
 
 type LinkReq struct {
@@ -1777,6 +1852,7 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 		if !query.IsEmpty() && !query.Matches(Haystack(ListItem{
 			Name:        fm.Name,
 			Slug:        fm.Slug,
+			Aliases:     fm.Aliases,
 			Description: fm.Description,
 			Lead:        fm.Lead,
 			Interfaces:  fm.Interfaces,
@@ -1801,6 +1877,7 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 			ID:          fm.ID,
 			Name:        fm.Name,
 			Slug:        fm.Slug,
+			Aliases:     append([]string(nil), fm.Aliases...),
 			Status:      string(fm.Status),
 			Description: fm.Description,
 			Lead:        fm.Lead,

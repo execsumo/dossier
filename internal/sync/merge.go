@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"dossier/internal/store"
+
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 )
@@ -99,7 +101,7 @@ func ffToRemote(repo *git.Repository, wt *git.Worktree, cfg Config, remoteHash p
 
 // machineLocalPreserve are the store-root machine-local paths that must survive a
 // force checkout. (.sync.lock is deliberately excluded — it is held during sync.)
-var machineLocalPreserve = []string{"config.yaml", ".syncstate.json", "sessions", "context"}
+var machineLocalPreserve = []string{"config.yaml", ".syncstate.json", "sessions", "context", ".locks", ".lock"}
 
 // stashMachineLocal moves the machine-local paths out of storeDir into a temp dir
 // and returns a restore func that puts them back (overwriting anything the
@@ -114,6 +116,34 @@ func stashMachineLocal(storeDir string) func() {
 		return func() {}
 	}
 	moved := map[string]string{}
+	type dossierSessions struct {
+		id  string
+		dst string
+	}
+	var perDossier []dossierSessions
+	if entries, readErr := os.ReadDir(storeDir); readErr == nil {
+		for i, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			data, readErr := os.ReadFile(filepath.Join(storeDir, entry.Name(), "dossier.md"))
+			if readErr != nil {
+				continue
+			}
+			fm, _, parseErr := store.ParseDossierFile(string(data))
+			if parseErr != nil || fm.ID == "" {
+				continue
+			}
+			src := filepath.Join(storeDir, entry.Name(), "sessions")
+			if _, statErr := os.Lstat(src); statErr != nil {
+				continue
+			}
+			dst := filepath.Join(tmp, fmt.Sprintf("dossier-sessions-%d", i))
+			if renameErr := os.Rename(src, dst); renameErr == nil {
+				perDossier = append(perDossier, dossierSessions{id: fm.ID, dst: dst})
+			}
+		}
+	}
 	for _, name := range machineLocalPreserve {
 		src := filepath.Join(storeDir, name)
 		if _, err := os.Lstat(src); err != nil {
@@ -129,6 +159,34 @@ func stashMachineLocal(storeDir string) func() {
 			_ = os.RemoveAll(src)   // remove whatever the checkout put here
 			_ = os.Rename(dst, src) // restore the original
 		}
+		for _, stash := range perDossier {
+			if dossierDir := dossierDirByID(storeDir, stash.id); dossierDir != "" {
+				dst := filepath.Join(dossierDir, "sessions")
+				_ = os.RemoveAll(dst)
+				_ = os.Rename(stash.dst, dst)
+			}
+		}
 		_ = os.RemoveAll(tmp)
 	}
+}
+
+func dossierDirByID(storeDir, id string) string {
+	entries, err := os.ReadDir(storeDir)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(storeDir, entry.Name(), "dossier.md"))
+		if err != nil {
+			continue
+		}
+		fm, _, err := store.ParseDossierFile(string(data))
+		if err == nil && fm.ID == id {
+			return filepath.Join(storeDir, entry.Name())
+		}
+	}
+	return ""
 }

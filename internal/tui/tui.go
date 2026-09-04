@@ -53,6 +53,9 @@ const (
 	// three main surfaces. It exists so the footers can advertise only the verbs
 	// a surface is actually for, rather than every key it happens to accept.
 	ViewHelp
+	// ViewRenameSlug is deliberately separate from the ordinary metadata editor:
+	// a slug change moves the complete backing directory in one store operation.
+	ViewRenameSlug
 )
 
 // leadFilterKind enumerates the three ways the dashboard can be scoped by lead.
@@ -215,6 +218,10 @@ type mutationResultMsg struct {
 	prevView View
 	targetID string
 }
+type renameSlugResultMsg struct {
+	err      error
+	targetID string
+}
 type linkResultMsg struct {
 	err     error
 	result  core.Result
@@ -338,6 +345,7 @@ type Model struct {
 	leadSuggestions    []string
 	leadSuggestionText string
 	nextActionInput    textinput.Model
+	renameSlugInput    textinput.Model
 
 	// Link view state
 	linkTextInput   textinput.Model
@@ -420,6 +428,9 @@ func NewModel(svc *core.Service) Model {
 	searchInput := textinput.New()
 	searchInput.Placeholder = "Search dossiers…"
 	searchInput.Width = 40
+	renameSlugInput := textinput.New()
+	renameSlugInput.Placeholder = "new-canonical-slug"
+	renameSlugInput.Width = 48
 
 	watcher, err := fsnotify.NewWatcher()
 	updateChan := make(chan string, 100)
@@ -451,6 +462,7 @@ func NewModel(svc *core.Service) Model {
 		loading:              true,
 		leadSearch:           leadSearch,
 		searchInput:          searchInput,
+		renameSlugInput:      renameSlugInput,
 		configuredLeads:      svc.Leads(),
 		configuredInterfaces: svc.Interfaces(),
 		watcher:              watcher,
@@ -1384,6 +1396,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case ViewEdit:
 			return m.updateEditor(msg)
+		case ViewRenameSlug:
+			return m.updateSlugRename(msg)
 		}
 
 		// Global keys for Dashboard and Detail Views
@@ -1433,6 +1447,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.err = nil
 					return m, m.recallDossierCmd(dossierID)
 				}
+			}
+		case "s":
+			if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
+				m.startSlugRename()
+				return m, nil
 			}
 		case "e":
 			// One key for every field a dossier is triaged by. The four
@@ -1709,6 +1728,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			// Show success info
 			return m, m.listDossiersCmd()
+		}
+
+	case renameSlugResultMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+			m.currentView = ViewRenameSlug
+		} else {
+			m.renameSlugInput.Blur()
+			m.currentView = ViewDetail
+			m.err = nil
+			return m, m.recallDossierCmd(msg.targetID)
 		}
 
 	case mutationResultMsg:
@@ -2279,6 +2310,10 @@ func (m Model) renderDetailMetadata() string {
 	if fm.Description != "" {
 		sb.WriteString(renderRow("Summary:", fm.Description))
 	}
+	sb.WriteString(renderRow("Slug:", fm.Slug))
+	if len(fm.Aliases) > 0 {
+		sb.WriteString(renderRow("Aliases:", strings.Join(fm.Aliases, ", ")))
+	}
 	sb.WriteString(renderRow("Priority:", string(fm.Priority)))
 	sb.WriteString(renderTwoCols(
 		"Stage:", string(fm.Status),
@@ -2319,13 +2354,15 @@ func (m Model) footerContent(v View) string {
 	case ViewLeadSelector:
 		keyHelp = "type: search leads • ↑/↓: select • esc: cancel"
 	case ViewDetail:
-		keyHelp = "e: edit • a: artifacts • o: editor • c: claude • ?: help"
+		keyHelp = "e: edit • s: rename slug • a: artifacts • o: editor • c: claude • ?: help"
 	case ViewArtifactIndex:
 		keyHelp = "↑/↓: select • enter: view artifact • esc: back"
 	case ViewArtifactContent:
 		keyHelp = "↑/↓/pgup/pgdn: scroll • esc: back"
 	case ViewEdit:
 		keyHelp = "←/→: change • enter: save • esc: cancel"
+	case ViewRenameSlug:
+		keyHelp = "enter: rename slug • esc: cancel"
 	case ViewLinkInput:
 		keyHelp = "esc: cancel"
 	case ViewLinkSelector:
@@ -2542,6 +2579,12 @@ func (m Model) View() string {
 		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Edit", subheadline)))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderEditor())
+		sb.WriteString("\n")
+
+	case ViewRenameSlug:
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Rename Slug", subheadline)))
+		sb.WriteString("\n\n")
+		sb.WriteString(m.renderSlugRename())
 		sb.WriteString("\n")
 
 	case ViewLinkInput:

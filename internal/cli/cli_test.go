@@ -113,6 +113,45 @@ func TestCLICommands(t *testing.T) {
 	}
 }
 
+func TestCLIRenameSlugMovesDirectoryAndKeepsOldReference(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	tempHome := t.TempDir()
+	svc, err := wire(tempHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Init(context.Background(), core.InitReq{YesToAll: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Save(context.Background(), core.SaveReq{
+		FrontmatterUpdates: map[string]any{"name": "Old Slug"},
+	}); err != nil {
+		t.Fatalf("create dossier: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"rename", "old-slug", "clearer-slug", "--home", tempHome})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("rename command: %v", err)
+	}
+
+	svc, err = wire(tempHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recalled, err := svc.Recall(context.Background(), core.RecallReq{ID: "old-slug"})
+	if err != nil {
+		t.Fatalf("old slug no longer resolves: %v", err)
+	}
+	got := recalled.Data.(core.RecallResult)
+	if got.Frontmatter.Slug != "clearer-slug" || len(got.Frontmatter.Aliases) != 1 || got.Frontmatter.Aliases[0] != "old-slug" {
+		t.Fatalf("renamed frontmatter = %+v", got.Frontmatter)
+	}
+	if _, err := os.Stat(filepath.Join(tempHome, "clearer-slug", "dossier.md")); err != nil {
+		t.Fatalf("renamed dossier path missing: %v", err)
+	}
+}
+
 func TestCLIPromoteDistilledFile(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	tempHome := t.TempDir()

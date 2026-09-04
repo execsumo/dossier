@@ -185,7 +185,7 @@ func (s *testStore) Read(id string) (*core.Dossier, core.Revision, error) {
 	if !ok {
 		// Try searching by slug
 		for _, dos := range s.dossiers {
-			if dos.Frontmatter.Slug == id {
+			if dos.Frontmatter.Slug == id || containsString(dos.Frontmatter.Aliases, id) {
 				return dos, "rev1", nil
 			}
 		}
@@ -210,6 +210,32 @@ func (s *testStore) List(filter string) ([]core.Frontmatter, error) {
 func (s *testStore) Write(d *core.Dossier, base core.Revision) (core.Revision, error) {
 	s.dossiers[d.Frontmatter.ID] = d
 	return "rev_new", nil
+}
+
+func (s *testStore) RenameSlug(dossierID, newSlug string, base core.Revision) (*core.Dossier, core.Revision, error) {
+	d, _, err := s.Read(dossierID)
+	if err != nil {
+		return nil, "", err
+	}
+	if base != "rev1" {
+		return nil, "", core.NewError(core.ErrConcurrentEdit, "stale revision")
+	}
+	aliases, err := core.NormalizeSlugAliases(newSlug, append(d.Frontmatter.Aliases, d.Frontmatter.Slug))
+	if err != nil {
+		return nil, "", err
+	}
+	d.Frontmatter.Slug = newSlug
+	d.Frontmatter.Aliases = aliases
+	return d, "rev2", nil
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *testStore) WriteArtifact(dossierID string, a *core.Artifact) error {

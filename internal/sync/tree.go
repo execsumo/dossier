@@ -46,50 +46,67 @@ func (g *GitSync) remoteWinsMerge(repo *git.Repository, wt *git.Worktree, local,
 		return nil, fmt.Errorf("remote tree: %w", err)
 	}
 
+	plans := dossierRenamePlans(baseTree, localTree, remoteTree)
+	if err := prepareWorkingTreeRenames(g.cfg.StoreDir, plans); err != nil {
+		return nil, err
+	}
+
 	localPaths := changeNames(diffTree(baseTree, localTree))
 	remotePaths := changeNames(diffTree(baseTree, remoteTree))
+	localSources := logicalChangeSources(localPaths, localTree, plans)
+	remoteSources := logicalChangeSources(remotePaths, remoteTree, plans)
+	localLogical := make(map[string]struct{}, len(localSources))
+	remoteLogical := make(map[string]struct{}, len(remoteSources))
+	for path := range localSources {
+		localLogical[path] = struct{}{}
+	}
+	for path := range remoteSources {
+		remoteLogical[path] = struct{}{}
+	}
 
-	// both-changed = changed on the local AND remote sides since the base.
-	both := intersect(localPaths, remotePaths)
+	// both-changed = changed on the local AND remote sides since the base,
+	// after paths for the same immutable dossier ID are mapped to the selected
+	// canonical slug.
+	both := intersect(localLogical, remoteLogical)
 	conflicts := make([]ConflictRecord, 0, len(both))
 	for path := range both {
-		// Only a dossier.md is a genuine multi-writer conflict worth preserving.
-		// Store-managed files (.gitignore) and author-namespaced single-writer
-		// files (audit/<author>.log, sessions/<author>/…) must never be routed as
-		// dossier conflicts — remote-wins lands them silently below. Without this,
-		// two independently-initialized stores (the normal onboarding flow, no
-		// common git ancestor) flag their identical .gitignore as a phantom
-		// conflict on first sync.
 		if !isDossierConflictPath(path) {
 			continue
 		}
-		localContent, _ := blobContent(repo, localTree, path)
-		remoteContent, _ := blobContent(repo, remoteTree, path)
-		// Identical content is not a conflict (e.g. both sides promoted the same
-		// body, or a no-common-ancestor first merge of byte-identical files).
+		localContent, _ := blobContent(repo, localTree, localSources[path])
+		remoteContent, _ := blobContent(repo, remoteTree, remoteSources[path])
+		if plan, ok := renamePlanForPath(path, plans); ok {
+			localContent, _ = rewriteRenamedDossier(localContent, plan)
+			remoteContent, _ = rewriteRenamedDossier(remoteContent, plan)
+		}
 		if bytes.Equal(localContent, remoteContent) {
 			continue
 		}
 		conflicts = append(conflicts, ConflictRecord{
-			Path:           path,
-			LocalContent:   localContent,
-			RemoteContent:  remoteContent,
-			LocalRevision:  local.Hash.String(),
-			RemoteRevision: remote.Hash.String(),
+			Path: path, LocalContent: localContent, RemoteContent: remoteContent,
+			LocalRevision: local.Hash.String(), RemoteRevision: remote.Hash.String(),
 		})
 	}
 
-	// Land ALL remote changes: remote-wins for the both-changed set, plain
-	// fast-forward for remote-only changes. Remote deletions remove the file.
-	for path := range remotePaths {
-		if entry, err := remoteTree.FindEntry(path); err == nil && entry != nil && !entry.Hash.IsZero() {
-			if err := checkoutBlob(repo, remoteTree, g.cfg.StoreDir, path); err != nil {
-				return nil, fmt.Errorf("land remote %s: %w", path, err)
+	// Land all remote changes at their logical destination. A deletion from an
+	// obsolete slug prefix is skipped: the directory move above already removed
+	// that path, and deleting its mapped target would erase the renamed dossier.
+	for sourcePath := range remotePaths {
+		destinationPath := logicalRenamePath(sourcePath, plans)
+		plan, hasPlan := renamePlanForPath(sourcePath, plans)
+		if entry, err := remoteTree.FindEntry(sourcePath); err == nil && entry != nil && !entry.Hash.IsZero() {
+			var planPtr *dossierRenamePlan
+			if hasPlan {
+				planPtr = &plan
 			}
-			wt.Add(path)
+			if err := checkoutBlobTo(repo, remoteTree, g.cfg.StoreDir, sourcePath, destinationPath, planPtr); err != nil {
+				return nil, fmt.Errorf("land remote %s: %w", sourcePath, err)
+			}
 		} else {
-			removeWorkingFile(g.cfg.StoreDir, path)
-			wt.Remove(path)
+			if hasPlan && sourcePath != destinationPath {
+				continue
+			}
+			removeWorkingFile(g.cfg.StoreDir, destinationPath)
 		}
 	}
 
@@ -122,12 +139,11 @@ func diffTree(a, b *object.Tree) object.Changes {
 func changeNames(changes object.Changes) map[string]struct{} {
 	out := map[string]struct{}{}
 	for _, c := range changes {
-		name := c.To.Name
 		if c.From.Name != "" {
-			name = c.From.Name
+			out[c.From.Name] = struct{}{}
 		}
-		if name != "" {
-			out[name] = struct{}{}
+		if c.To.Name != "" {
+			out[c.To.Name] = struct{}{}
 		}
 	}
 	return out

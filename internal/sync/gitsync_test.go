@@ -1,9 +1,14 @@
 package sync
 
 import (
+	"dossier/internal/core"
+	storepkg "dossier/internal/store"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 )
 
 // TestSync_TwoClonesConverge (DoD i + ii): two clones of one bare repo converge
@@ -83,6 +88,70 @@ func TestSync_BothModifiedDossierMD(t *testing.T) {
 	}
 
 	// No git conflict markers anywhere in the working tree.
+	assertNoConflictMarkers(t, storeB)
+}
+
+func TestSync_DivergentSlugRenameFollowsImmutableID(t *testing.T) {
+	bare, storeA, storeB := setupPair(t)
+	fsA := storepkg.NewFSStore(storeA)
+	fsB := storepkg.NewFSStore(storeB)
+	if err := fsA.Init(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Truncate(time.Second)
+	d := &core.Dossier{Frontmatter: core.Frontmatter{
+		ID: "dos_sync_rename", Name: "Sync Rename", Slug: "old-topic",
+		CreatedAt: now, UpdatedAt: now, Status: core.StatusSpark, Priority: core.PriorityMedium,
+	}, DistilledState: core.DistilledState{Body: "base\n"}}
+	if _, err := fsA.Write(d, ""); err != nil {
+		t.Fatal(err)
+	}
+	mustSync(t, newSyncer(storeA, bare, "alice"))
+	mustSync(t, newSyncer(storeB, bare, "bob"))
+	if err := fsB.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	// B has both a local body edit and an ignored session stash under the old
+	// slug while A independently renames the dossier and pushes it.
+	local, localRev, err := fsB.Read("old-topic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	local.DistilledState.Body = "bob local edit\n"
+	if _, err := fsB.Write(local, localRev); err != nil {
+		t.Fatal(err)
+	}
+	stashPath := filepath.Join(storeB, "old-topic", "sessions", "bob", "session.md")
+	if err := os.MkdirAll(filepath.Dir(stashPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stashPath, []byte("private session"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, aRev, err := fsA.Read("old-topic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := fsA.RenameSlug("dos_sync_rename", "clearer-topic", aRev); err != nil {
+		t.Fatal(err)
+	}
+	mustSync(t, newSyncer(storeA, bare, "alice"))
+	rep := mustSync(t, newSyncer(storeB, bare, "bob"))
+	if len(rep.Conflicts) != 1 {
+		t.Fatalf("rename/edit merge conflicts = %d, want 1", len(rep.Conflicts))
+	}
+	if rep.Conflicts[0].Path != "clearer-topic/dossier.md" {
+		t.Fatalf("conflict path = %q", rep.Conflicts[0].Path)
+	}
+	if _, err := os.Stat(filepath.Join(storeB, "old-topic")); !os.IsNotExist(err) {
+		t.Fatalf("old path remains after merge: %v", err)
+	}
+	if got, _, err := fsB.Read("old-topic"); err != nil || got.Frontmatter.Slug != "clearer-topic" {
+		t.Fatalf("old alias did not resolve renamed dossier: %+v, %v", got, err)
+	}
+	assertFile(t, storeB, "clearer-topic/sessions/bob/session.md", "private session")
 	assertNoConflictMarkers(t, storeB)
 }
 

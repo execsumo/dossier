@@ -32,6 +32,7 @@ var defaultGitignoreEntries = []string{
 	"/sessions/",  // root session bindings
 	"*/sessions/", // per-slug raw session stash — write-only, never citable
 	"/context/",
+	"/.locks/",
 	".lock",
 	".sync.lock",
 	".syncstate.json",

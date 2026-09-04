@@ -310,6 +310,44 @@ func TestKanbanEnterOpensDetailAndEscReturnsToBoard(t *testing.T) {
 	}
 }
 
+func TestDetailSlugRenameKeepsIDAndReturnsToDetail(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "s1", "Spark One", core.StatusSpark)
+	m := boardModel(t, store, 140, 40)
+
+	m, cmd := press(t, m, "enter")
+	newM, _ := m.Update(cmd())
+	m = newM.(Model)
+	if m.currentView != ViewDetail {
+		t.Fatalf("expected detail, got %v", m.currentView)
+	}
+	m, _ = press(t, m, "s")
+	if m.currentView != ViewRenameSlug || m.renameSlugInput.Value() != "spark-one" {
+		t.Fatalf("rename view = %v, input = %q", m.currentView, m.renameSlugInput.Value())
+	}
+	m.renameSlugInput.SetValue("clearer-spark")
+	m, cmd = press(t, m, "enter")
+	if cmd == nil {
+		t.Fatal("expected rename command")
+	}
+	newM, recallCmd := m.Update(cmd())
+	m = newM.(Model)
+	if recallCmd == nil {
+		t.Fatal("expected detail refresh after rename")
+	}
+	newM, _ = m.Update(recallCmd())
+	m = newM.(Model)
+	if m.currentView != ViewDetail {
+		t.Fatalf("rename returned to %v, want detail", m.currentView)
+	}
+	if got := store.dossiers["s1"].Frontmatter; got.Slug != "clearer-spark" || !containsString(got.Aliases, "spark-one") {
+		t.Fatalf("renamed frontmatter = %+v", got)
+	}
+	if m.recallResult.Frontmatter.ID != "s1" || m.recallResult.Frontmatter.Slug != "clearer-spark" {
+		t.Fatalf("detail did not refresh by immutable ID: %+v", m.recallResult.Frontmatter)
+	}
+}
+
 func TestKanbanHonoursFiltersAndShowsTerminalWork(t *testing.T) {
 	store := newTestStore()
 	seedDossier(store, "keep", "Keep Me", core.StatusSpark, func(fm *core.Frontmatter) {

@@ -15,6 +15,9 @@ type Store interface {
 	ReadRevision(slugOrID string, rev Revision) (*Dossier, error)
 	List(statusFilter string) ([]Frontmatter, error)
 	Write(d *Dossier, base Revision) (Revision, error)
+	// RenameSlug changes a dossier's canonical slug and moves its complete
+	// storage directory while preserving the immutable dossier ID.
+	RenameSlug(dossierID string, newSlug string, base Revision) (*Dossier, Revision, error)
 	WriteArtifact(dossierID string, a *Artifact) error
 	ReadArtifact(dossierID string, artifactID string) (*Artifact, error)
 	ListArtifacts(dossierID string) ([]Artifact, error)

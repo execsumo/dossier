@@ -384,6 +384,9 @@ func NewRootCmd() *cobra.Command {
 			}
 			fmt.Printf("ID:             %s\n", recall.Frontmatter.ID)
 			fmt.Printf("Slug:           %s\n", recall.Frontmatter.Slug)
+			if len(recall.Frontmatter.Aliases) > 0 {
+				fmt.Printf("Aliases:        %s\n", strings.Join(recall.Frontmatter.Aliases, ", "))
+			}
 			fmt.Printf("Lead:           %s\n", recall.Frontmatter.Lead)
 			fmt.Printf("Interfaces:      %s\n", strings.Join(recall.Frontmatter.Interfaces, ", "))
 			fmt.Printf("Status:         %s\n", recall.Frontmatter.Status)
@@ -949,6 +952,43 @@ func NewRootCmd() *cobra.Command {
 	}
 	mergeCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
+	var renameBaseRevision string
+	renameCmd := &cobra.Command{
+		Use:   "rename <slug-or-id> <new-slug>",
+		Short: "Rename a dossier slug while preserving its ID and old slug alias",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				return err
+			}
+			base := core.Revision(renameBaseRevision)
+			if base == "" {
+				recalled, err := svc.Recall(context.Background(), core.RecallReq{ID: args[0]})
+				if err != nil {
+					return fmt.Errorf("rename failed: %w", err)
+				}
+				base = recalled.Data.(core.RecallResult).Revision
+			}
+			res, err := svc.RenameSlug(context.Background(), core.RenameSlugReq{
+				ID: args[0], NewSlug: args[1], BaseRevision: base,
+			})
+			if err != nil {
+				return fmt.Errorf("rename failed: %w", err)
+			}
+			if jsonFlag {
+				printJSON(res)
+				return nil
+			}
+			renamed := res.Data.(core.RenameSlugResult)
+			fmt.Printf("Dossier slug renamed: %s → %s (ID: %s, revision: %s)\n", renamed.OldSlug, renamed.Slug, renamed.ID, renamed.Revision)
+			fmt.Printf("The old slug remains available as an alias. New path: %s\n", renamed.Path)
+			return nil
+		},
+	}
+	renameCmd.Flags().StringVar(&renameBaseRevision, "base-revision", "", "Expected current revision (defaults to an immediate recall)")
+	renameCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
+
 	statusCmd := &cobra.Command{
 		Use:   "status <slug-or-id> <spark|define|delegated|review|blocked|done>",
 		Short: "Update status of a dossier",
@@ -1378,6 +1418,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(activeCmd)
 	rootCmd.AddCommand(switchCmd)
 	rootCmd.AddCommand(mergeCmd)
+	rootCmd.AddCommand(renameCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(leadCmd)
 	rootCmd.AddCommand(descriptionCmd)

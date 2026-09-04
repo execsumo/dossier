@@ -236,12 +236,12 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 		},
 		{
 			Name:        "dossier_update",
-			Description: "Update a dossier's metadata fields — name, description, status, lead assignee, next action, priority, due date, and interfaces. All fields except id are optional; only supplied fields are written.",
+			Description: "Update a dossier's metadata fields — name, description, status, lead assignee, next action, priority, due date, and interfaces. All fields except id are optional; only supplied fields are written. Use dossier_rename to change the slug.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"id":          map[string]any{"type": "string", "description": "The dossier slug or ID to update"},
-					"name":        map[string]any{"type": "string", "description": "Replace the display name (omit to leave unchanged). The slug/directory is the durable identifier and does NOT change on rename."},
+					"name":        map[string]any{"type": "string", "description": "Replace the display name (omit to leave unchanged). The slug does not change; use dossier_rename for that."},
 					"description": map[string]any{"type": "string", "description": "Replace the optional progressive-disclosure summary (omit to leave unchanged)"},
 					"status":      map[string]any{"type": "string", "description": "Replace the current status: spark|define|delegated|review|blocked|done (omit to leave unchanged)"},
 					"lead":        configuredLeadSchema(leads, "Replace the lead assignee (omit to leave unchanged; empty clears)"),
@@ -251,6 +251,19 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 					"interfaces":  configuredStringListSchema(interfaces, "Replace the discussion interface list (omit to leave unchanged)"),
 				},
 				"required": []string{"id"},
+			},
+		},
+		{
+			Name:        "dossier_rename",
+			Description: "Rename a dossier's canonical slug and move its complete directory. The immutable ID stays fixed and the old slug remains a working alias.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id":            map[string]any{"type": "string", "description": "Current dossier slug, historical slug alias, or immutable ID"},
+					"new_slug":      map[string]any{"type": "string", "description": "New lowercase ASCII slug using letters, digits, and single hyphens"},
+					"base_revision": map[string]any{"type": "string", "description": "Revision returned by dossier_recall; prevents a stale rename"},
+				},
+				"required": []string{"id", "new_slug", "base_revision"},
 			},
 		},
 	}
@@ -564,6 +577,23 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			ID:                 params.ID,
 			FrontmatterUpdates: updates,
 		})
+
+	case "dossier_rename":
+		var params struct {
+			ID           string `json:"id"`
+			NewSlug      string `json:"new_slug"`
+			BaseRevision string `json:"base_revision"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil || params.ID == "" || params.NewSlug == "" || params.BaseRevision == "" {
+			s.sendError(id, -32602, "id, new_slug, and base_revision are required", nil)
+			return
+		}
+		res, err = s.svc.RenameSlug(ctx, core.RenameSlugReq{
+			ID: params.ID, NewSlug: params.NewSlug, BaseRevision: core.Revision(params.BaseRevision),
+		})
+		if err == nil {
+			s.triggerSync()
+		}
 
 	default:
 		s.sendError(id, -32601, fmt.Sprintf("Tool %s not found", name), nil)

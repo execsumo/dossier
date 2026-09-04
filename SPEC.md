@@ -138,6 +138,7 @@ Required fields:
 Optional fields:
 
 - `description`
+- `aliases` (historical slugs retained by first-class rename)
 - `lead`
 - `interfaces`
 - `due_date`
@@ -374,6 +375,7 @@ dossier show <slug-or-id> [--json]
 dossier promote [--name <name>] [--from-file <path>] [--distilled-file <path>] [--json]
 dossier link [<slug-or-id>] [--from-file <path>] [--json]
 dossier merge <source> <target> [--json]
+dossier rename <slug-or-id> <new-slug> [--base-revision <rev>] [--json]
 dossier recall <slug-or-id> [--json]
 dossier search <query> [--dossier <slug-or-id>] [--json]
 dossier artifact <slug-or-id> [<artifact-id>] [-L <a-b>] [--json]
@@ -439,6 +441,14 @@ dossier doctor
 - Produces converged Distilled State.
 - Surfaces conflicts for human resolution.
 - Does not silently reconcile contradictions.
+
+`dossier rename`
+
+- Changes the canonical slug while preserving the immutable Dossier ID.
+- Moves the complete `<slug>/` directory in one same-parent filesystem rename; artifacts, files, conflicts, history, audit shards, and machine-local session stashes move together.
+- Adds the previous canonical slug to optional frontmatter `aliases`; every historical alias continues resolving through CLI, MCP, and TUI operations.
+- Rejects malformed/reserved slugs, aliases or canonical slugs owned by another Dossier, occupied destination directories, and stale `--base-revision` values.
+- Omitting `--base-revision` performs an immediate recall and uses that revision for the optimistic-concurrency check.
 
 `dossier recall`
 
@@ -506,10 +516,13 @@ Required tools:
 - `dossier_merge`
 - `dossier_session`
 - `dossier_update`
+- `dossier_rename`
 
 > **Note on `dossier_artifact`:** it takes `dossier_id` + `artifact_id`, and optionally either a `fragment` (a citation fragment such as `"L42-L68"`) or `start_line`/`end_line`. Content is returned with absolute 1-indexed line numbers, so the span read is the span cited. An unranged fetch returns the whole artifact and warns past 500 lines rather than truncating. `dossier_artifacts` returns the same evidence index that `dossier_recall` now carries in `artifacts[]`: one entry per archived artifact with its type, line count, and whether the Distilled State cites it.
 
-> **Note on `dossier_update`:** it accepts `name`, `description`, `status`, `lead`, `interfaces`, `next_action`, and priority fields, and routes them all through the single `Save` write path (so CLI/MCP/TUI behave identically and edits get optimistic-concurrency handling). Open questions are edited by replacing the Markdown body. Changing `name` updates the **display name only** — the `slug` (and the on-disk directory) is the durable identifier and never changes on rename.
+> **Note on `dossier_update`:** it accepts `name`, `description`, `status`, `lead`, `interfaces`, `next_action`, and priority fields, and routes them all through the single `Save` write path (so CLI/MCP/TUI behave identically and edits get optimistic-concurrency handling). Open questions are edited by replacing the Markdown body. Changing `name` updates the **display name only**; use `dossier_rename` for the canonical slug.
+>
+> **Note on `dossier_rename`:** it requires `id`, `new_slug`, and `base_revision`. The operation preserves the immutable ID, atomically relocates the complete directory, and retains the old slug in `aliases`, so existing references continue resolving.
 
 ### 8.2 Tool Contracts
 
@@ -893,7 +906,9 @@ Slug rules:
 - Replace spaces and punctuation with `-`.
 - Collapse repeated `-`.
 - Trim leading/trailing `-`.
-- If conflict, append short id suffix.
+- If conflict during creation, append short id suffix.
+- A first-class rename accepts only canonical lowercase ASCII slugs matching `[a-z0-9]+(?:-[a-z0-9]+)*`, rejects reserved store names and collisions, and preserves each prior canonical slug in the optional `aliases` list.
+- The immutable `dos_` ID—not the mutable slug—is the durable identity. Alias lookup always resolves to the current canonical directory.
 
 ### 12.3 ID Generation
 
@@ -1027,7 +1042,7 @@ Checks:
 ### 14.10 List Search
 
 - `dossier ls -q`, MCP `dossier_list.query`, and the TUI's `/` search return the same set for the same query — one matcher in `core`, no adapter forks.
-- A query matches against `name`, `description`, `lead`, `interfaces`, and `slug`; a term spanning two fields does not match.
+- A query matches against `name`, `description`, `lead`, `interfaces`, the canonical `slug`, and historical slug `aliases`; a term spanning two fields does not match.
 - Multiple whitespace-separated terms are ANDed.
 - In the TUI, the dashboard and the Kanban board narrow to identical sets, filtering runs on every keystroke with no debounce, and resolved/archived Dossiers are reachable through search without changing the extras collapse state.
 - `ctrl+c` still quits while the search box has focus (`q` types the letter, as it must).
@@ -1041,6 +1056,14 @@ Checks:
 - Machine-local files (`config.yaml`, credentials, root `sessions/`, `context/`) never appear in the remote.
 - >100 MB artifacts excluded from sync with a persistent visible warning.
 - `team join` onboarding completes with exactly two commands and one sign-in.
+
+### 14.12 First-class Slug Rename
+
+- CLI `dossier rename`, MCP `dossier_rename`, and the TUI detail action route through one `Service.RenameSlug` operation.
+- The immutable Dossier ID is unchanged; the complete directory moves, and all nested files survive byte-for-byte.
+- Every old canonical slug remains a resolving alias and is included in list search.
+- Invalid, reserved, occupied, duplicate, and stale-revision rename attempts leave the original path and frontmatter unchanged.
+- Team Sync follows directory renames by immutable ID, preserves machine-local per-Dossier sessions under the resulting slug, and never leaves duplicate directories after a divergent rename/edit merge.
 
 ---
 

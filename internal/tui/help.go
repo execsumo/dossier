@@ -37,6 +37,7 @@ var helpSections = []helpSection{
 		{"m", "merge into another dossier"},
 	}},
 	{"Detail only", [][2]string{
+		{"s", "rename canonical slug"},
 		{"a", "browse archived artifacts"},
 		{"o", "open dossier.md in $EDITOR"},
 	}},

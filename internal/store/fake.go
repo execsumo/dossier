@@ -4,6 +4,7 @@ import (
 	"dossier/assets"
 	"dossier/internal/core"
 	"fmt"
+	"time"
 )
 
 // FakeStore implements core.Store in-memory for core unit tests.
@@ -34,33 +35,48 @@ func (f *FakeStore) Init() error {
 	return nil
 }
 
+func cloneDossier(d *core.Dossier) *core.Dossier {
+	cp := *d
+	cp.Frontmatter.Aliases = append([]string(nil), d.Frontmatter.Aliases...)
+	cp.Frontmatter.Interfaces = append([]string(nil), d.Frontmatter.Interfaces...)
+	return &cp
+}
+
+func fakeSlugMatches(d *core.Dossier, value string) bool {
+	if d.Frontmatter.ID == value || d.Frontmatter.Slug == value {
+		return true
+	}
+	for _, alias := range d.Frontmatter.Aliases {
+		if alias == value {
+			return true
+		}
+	}
+	return false
+}
+
 func (f *FakeStore) Read(slugOrID string) (*core.Dossier, core.Revision, error) {
 	d, ok := f.Dossiers[slugOrID]
 	if !ok {
 		// Try by ID or Slug check
 		for _, dos := range f.Dossiers {
-			if dos.Frontmatter.ID == slugOrID || dos.Frontmatter.Slug == slugOrID {
-				cp := *dos
-				return &cp, f.Revisions[dos.Frontmatter.ID], nil
+			if fakeSlugMatches(dos, slugOrID) {
+				return cloneDossier(dos), f.Revisions[dos.Frontmatter.ID], nil
 			}
 		}
 		return nil, "", core.NewError(core.ErrNotFound, fmt.Sprintf("dossier %q not found in fake store", slugOrID))
 	}
-	cp := *d
-	return &cp, f.Revisions[d.Frontmatter.ID], nil
+	return cloneDossier(d), f.Revisions[d.Frontmatter.ID], nil
 }
 
 func (f *FakeStore) ReadRevision(slugOrID string, rev core.Revision) (*core.Dossier, error) {
 	if d, ok := f.History[rev]; ok {
-		cp := *d
-		return &cp, nil
+		return cloneDossier(d), nil
 	}
 	for _, d := range f.Dossiers {
-		if d.Frontmatter.ID == slugOrID || d.Frontmatter.Slug == slugOrID {
+		if fakeSlugMatches(d, slugOrID) {
 			currRev := f.Revisions[d.Frontmatter.ID]
 			if currRev == rev {
-				cp := *d
-				return &cp, nil
+				return cloneDossier(d), nil
 			}
 		}
 	}
@@ -103,6 +119,40 @@ func (f *FakeStore) Write(d *core.Dossier, base core.Revision) (core.Revision, e
 	newRev := core.Revision(fmt.Sprintf("rev_fake_%d", len(f.History)+1))
 	f.Revisions[id] = newRev
 	return newRev, nil
+}
+
+func (f *FakeStore) RenameSlug(dossierID string, newSlug string, base core.Revision) (*core.Dossier, core.Revision, error) {
+	if err := core.ValidateCanonicalSlug(newSlug); err != nil {
+		return nil, "", core.WrapError(core.ErrInvalidFrontmatter, "invalid slug", err)
+	}
+	d, currentRev, err := f.Read(dossierID)
+	if err != nil {
+		return nil, "", err
+	}
+	if base != "" && base != currentRev {
+		return nil, "", core.NewError(core.ErrConcurrentEdit, "concurrent edit detected")
+	}
+	if d.Frontmatter.Slug == newSlug {
+		return d, currentRev, nil
+	}
+	for _, other := range f.Dossiers {
+		if other.Frontmatter.ID != d.Frontmatter.ID && fakeSlugMatches(other, newSlug) {
+			return nil, "", core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("slug %q is already used by another dossier", newSlug))
+		}
+	}
+	aliases := append(append([]string(nil), d.Frontmatter.Aliases...), d.Frontmatter.Slug)
+	aliases, err = core.NormalizeSlugAliases(newSlug, aliases)
+	if err != nil {
+		return nil, "", err
+	}
+	f.History[currentRev] = cloneDossier(d)
+	d.Frontmatter.Slug = newSlug
+	d.Frontmatter.Aliases = aliases
+	d.Frontmatter.UpdatedAt = time.Now().Truncate(time.Second)
+	newRev := core.Revision(fmt.Sprintf("rev_fake_%d", len(f.History)+1))
+	f.Dossiers[d.Frontmatter.ID] = cloneDossier(d)
+	f.Revisions[d.Frontmatter.ID] = newRev
+	return cloneDossier(d), newRev, nil
 }
 
 func (f *FakeStore) WriteArtifact(dossierID string, a *core.Artifact) error {

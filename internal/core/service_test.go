@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,6 +57,48 @@ func TestSavePreservesCompatibilityViewAndHistory(t *testing.T) {
 	}
 	if historical.DistilledState.Body != body || historical.Frontmatter.Priority != PriorityMedium {
 		t.Fatalf("history changed compatibility state: %+v\n%s", historical.Frontmatter, historical.DistilledState.Body)
+	}
+}
+
+func TestServiceRenameSlugUsesDedicatedStorePath(t *testing.T) {
+	store := newLocalFakeStore()
+	now := time.Now().Truncate(time.Second)
+	store.dossiers["dos_rename"] = &Dossier{Frontmatter: Frontmatter{
+		ID: "dos_rename", Name: "Rename", Slug: "old-slug", CreatedAt: now, UpdatedAt: now,
+		Status: StatusSpark, Priority: PriorityMedium,
+	}}
+	store.revisions["dos_rename"] = CalculateRevision(store.dossiers["dos_rename"].Frontmatter, "", nil)
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: now}, Config{DossierHome: "/tmp/dossier-test", Author: "Alice"}, nil)
+
+	res, err := svc.RenameSlug(context.Background(), RenameSlugReq{
+		ID: "dos_rename", NewSlug: "clearer-slug", BaseRevision: store.revisions["dos_rename"],
+	})
+	if err != nil {
+		t.Fatalf("RenameSlug() error = %v", err)
+	}
+	got := res.Data.(RenameSlugResult)
+	if got.ID != "dos_rename" || got.OldSlug != "old-slug" || got.Slug != "clearer-slug" {
+		t.Fatalf("rename result = %+v", got)
+	}
+	if len(got.Aliases) != 1 || got.Aliases[0] != "old-slug" {
+		t.Fatalf("aliases = %v", got.Aliases)
+	}
+	if got.Path != filepath.Join("/tmp/dossier-test", "clearer-slug") {
+		t.Fatalf("path = %q", got.Path)
+	}
+	events := store.audits["dos_rename"]
+	if len(events) != 1 || events[0].Event != AuditEventSlugRenamed {
+		t.Fatalf("audit events = %+v", events)
+	}
+}
+
+func TestSaveRejectsSlugMutation(t *testing.T) {
+	store := newLocalFakeStore()
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()}, Config{}, nil)
+	_, err := svc.Save(context.Background(), SaveReq{ID: "dos_any", FrontmatterUpdates: map[string]any{"slug": "new-slug"}})
+	var domainErr *DomainError
+	if !errors.As(err, &domainErr) || domainErr.Code != ErrInvalidFrontmatter {
+		t.Fatalf("Save slug mutation error = %v", err)
 	}
 }
 
@@ -191,6 +234,39 @@ func (f *localFakeStore) Write(d *Dossier, base Revision) (Revision, error) {
 	rev := CalculateRevision(d.Frontmatter, d.DistilledState.Body, f.artifacts[d.Frontmatter.ID])
 	f.revisions[d.Frontmatter.ID] = rev
 	return rev, nil
+}
+func (f *localFakeStore) RenameSlug(id, newSlug string, base Revision) (*Dossier, Revision, error) {
+	d, rev, err := f.Read(id)
+	if err != nil {
+		return nil, "", err
+	}
+	if base != "" && base != rev {
+		return nil, "", NewError(ErrConcurrentEdit, "concurrency mismatch")
+	}
+	for _, other := range f.dossiers {
+		if other.Frontmatter.ID != id && (other.Frontmatter.Slug == newSlug || stringSliceContains(other.Frontmatter.Aliases, newSlug)) {
+			return nil, "", NewError(ErrInvalidFrontmatter, "slug already used")
+		}
+	}
+	aliases, err := NormalizeSlugAliases(newSlug, append(d.Frontmatter.Aliases, d.Frontmatter.Slug))
+	if err != nil {
+		return nil, "", err
+	}
+	f.history[rev] = d
+	d.Frontmatter.Slug = newSlug
+	d.Frontmatter.Aliases = aliases
+	newRev := CalculateRevision(d.Frontmatter, d.DistilledState.Body, f.artifacts[id])
+	f.dossiers[id] = d
+	f.revisions[id] = newRev
+	return d, newRev, nil
+}
+func stringSliceContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 func (f *localFakeStore) WriteArtifact(id string, a *Artifact) error {
 	if a.ID == "" {

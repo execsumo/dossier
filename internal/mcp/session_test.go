@@ -89,6 +89,28 @@ func TestMCPUpdateLeadAndStatus(t *testing.T) {
 	}
 }
 
+func TestMCPRenameSlugKeepsOldAliasWorking(t *testing.T) {
+	svc := newSessionTestService(t)
+
+	renamed := callTool(t, svc, "dossier_rename", `{"id":"test-dossier","new_slug":"clearer-test","base_revision":"rev_1"}`)
+	if !renamed.OK {
+		t.Fatalf("rename failed: %+v", renamed.Error)
+	}
+	raw, _ := json.Marshal(renamed.Data)
+	if !strings.Contains(string(raw), `"slug":"clearer-test"`) || !strings.Contains(string(raw), "test-dossier") {
+		t.Fatalf("rename result = %s", raw)
+	}
+
+	recalled := callTool(t, svc, "dossier_recall", `{"id":"test-dossier"}`)
+	if !recalled.OK {
+		t.Fatalf("old slug alias did not resolve: %+v", recalled.Error)
+	}
+	recalledRaw, _ := json.Marshal(recalled.Data)
+	if !strings.Contains(string(recalledRaw), `"slug":"clearer-test"`) {
+		t.Fatalf("recall through alias = %s", recalledRaw)
+	}
+}
+
 // TestMCPSwitchResolvesSessionFromEnv proves an agent can switch/read the active dossier
 // without supplying session_id: the MCP server resolves it from CLAUDE_CODE_SESSION_ID,
 // and the binding round-trips through dossier_session under the same session.
