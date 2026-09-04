@@ -155,7 +155,8 @@ var (
 			Bold(true)
 
 	footerStyle = lipgloss.NewStyle().
-			Reverse(true). // Inverted foreground and background dynamically to match terminal theme status bar
+			Foreground(lightGray).
+			Align(lipgloss.Right).
 			Padding(0, 1)
 
 	warningStyle = lipgloss.NewStyle().
@@ -450,6 +451,14 @@ func NewModel(svc *core.Service) Model {
 			}
 		}()
 	}
+	helpView := help.New()
+	helpView.Styles.ShortKey = lipgloss.NewStyle().Foreground(purple).Bold(true)
+	helpView.Styles.ShortDesc = lipgloss.NewStyle().Foreground(lightGray)
+	helpView.Styles.ShortSeparator = lipgloss.NewStyle().Foreground(darkGray)
+	helpView.Styles.Ellipsis = lipgloss.NewStyle().Foreground(darkGray)
+	helpView.Styles.FullKey = lipgloss.NewStyle().Foreground(purple).Bold(true)
+	helpView.Styles.FullDesc = lipgloss.NewStyle().Foreground(lightGray)
+	helpView.Styles.FullSeparator = lipgloss.NewStyle().Foreground(darkGray)
 
 	return Model{
 		svc:                  svc,
@@ -462,7 +471,7 @@ func NewModel(svc *core.Service) Model {
 		loading:              true,
 		leadSearch:           leadSearch,
 		searchInput:          searchInput,
-		help:                 help.New(),
+		help:                 helpView,
 		renameSlugInput:      renameSlugInput,
 		renameNameInput:      renameNameInput,
 		configuredLeads:      svc.Leads(),
@@ -1211,6 +1220,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// View-specific key overrides
+		if msg.String() == "?" && (m.isListView() || m.currentView == ViewDetail || m.currentView == ViewArtifactIndex || m.currentView == ViewArtifactContent) {
+			m.toggleHelp()
+			return m, nil
+		}
+
 		switch m.currentView {
 		case ViewKanban:
 			// Only the keys the board owns are intercepted; everything else
@@ -1219,7 +1233,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "ctrl+c":
 				return m, tea.Quit
-			case "esc", "backspace", "b":
+			case "esc", "backspace":
+				m.listView = ViewDashboard
+				m.currentView = ViewDashboard
+				m.table.Focus()
+				return m, nil
+			case "v":
+				if item, ok := m.selectedKanbanItem(); ok && item.ID != "" {
+					m.loading = true
+					m.err = nil
+					return m, m.recallDossierCmd(item.ID)
+				}
+				// An empty board has no detail target, so complete the cycle by
+				// returning to the table.
 				m.listView = ViewDashboard
 				m.currentView = ViewDashboard
 				m.table.Focus()
@@ -1511,18 +1537,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-		case "?":
-			if m.isListView() || m.currentView == ViewDetail {
-				m.help.ShowAll = !m.help.ShowAll
-				return m, nil
-			}
-		case "b":
-			// Toggle to the board. The reverse toggle lives in the ViewKanban
-			// key block; every other view leaves 'b' alone.
+		case "v":
+			// The board leg is handled in its view-specific block. From detail,
+			// v is the same back-to-previous-view action as esc/left.
 			if m.currentView == ViewDashboard {
 				m.listView = ViewKanban
 				m.currentView = ViewKanban
 				return m, nil
+			}
+			if m.currentView == ViewDetail {
+				m.currentView = m.listView
+				m.warnings = nil
+				m.err = nil
+				m.table.Focus()
+				return m, m.listDossiersCmd()
 			}
 		}
 
@@ -2104,8 +2132,8 @@ func (m Model) leadWindow() (start, end int) {
 // reserved chrome covers title/subtitle, both possible clipping indicators,
 // spacing, and the footer.
 func (m Model) artifactVisibleRows() int {
-	const chrome = 7
-	rows := m.height - chrome
+	const chrome = 6
+	rows := m.height - chrome - m.footerHeight(ViewArtifactIndex)
 	if rows < 1 {
 		rows = 1
 	}
@@ -2342,7 +2370,17 @@ func (m Model) footerContent(v View) string {
 	if w <= 0 {
 		w = 80
 	}
-	return footerStyle.Width(w).Render(strings.Join(footerParts, " │ "))
+	return footerStyle.Width(w).Render(strings.Join(footerParts, "\n"))
+}
+
+// toggleHelp changes the Bubbles help mode and immediately refits every
+// surface whose usable height depends on the footer.
+func (m *Model) toggleHelp() {
+	m.help.ShowAll = !m.help.ShowAll
+	m.recalculateTableLayout()
+	m.recalculateViewportLayout()
+	m.recalculateArtifactViewportLayout()
+	m.recalculateConflictViewportLayout()
 }
 
 func (m Model) footerHeight(v View) int {

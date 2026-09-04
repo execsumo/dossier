@@ -167,7 +167,7 @@ It opens a priority-sorted dashboard of your Dossiers, with Lead and discussion-
 
 - **open** a Dossier to read its distilled state (with a live token estimate and over-target warning). The distilled state is rendered natively as rich, syntax-highlighted Markdown. The view automatically live-refreshes when Claude Code updates the dossier in the background.
 - **filter** by Lead with `f`, then cycle through `All` and the seven discussion interfaces with `i` (for example, Marcus + `1:1`),
-- **switch to the board** with `b` — the same filtered Dossiers laid out as stage columns (spark → define → delegated → review → blocked → done), each card showing the Dossier's name and description. Arrows move between cards, enter opens one, and `b` returns you to the table. Done cards show the title only, so finished work costs the space it deserves. Every dashboard key works on the board, filters included.
+- **switch views** with `v` — the same filtered Dossiers are available as either the table or stage columns (spark → define → delegated → review → blocked → done), each card showing the Dossier's name and description. Arrows move between cards, enter opens one, and `v` returns you to the table. Done cards show the title only, so finished work costs the space it deserves. Every dashboard key works on the board, filters included.
 - **edit** the Lead, stage, priority (`low`/`medium`/`high`/`max`), due date, and next action (up to 140 characters) inline without leaving the dashboard,
 - **link** a source, resolving ambiguous matches by picking from ranked candidates, and
 - **merge** one Dossier into another, resolving any conflicts in a syntax-highlighted side-by-side view (sources are archived, never deleted), and

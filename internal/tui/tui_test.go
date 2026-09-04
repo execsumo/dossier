@@ -590,6 +590,20 @@ func TestTUI_ArtifactFlowRestoresDistilledStateAndScroll(t *testing.T) {
 		t.Fatalf("expected artifact index to contain art_evidence, got %+v", m.artifactIndex)
 	}
 
+	// Artifact screens use the same footer help toggle as the main surfaces,
+	// and expanded help must not push the index beyond the terminal height.
+	m, _ = press(t, m, "?")
+	if !m.help.ShowAll || m.currentView != ViewArtifactIndex {
+		t.Fatalf("expanded artifact help state = %v, view = %v", m.help.ShowAll, m.currentView)
+	}
+	if got := len(strings.Split(m.View(), "\n")); got > m.height {
+		t.Fatalf("expanded artifact index rendered %d lines, exceeds height %d", got, m.height)
+	}
+	m, _ = press(t, m, "?")
+	if m.help.ShowAll {
+		t.Fatal("second '?' should restore compact artifact help")
+	}
+
 	// Enter fetches the artifact into its own viewport, which scrolls without
 	// moving the preserved Distilled State viewport.
 	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -602,6 +616,11 @@ func TestTUI_ArtifactFlowRestoresDistilledStateAndScroll(t *testing.T) {
 	if m.currentView != ViewArtifactContent {
 		t.Fatalf("expected view to be ViewArtifactContent, got %v", m.currentView)
 	}
+	m, _ = press(t, m, "?")
+	if !m.help.ShowAll || m.currentView != ViewArtifactContent {
+		t.Fatalf("expanded artifact-content help state = %v, view = %v", m.help.ShowAll, m.currentView)
+	}
+	m, _ = press(t, m, "?")
 	if got := stripANSI(m.View()); !strings.Contains(got, "artifact line one") {
 		t.Errorf("expected artifact content in view, got:\n%s", got)
 	}
@@ -2016,13 +2035,13 @@ func TestTUI_FooterSequenceConsistency(t *testing.T) {
 	}
 
 	dashView := stripANSI(m.View())
-	assertOrdered("dashboard", dashView, []string{"q quit", "? more help", "/ search", "f lead filter", "e edit", "k link", "m merge"})
+	assertOrdered("dashboard", dashView, []string{"/ search", "f filters", "v view", "q quit", "? more help"})
 	assertAbsent("dashboard", dashView, []string{"s stage", "p priority", "l lead", "n next action", "↑/↓", "enter:", "esc:"})
 
 	m.currentView = ViewKanban
 	m.listView = ViewKanban
 	boardView := stripANSI(m.View())
-	assertOrdered("board", boardView, []string{"q quit", "? more help", "/ search", "f lead filter", "e edit"})
+	assertOrdered("board", boardView, []string{"/ search", "f filters", "v view", "q quit", "? more help"})
 	// Link and merge want a list to pick a target from; the board is not one.
 	assertAbsent("board", boardView, []string{"k: link", "m: merge", "n: next action"})
 
@@ -2038,7 +2057,7 @@ func TestTUI_FooterSequenceConsistency(t *testing.T) {
 	}
 
 	detailView := stripANSI(m.View())
-	assertOrdered("detail", detailView, []string{"q quit", "? more help", "e edit", "r rename", "a artifacts", "o open in editor"})
+	assertOrdered("detail", detailView, []string{"a artifacts", "v view", "q quit", "? more help"})
 	// Filtering and the board toggle are list-surface verbs.
 	assertAbsent("detail", detailView, []string{"f: filters", "b: board", "/: search"})
 }
@@ -2558,6 +2577,9 @@ func TestMiniHelpTogglesExpandedView(t *testing.T) {
 	m, _ = press(t, m, "?")
 	if !m.help.ShowAll || m.currentView != ViewDashboard {
 		t.Fatalf("expanded help state = %v, view = %v", m.help.ShowAll, m.currentView)
+	}
+	if got := len(strings.Split(m.View(), "\n")); got != 30 {
+		t.Fatalf("expanded help rendered %d lines, want 30", got)
 	}
 	if !strings.Contains(stripANSI(m.footerContent(ViewDashboard)), "Claude") {
 		t.Fatal("expanded help should include contextual bindings")

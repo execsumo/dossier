@@ -26,32 +26,52 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 	}
 
 	var contextual []bubbleskey.Binding
+	var shortContextual []bubbleskey.Binding
 	switch v {
 	case ViewDashboard:
 		contextual = []bubbleskey.Binding{
 			tuiHelpKey("/", "search"), tuiHelpKey("f", "lead filter"),
-			tuiHelpKey("i", "interface filter"), tuiHelpKey("b", "board"),
+			tuiHelpKey("i", "interface filter"), tuiHelpKey("v", "view"),
 			tuiHelpKey("e", "edit"), tuiHelpKey("k", "link"),
 			tuiHelpKey("m", "merge"), tuiHelpKey("c", "Claude"),
+		}
+		shortContextual = []bubbleskey.Binding{
+			tuiHelpKey("/", "search"), tuiHelpKey("f", "filters"),
+			tuiHelpKey("v", "view"),
 		}
 	case ViewKanban:
 		contextual = []bubbleskey.Binding{
 			tuiHelpKey("/", "search"), tuiHelpKey("f", "lead filter"),
-			tuiHelpKey("i", "interface filter"), tuiHelpKey("b", "table"),
+			tuiHelpKey("i", "interface filter"), tuiHelpKey("v", "view"),
 			tuiHelpKey("e", "edit"), tuiHelpKey("c", "Claude"),
+		}
+		shortContextual = []bubbleskey.Binding{
+			tuiHelpKey("/", "search"), tuiHelpKey("f", "filters"),
+			tuiHelpKey("v", "view"),
 		}
 	case ViewDetail:
 		contextual = []bubbleskey.Binding{
 			tuiHelpKey("e", "edit"), tuiHelpKey("r", "rename"),
 			tuiHelpKey("a", "artifacts"), tuiHelpKey("o", "open in editor"),
-			tuiHelpKey("c", "Claude"),
+			tuiHelpKey("c", "Claude"), tuiHelpKey("v", "view"),
+		}
+		shortContextual = []bubbleskey.Binding{
+			tuiHelpKey("a", "artifacts"), tuiHelpKey("v", "view"),
 		}
 	case ViewLeadSelector:
 		contextual = []bubbleskey.Binding{tuiHelpKey("esc", "cancel"), tuiHelpKey("enter", "select")}
+		shortContextual = contextual
+	case ViewArtifactIndex:
+		contextual = []bubbleskey.Binding{tuiHelpKey("esc", "back"), tuiHelpKey("enter", "view artifact")}
+		shortContextual = []bubbleskey.Binding{tuiHelpKey("esc", "back")}
+	case ViewArtifactContent:
+		contextual = []bubbleskey.Binding{tuiHelpKey("esc", "back")}
+		shortContextual = contextual
 	default:
 		contextual = []bubbleskey.Binding{tuiHelpKey("esc", "back")}
+		shortContextual = contextual
 	}
 
-	short := append(append([]bubbleskey.Binding{}, common...), contextual...)
+	short := append(append([]bubbleskey.Binding{}, shortContextual...), common...)
 	return tuiKeyMap{short: short, full: [][]bubbleskey.Binding{contextual, common}}
 }

@@ -24,10 +24,10 @@ func boardModel(t *testing.T, store *testStore, width, height int) Model {
 	m = newM.(Model)
 	m = enterDashboard(t, m)
 
-	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
 	m = newM.(Model)
 	if m.currentView != ViewKanban {
-		t.Fatalf("expected ViewKanban after 'b', got %v", m.currentView)
+		t.Fatalf("expected ViewKanban after 'v', got %v", m.currentView)
 	}
 	return m
 }
@@ -304,6 +304,14 @@ func TestKanbanEnterOpensDetailAndEscReturnsToBoard(t *testing.T) {
 		t.Fatalf("expected ViewDetail after recall, got %v", m.currentView)
 	}
 
+	m, _ = press(t, m, "v")
+	if m.currentView != ViewKanban {
+		t.Fatalf("v from a board-opened detail returned to %v, want ViewKanban", m.currentView)
+	}
+
+	m, cmd = press(t, m, "enter")
+	newM, _ = m.Update(cmd())
+	m = newM.(Model)
 	m, _ = press(t, m, "esc")
 	if m.currentView != ViewKanban {
 		t.Fatalf("esc from a board-opened detail returned to %v, want ViewKanban", m.currentView)
@@ -496,14 +504,27 @@ func TestKanbanToggleAndTextInputIsolation(t *testing.T) {
 	seedDossier(store, "s1", "Spark One", core.StatusSpark)
 	m := boardModel(t, store, 140, 40)
 
-	// 'b' toggles back to the dashboard, and the return path follows it.
-	m, _ = press(t, m, "b")
-	if m.currentView != ViewDashboard || m.listView != ViewDashboard {
-		t.Fatalf("'b' from the board gave currentView=%v listView=%v", m.currentView, m.listView)
+	// 'v' opens detail, where it behaves like back and returns to the board.
+	m, cmd := press(t, m, "v")
+	if cmd == nil {
+		t.Fatal("'v' from the board should open the selected dossier")
 	}
-	m, _ = press(t, m, "b")
+	newM, _ := m.Update(cmd())
+	m = newM.(Model)
+	if m.currentView != ViewDetail {
+		t.Fatalf("'v' from the board gave currentView=%v, want detail", m.currentView)
+	}
+	m, _ = press(t, m, "v")
 	if m.currentView != ViewKanban || m.listView != ViewKanban {
-		t.Fatalf("'b' from the dashboard gave currentView=%v listView=%v", m.currentView, m.listView)
+		t.Fatalf("'v' from detail gave currentView=%v listView=%v", m.currentView, m.listView)
+	}
+	m, _ = press(t, m, "esc")
+	if m.currentView != ViewDashboard {
+		t.Fatalf("esc from the board gave currentView=%v", m.currentView)
+	}
+	m, _ = press(t, m, "v")
+	if m.currentView != ViewKanban || m.listView != ViewKanban {
+		t.Fatalf("'v' from the dashboard gave currentView=%v listView=%v", m.currentView, m.listView)
 	}
 
 	// esc is the other way out of the board.
@@ -530,16 +551,16 @@ func TestKanbanToggleAndTextInputIsolation(t *testing.T) {
 		t.Fatalf("typing 'b' left the editor for %v", m.currentView)
 	}
 
-	// Saving from the board returns to the board, not the dashboard.
-	newM, cmd := m.Update(key("enter"))
+	// Saving returns to the home surface where the editor was opened.
+	newM, cmd = m.Update(key("enter"))
 	m = newM.(Model)
 	if cmd == nil {
 		t.Fatal("expected enter to return a save command")
 	}
 	newM, _ = m.Update(cmd())
 	m = newM.(Model)
-	if m.currentView != ViewKanban {
-		t.Fatalf("saving from the board returned to %v, want ViewKanban", m.currentView)
+	if m.currentView != ViewDashboard {
+		t.Fatalf("saving from the dashboard returned to %v, want ViewDashboard", m.currentView)
 	}
 }
 
