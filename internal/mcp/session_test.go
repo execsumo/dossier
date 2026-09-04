@@ -116,6 +116,19 @@ func TestMCPRenameSlugDropsOldAlias(t *testing.T) {
 	}
 }
 
+func TestMCPRenameTitle(t *testing.T) {
+	svc := newSessionTestService(t)
+
+	renamed := callTool(t, svc, "dossier_rename", `{"id":"test-dossier","new_title":"Clearer title","base_revision":"rev_1"}`)
+	if !renamed.OK {
+		t.Fatalf("title rename failed: %+v", renamed.Error)
+	}
+	raw, _ := json.Marshal(renamed.Data)
+	if !strings.Contains(string(raw), `"name":"Clearer title"`) {
+		t.Fatalf("rename result = %s", raw)
+	}
+}
+
 // TestMCPSwitchResolvesSessionFromEnv proves an agent can switch/read the active dossier
 // without supplying session_id: the MCP server resolves it from CLAUDE_CODE_SESSION_ID,
 // and the binding round-trips through dossier_session under the same session.

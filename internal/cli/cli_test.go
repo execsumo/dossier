@@ -155,6 +155,45 @@ func TestCLIRenameSlugMovesDirectoryAndDropsOldReference(t *testing.T) {
 	}
 }
 
+func TestCLIRenameTitleKeepsSlugAndPath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	tempHome := t.TempDir()
+	svc, err := wire(tempHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Init(context.Background(), core.InitReq{YesToAll: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Save(context.Background(), core.SaveReq{
+		FrontmatterUpdates: map[string]any{"name": "Old title"},
+	}); err != nil {
+		t.Fatalf("create dossier: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"rename", "old-title", "--title", "New title", "--home", tempHome})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("title rename command: %v", err)
+	}
+
+	svc, err = wire(tempHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recalled, err := svc.Recall(context.Background(), core.RecallReq{ID: "old-title"})
+	if err != nil {
+		t.Fatalf("title-renamed dossier no longer resolves: %v", err)
+	}
+	got := recalled.Data.(core.RecallResult)
+	if got.Frontmatter.Name != "New title" || got.Frontmatter.Slug != "old-title" {
+		t.Fatalf("renamed frontmatter = %+v", got.Frontmatter)
+	}
+	if filepath.Base(got.Path) != "old-title" {
+		t.Fatalf("title rename changed path = %q", got.Path)
+	}
+}
+
 func TestCLIPromoteDistilledFile(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	tempHome := t.TempDir()

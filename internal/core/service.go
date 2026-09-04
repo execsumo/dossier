@@ -1043,7 +1043,7 @@ func describeFrontmatterChanges(before, after Frontmatter) string {
 
 func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 	if _, ok := req.FrontmatterUpdates["slug"]; ok {
-		return Result{}, NewError(ErrInvalidFrontmatter, "slug cannot be changed through Save; use RenameSlug")
+		return Result{}, NewError(ErrInvalidFrontmatter, "slug cannot be changed through Save; use Rename")
 	}
 	if _, ok := req.FrontmatterUpdates["aliases"]; ok {
 		return Result{}, NewError(ErrInvalidFrontmatter, "slug aliases are not supported")

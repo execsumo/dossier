@@ -65,11 +65,8 @@ func (m Model) updateSlugRename(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab", "shift+tab":
 		m.renameSlugInput.Blur()
 		m.renameNameInput.Blur()
-		if msg.String() == "tab" {
-			m.renameField = (m.renameField + 1) % 2
-		} else {
-			m.renameField = (m.renameField + 1) % 2
-		}
+		// There are two fields, so either tab direction toggles the selection.
+		m.renameField = 1 - m.renameField
 		if m.renameField == renameNameField {
 			m.renameNameInput.Focus()
 		} else {

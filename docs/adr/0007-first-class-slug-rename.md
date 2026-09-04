@@ -1,4 +1,4 @@
-# ADR 0007: Dossier IDs are immutable; canonical slugs are renameable
+# ADR 0007: Dossier IDs are immutable; titles and canonical slugs are renameable
 
 ## Status
 Superseded by the current slug policy. The rename operation remains, but historical slug aliases are no longer persisted or resolved. The original decision below is retained as historical context.
@@ -9,13 +9,13 @@ A slug is useful as a human-readable command and directory name, but the name ch
 The existing `dos_` ID is already immutable and session bindings store that ID. It remains the durable identity; the canonical slug is a mutable locator, and callers must use the new slug after a rename.
 
 ## Decision
-Slug changes use a dedicated `Service.RenameSlug` operation, exposed as:
+Title and slug changes use a dedicated `Service.Rename` operation, exposed as:
 
-- `dossier rename <slug-or-id> <new-slug> [--base-revision <rev>]`;
-- MCP `dossier_rename` with `id`, `new_slug`, and `base_revision`;
-- `s` from the TUI detail view.
+- `dossier rename <slug-or-id> [<new-value>] [--title <title>|--slug <slug>] [--base-revision <rev>]`;
+- MCP `dossier_rename` with `id`, `new_slug` and/or `new_name`, and `base_revision`;
+- `s` from the TUI detail view, with Tab choosing title or slug.
 
-Generic `Save`, `dossier_update`, and direct `Store.Write` reject slug or alias mutation.
+Generic `Save` and direct `Store.Write` reject slug mutation. `dossier_update` remains available for ordinary metadata edits; `dossier_rename` makes an explicit title or slug rename auditable.
 
 A successful rename:
 
@@ -42,7 +42,7 @@ Team Sync indexes Dossiers by immutable ID before its path-based merge. A rename
 
 ## Alternatives considered
 
-- **Display-name change only:** safe and still supported, but does not improve a misleading command/path slug.
+- **Display-name change through ordinary metadata update:** safe and still supported, but a dedicated rename makes an explicit title change consistent with an explicit slug change.
 - **Symlink or root alias registry:** keeps references but is less portable and can drift separately from the Dossier under Team Sync.
 - **Store directories by immutable ID:** cleanest eventual separation of identity and presentation, but requires a store-wide migration and changes user-facing path semantics.
 - **Manual frontmatter/directory edits:** rejected because they bypass concurrency, history, audit, collision checks, aliases, and Team Sync reconciliation.

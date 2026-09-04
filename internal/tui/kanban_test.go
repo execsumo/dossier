@@ -348,6 +348,36 @@ func TestDetailSlugRenameKeepsIDAndReturnsToDetail(t *testing.T) {
 	}
 }
 
+func TestDetailTitleRenameKeepsSlug(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "s1", "Original Title", core.StatusSpark)
+	m := boardModel(t, store, 140, 40)
+
+	m, cmd := press(t, m, "enter")
+	newM, _ := m.Update(cmd())
+	m = newM.(Model)
+	m, _ = press(t, m, "s")
+	m, _ = press(t, m, "tab")
+	if m.renameField != renameNameField {
+		t.Fatal("tab did not select title")
+	}
+	m.renameNameInput.SetValue("Renamed Title")
+	m, cmd = press(t, m, "enter")
+	if cmd == nil {
+		t.Fatal("expected title rename command")
+	}
+	newM, recallCmd := m.Update(cmd())
+	m = newM.(Model)
+	if recallCmd == nil {
+		t.Fatal("expected detail refresh after title rename")
+	}
+	newM, _ = m.Update(recallCmd())
+	m = newM.(Model)
+	if got := store.dossiers["s1"].Frontmatter; got.Name != "Renamed Title" || got.Slug != "original-title" {
+		t.Fatalf("renamed frontmatter = %+v", got)
+	}
+}
+
 func TestKanbanHonoursFiltersAndShowsTerminalWork(t *testing.T) {
 	store := newTestStore()
 	seedDossier(store, "keep", "Keep Me", core.StatusSpark, func(fm *core.Frontmatter) {

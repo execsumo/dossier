@@ -300,7 +300,7 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 			return "", fmt.Errorf("failed to parse existing dossier: %w", err)
 		}
 		if d.Frontmatter.Slug != currFM.Slug {
-			return "", core.NewError(core.ErrInvalidFrontmatter, "slug cannot be changed through Write; use RenameSlug")
+			return "", core.NewError(core.ErrInvalidFrontmatter, "slug cannot be changed through Write; use Rename")
 		}
 
 		currentArtifacts, _ = s.listArtifactsInternal(id, dossierDir)

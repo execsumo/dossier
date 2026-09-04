@@ -374,7 +374,7 @@ dossier show <slug-or-id> [--json]
 dossier promote [--name <name>] [--from-file <path>] [--distilled-file <path>] [--json]
 dossier link [<slug-or-id>] [--from-file <path>] [--json]
 dossier merge <source> <target> [--json]
-dossier rename <slug-or-id> <new-slug> [--base-revision <rev>] [--json]
+dossier rename <slug-or-id> [<new-value>] [--title <title>|--slug <slug>] [--base-revision <rev>] [--json]
 dossier recall <slug-or-id> [--json]
 dossier search <query> [--dossier <slug-or-id>] [--json]
 dossier artifact <slug-or-id> [<artifact-id>] [-L <a-b>] [--json]
@@ -443,10 +443,9 @@ dossier doctor
 
 `dossier rename`
 
-- Changes the canonical slug while preserving the immutable Dossier ID.
-- Moves the complete `<slug>/` directory in one same-parent filesystem rename; artifacts, files, conflicts, history, audit shards, and machine-local session stashes move together.
-- Replaces the canonical slug with the new slug; the old slug no longer resolves after the rename.
-- Rejects malformed/reserved slugs or canonical slugs owned by another Dossier, occupied destination directories, and stale `--base-revision` values.
+- Changes the title or canonical slug while preserving the immutable Dossier ID.
+- With `--title <title>`, updates the human-readable title without moving the directory. With `--slug <slug>` (or a positional value), moves the complete `<slug>/` directory in one same-parent filesystem rename; artifacts, files, conflicts, history, audit shards, and machine-local session stashes move together.
+- Rejects blank titles, malformed/reserved slugs or canonical slugs owned by another Dossier, occupied destination directories, and stale `--base-revision` values.
 - Omitting `--base-revision` performs an immediate recall and uses that revision for the optimistic-concurrency check.
 
 `dossier recall`
@@ -519,9 +518,9 @@ Required tools:
 
 > **Note on `dossier_artifact`:** it takes `dossier_id` + `artifact_id`, and optionally either a `fragment` (a citation fragment such as `"L42-L68"`) or `start_line`/`end_line`. Content is returned with absolute 1-indexed line numbers, so the span read is the span cited. An unranged fetch returns the whole artifact and warns past 500 lines rather than truncating. `dossier_artifacts` returns the same evidence index that `dossier_recall` now carries in `artifacts[]`: one entry per archived artifact with its type, line count, and whether the Distilled State cites it.
 
-> **Note on `dossier_update`:** it accepts `name`, `description`, `status`, `lead`, `interfaces`, `next_action`, and priority fields, and routes them all through the single `Save` write path (so CLI/MCP/TUI behave identically and edits get optimistic-concurrency handling). Open questions are edited by replacing the Markdown body. Changing `name` updates the **display name only**; use `dossier_rename` for the canonical slug.
+> **Note on `dossier_update`:** it accepts `name`, `description`, `status`, `lead`, `interfaces`, `next_action`, and priority fields, and routes them all through the single `Save` write path (so CLI/MCP/TUI behave identically and edits get optimistic-concurrency handling). Open questions are edited by replacing the Markdown body.
 >
-> **Note on `dossier_rename`:** it requires `id`, `new_slug`, and `base_revision`. The operation preserves the immutable ID and atomically relocates the complete directory. References must use the new slug or immutable ID after the rename.
+> **Note on `dossier_rename`:** it requires `id`, `base_revision`, and one of `new_slug`, `new_name`, or `new_title`. It can rename the canonical slug, the display title, or both. Slug changes preserve the immutable ID and atomically relocate the complete directory.
 
 ### 8.2 Tool Contracts
 
@@ -1056,11 +1055,11 @@ Checks:
 - >100 MB artifacts excluded from sync with a persistent visible warning.
 - `team join` onboarding completes with exactly two commands and one sign-in.
 
-### 14.12 First-class Slug Rename
+### 14.12 First-class Rename
 
-- CLI `dossier rename`, MCP `dossier_rename`, and the TUI detail action route through one `Service.RenameSlug` operation.
-- The immutable Dossier ID is unchanged; the complete directory moves, and all nested files survive byte-for-byte.
-- The old canonical slug no longer resolves or appears in list search after the rename.
+- CLI `dossier rename`, MCP `dossier_rename`, and the TUI detail action route through one `Service.Rename` operation for title and slug changes.
+- The immutable Dossier ID is unchanged. A title rename keeps the directory in place; a slug rename moves the complete directory and all nested files survive byte-for-byte.
+- A slug rename replaces the canonical slug; the old slug no longer resolves or appears in list search.
 - Invalid, reserved, occupied, duplicate, and stale-revision rename attempts leave the original path and frontmatter unchanged.
 - Team Sync follows directory renames by immutable ID, preserves machine-local per-Dossier sessions under the resulting slug, and never leaves duplicate directories after a divergent rename/edit merge.
 
