@@ -40,6 +40,14 @@ type Store interface {
 
 	// Context library
 	WriteLibraryContext(data LibraryData) error
+
+	// Context assets — the embedded Guide and Operating Instructions projected
+	// into <home>/context/. Core cannot reach the embedded originals itself
+	// (TestCorePackageIsPure forbids importing dossier/assets), so the adapter
+	// owns both the projection and the fallback.
+	EnsureContextAssets() ([]string, error)
+	ReadContextAsset(name string) (string, error)
+	StaleContextAssets() []string
 }
 
 // LibraryDossier represents a dossier summarized in the context library.

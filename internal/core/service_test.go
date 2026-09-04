@@ -113,6 +113,8 @@ type localFakeStore struct {
 	sessions           map[string]*SessionBinding
 	conflicts          map[string]*Conflict
 	history            map[Revision]*Dossier
+	contextAssets      map[string]string
+	staleContextAssets []string
 	auditShardIssues   []string
 	artifactFileIssues []string
 }
@@ -126,6 +128,10 @@ func newLocalFakeStore() *localFakeStore {
 		sessions:  make(map[string]*SessionBinding),
 		conflicts: make(map[string]*Conflict),
 		history:   make(map[Revision]*Dossier),
+		contextAssets: map[string]string{
+			"guide.md":        "GUIDE BODY",
+			"instructions.md": "INSTRUCTIONS BODY",
+		},
 	}
 }
 
@@ -254,6 +260,18 @@ func (f *localFakeStore) ListConflicts() ([]Conflict, error) {
 	return out, nil
 }
 func (f *localFakeStore) WriteLibraryContext(data LibraryData) error { return nil }
+
+// contextAssets stands in for the embedded originals. A nil map models a build
+// with no assets at all; a missing key models an asset absent from disk *and*
+// from the binary, which is the only way a reader can legitimately come back empty.
+func (f *localFakeStore) EnsureContextAssets() ([]string, error) { return nil, nil }
+func (f *localFakeStore) ReadContextAsset(name string) (string, error) {
+	if content, ok := f.contextAssets[name]; ok {
+		return content, nil
+	}
+	return "", NewError(ErrNotFound, "context asset not found: "+name)
+}
+func (f *localFakeStore) StaleContextAssets() []string { return f.staleContextAssets }
 
 func TestServiceListFiltersInterfaces(t *testing.T) {
 	store := newLocalFakeStore()

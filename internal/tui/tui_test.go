@@ -296,6 +296,13 @@ func (s *testStore) ListConflicts() ([]core.Conflict, error) {
 
 func (s *testStore) WriteLibraryContext(data core.LibraryData) error { return nil }
 
+// The TUI never reads context assets; these satisfy the port.
+func (s *testStore) EnsureContextAssets() ([]string, error) { return nil, nil }
+func (s *testStore) ReadContextAsset(name string) (string, error) {
+	return "", core.NewError(core.ErrNotFound, "context asset not found: "+name)
+}
+func (s *testStore) StaleContextAssets() []string { return nil }
+
 func setupTestService(store core.Store) *core.Service {
 	return core.NewService(
 		store,

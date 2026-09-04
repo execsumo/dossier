@@ -43,22 +43,8 @@ func (s *FSStore) Init() error {
 		}
 	}
 
-	guideContent, err := assets.FS.ReadFile("guide.md")
-	if err != nil {
-		return fmt.Errorf("failed to read embedded guide: %w", err)
-	}
-	guidePath := filepath.Join(s.dossierHome, "context", "guide.md")
-	if err := os.WriteFile(guidePath, guideContent, 0644); err != nil {
-		return fmt.Errorf("failed to write guide.md: %w", err)
-	}
-
-	instructionsContent, err := assets.FS.ReadFile("instructions.md")
-	if err != nil {
-		return fmt.Errorf("failed to read embedded instructions: %w", err)
-	}
-	instructionsPath := filepath.Join(s.dossierHome, "context", "instructions.md")
-	if err := os.WriteFile(instructionsPath, instructionsContent, 0644); err != nil {
-		return fmt.Errorf("failed to write instructions.md: %w", err)
+	if _, err := s.EnsureContextAssets(); err != nil {
+		return err
 	}
 
 	data := core.LibraryData{
@@ -1124,6 +1110,88 @@ func parseConflictFile(content string) (*core.Conflict, error) {
 	}
 
 	return &c, nil
+}
+
+// contextAssetNames are the embedded assets projected into <home>/context/. They
+// are the agent's operating contract, so the embedded copy is authoritative and
+// the on-disk file is a refreshed projection of it — not the other way round.
+// The projection exists to be read: the session-start nudge and the suppressed
+// dossier_session response both point an agent at these paths, and a user
+// checking what rules the agent follows should be able to open a file rather
+// than unpack a binary.
+var contextAssetNames = []string{"guide.md", "instructions.md"}
+
+// EnsureContextAssets makes <home>/context/ match the embedded assets, returning
+// the names it had to rewrite. It is idempotent, so it is safe on every command:
+// two small byte comparisons when nothing has changed.
+//
+// This is what makes an upgrade propagate. Init is reachable only from `dossier
+// init`, so before this existed a new binary ran against the previous release's
+// Guide — and since the reader preferred disk, the stale copy won.
+func (s *FSStore) EnsureContextAssets() ([]string, error) {
+	ctxDir := filepath.Join(s.dossierHome, "context")
+
+	// Refresh what exists; never bring a store into being. Wiring calls this on
+	// every command, including inside a directory that is about to receive a
+	// `team join` clone — and that clone refuses any target holding more than
+	// config.yaml. Creating the directory here would make joining a team
+	// impossible. Init does the creating, then calls this to populate.
+	if info, err := os.Stat(ctxDir); err != nil || !info.IsDir() {
+		return nil, nil
+	}
+
+	var refreshed []string
+	for _, name := range contextAssetNames {
+		embedded, err := assets.FS.ReadFile(name)
+		if err != nil {
+			return refreshed, fmt.Errorf("failed to read embedded %s: %w", name, err)
+		}
+		path := filepath.Join(ctxDir, name)
+		if onDisk, err := os.ReadFile(path); err == nil && bytes.Equal(onDisk, embedded) {
+			continue
+		}
+		if err := os.WriteFile(path, embedded, 0644); err != nil {
+			return refreshed, fmt.Errorf("failed to write %s: %w", name, err)
+		}
+		refreshed = append(refreshed, name)
+	}
+	return refreshed, nil
+}
+
+// ReadContextAsset returns a context asset, preferring the on-disk projection so
+// a deliberate local edit is still honoured, and falling back to the embedded
+// original when that file is missing or unreadable.
+//
+// The fallback is the point: these assets carry the rules the agent distills by,
+// and returning "" for a deleted file degrades to an agent working with no rules
+// and nothing said about it. The embedded copy cannot go absent, so that outcome
+// is now unreachable.
+func (s *FSStore) ReadContextAsset(name string) (string, error) {
+	if content, err := os.ReadFile(filepath.Join(s.dossierHome, "context", name)); err == nil {
+		return string(content), nil
+	}
+	embedded, err := assets.FS.ReadFile(name)
+	if err != nil {
+		return "", fmt.Errorf("context asset %q is unavailable on disk and not embedded: %w", name, err)
+	}
+	return string(embedded), nil
+}
+
+// StaleContextAssets names the assets whose on-disk copy is missing or differs
+// from the embedded original. Reporting only; EnsureContextAssets does the fixing.
+func (s *FSStore) StaleContextAssets() []string {
+	var stale []string
+	for _, name := range contextAssetNames {
+		embedded, err := assets.FS.ReadFile(name)
+		if err != nil {
+			continue
+		}
+		onDisk, err := os.ReadFile(filepath.Join(s.dossierHome, "context", name))
+		if err != nil || !bytes.Equal(onDisk, embedded) {
+			stale = append(stale, name)
+		}
+	}
+	return stale
 }
 
 // WriteLibraryContext renders the context library and writes it to context/library.md.

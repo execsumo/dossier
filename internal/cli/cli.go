@@ -1673,6 +1673,15 @@ func wire(dossierHome string) (*core.Service, error) {
 
 	storeAdapter := store.NewFSStore(dossierHome)
 
+	// Refresh the on-disk context assets against the ones compiled into this
+	// binary. Every command wires through here, so an upgraded binary can never
+	// go on reading the previous release's Guide — the failure `dossier init`
+	// used to be the only cure for. Two byte comparisons when nothing changed;
+	// a store that isn't initialised yet simply has nothing to refresh.
+	if _, err := storeAdapter.EnsureContextAssets(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to refresh context assets: %v\n", err)
+	}
+
 	var searchAdapter core.Searcher
 	if search.IsRipgrepAvailable() {
 		searchAdapter = search.NewRipgrepSearcher(dossierHome)

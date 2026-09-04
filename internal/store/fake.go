@@ -1,6 +1,7 @@
 package store
 
 import (
+	"dossier/assets"
 	"dossier/internal/core"
 	"fmt"
 )
@@ -193,3 +194,15 @@ func (f *FakeStore) ListConflicts() ([]core.Conflict, error) {
 func (f *FakeStore) WriteLibraryContext(data core.LibraryData) error {
 	return nil
 }
+
+func (f *FakeStore) EnsureContextAssets() ([]string, error) { return nil, nil }
+
+func (f *FakeStore) ReadContextAsset(name string) (string, error) {
+	content, err := assets.FS.ReadFile(name)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+func (f *FakeStore) StaleContextAssets() []string { return nil }

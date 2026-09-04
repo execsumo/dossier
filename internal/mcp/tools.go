@@ -228,8 +228,9 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"id":         map[string]any{"type": "string", "description": "Optional: Dossier slug or id to bind to the active session. If omitted, the current active dossier is returned."},
-					"session_id": map[string]any{"type": "string", "description": "Optional override; normally omit. Defaults to the current Claude Code session."},
+					"id":            map[string]any{"type": "string", "description": "Optional: Dossier slug or id to bind to the active session. If omitted, the current active dossier is returned."},
+					"session_id":    map[string]any{"type": "string", "description": "Optional override; normally omit. Defaults to the current Claude Code session."},
+					"include_guide": map[string]any{"type": "boolean", "description": "Force the Distillation Guide into the response. The Guide is normally sent once per session; set this when it has left your context and you are about to write, rather than saving without it."},
 				},
 			},
 		},
@@ -460,8 +461,9 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 
 	case "dossier_session":
 		var params struct {
-			ID        string `json:"id"`
-			SessionID string `json:"session_id"`
+			ID           string `json:"id"`
+			SessionID    string `json:"session_id"`
+			IncludeGuide bool   `json:"include_guide"`
 		}
 		_ = json.Unmarshal(args, &params)
 		sid, sourceHarness, serr := harness.ResolveSession(params.SessionID, false)
@@ -484,9 +486,21 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 				// When it is suppressed, say where it went: an absent field would
 				// otherwise read as "this store has no Guide", and the agent needs
 				// to know it is still bound by one it can re-read on demand.
+				// Once-per-session delivery infers "the Guide is still in
+				// context" from session-start events, which cannot see a long
+				// session evicting it without a compaction. include_guide is the
+				// recovery path for exactly that case: the agent that notices it
+				// has lost the rules can ask for them back before it writes,
+				// instead of the loss being undetectable.
+				guide := ""
+				if params.IncludeGuide {
+					guide = s.svc.GetGuide()
+				} else {
+					guide = s.svc.GuideForSession(sid)
+				}
 				resp := SessionResponse{
 					State:                 res.Data,
-					Guide:                 s.svc.GuideForSession(sid),
+					Guide:                 guide,
 					OperatingInstructions: s.svc.GetInstructions(),
 				}
 				if resp.Guide == "" {
@@ -498,7 +512,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 					if s.svc.GetGuide() == "" {
 						resp.GuideRef = "WARNING: the Distillation Guide is unavailable — ~/.dossier/context/guide.md is missing or unreadable, so no distillation rules are loaded for this session. Run `dossier init` to restore it; until then, treat saves as unguided and say so."
 					} else {
-						resp.GuideRef = "Distillation Guide already delivered in this session; it remains in force. Re-read at ~/.dossier/context/guide.md if it has left context."
+						resp.GuideRef = "Distillation Guide already delivered in this session; it remains in force. If it has left your context, re-read ~/.dossier/context/guide.md or call dossier_session with include_guide: true — do not write without it."
 					}
 				}
 				res.Data = resp

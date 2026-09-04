@@ -475,6 +475,17 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 		}
 	}
 
+	// The context assets carry the rules the agent distills by, so a store copy
+	// that has drifted from this binary's is worth saying out loud even though
+	// it is not store damage — and even though wiring refreshes it, since a
+	// read-only or otherwise unwritable context directory would leave it stale.
+	if stale := s.store.StaleContextAssets(); len(stale) > 0 {
+		addAdvisory(fmt.Sprintf(
+			"Context assets differ from this binary's embedded copies: %s. The embedded version is authoritative and is used regardless; run `dossier init` to refresh the readable copies under context/.",
+			strings.Join(stale, ", "),
+		))
+	}
+
 	if s.hreg != nil {
 		for _, h := range s.hreg.All() {
 			caps, err := h.Detect()
@@ -2133,11 +2144,11 @@ func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, e
 }
 
 func (s *Service) GetGuide() string {
-	guidePath := filepath.Join(s.cfg.DossierHome, "context", "guide.md")
-	if guideBytes, err := os.ReadFile(guidePath); err == nil {
-		return string(guideBytes)
+	guide, err := s.store.ReadContextAsset("guide.md")
+	if err != nil {
+		return ""
 	}
-	return ""
+	return guide
 }
 
 // GuideForSession returns the Distillation Guide the first time it is requested
@@ -2186,11 +2197,18 @@ func (s *Service) resetGuideDelivery(sessionID string) {
 }
 
 func (s *Service) GetInstructions() string {
-	instructionsPath := filepath.Join(s.cfg.DossierHome, "context", "instructions.md")
-	if instructionsBytes, err := os.ReadFile(instructionsPath); err == nil {
-		return string(instructionsBytes)
+	instructions, err := s.store.ReadContextAsset("instructions.md")
+	if err != nil {
+		return ""
 	}
-	return ""
+	return instructions
+}
+
+// EnsureContextAssets refreshes the on-disk projection of the embedded context
+// assets. Callers run it at wiring time so an upgraded binary never reads the
+// previous release's Guide.
+func (s *Service) EnsureContextAssets() ([]string, error) {
+	return s.store.EnsureContextAssets()
 }
 
 // SessionEnd saves state and appends the transcript artifact on session completion.
