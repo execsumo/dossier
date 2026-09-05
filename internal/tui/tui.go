@@ -57,9 +57,6 @@ const (
 	// ViewLinks is a contextual overlay over dossier detail. It presents active
 	// monitors before passive references while preserving their distinct meaning.
 	ViewLinks
-	// ViewInterfaceSelector chooses the dashboard/board interface filter. It is
-	// appended to preserve the numeric values of existing views.
-	ViewInterfaceSelector
 )
 
 // leadFilterKind enumerates the three ways the dashboard can be scoped by lead.
@@ -134,17 +131,24 @@ type leadOption struct {
 	count  int
 }
 
+type interfaceOption struct {
+	label string
+	value interfaceFilter
+}
+
 // Subheadline banner
 const subheadline = "Durable episodic memory and delegation layer"
+const modalBackgroundHex = "#25243A"
 
 // Styling tokens
 var (
-	purple       = lipgloss.Color("99")
-	lightGray    = lipgloss.Color("7") // Use terminal's standard light gray (ANSI 7)
-	darkGray     = lipgloss.Color("8") // Use terminal's standard dark gray/bright black (ANSI 8)
-	vibrantGreen = lipgloss.Color("2") // Use terminal's standard green (ANSI 2)
-	vibrantRed   = lipgloss.Color("1") // Use terminal's standard red (ANSI 1)
-	warningGold  = lipgloss.Color("3") // Use terminal's standard yellow/gold (ANSI 3)
+	purple          = lipgloss.Color("99")
+	lightGray       = lipgloss.Color("7") // Use terminal's standard light gray (ANSI 7)
+	darkGray        = lipgloss.Color("8") // Use terminal's standard dark gray/bright black (ANSI 8)
+	vibrantGreen    = lipgloss.Color("2") // Use terminal's standard green (ANSI 2)
+	vibrantRed      = lipgloss.Color("1") // Use terminal's standard red (ANSI 1)
+	warningGold     = lipgloss.Color("3") // Use terminal's standard yellow/gold (ANSI 3)
+	modalBackground = lipgloss.Color(modalBackgroundHex)
 
 	titleStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF")). // Force crisp white text on purple bg
@@ -196,6 +200,7 @@ var (
 	editorBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(purple).
+			Background(modalBackground).
 			Padding(1, 2).
 			Margin(1, 0)
 
@@ -247,10 +252,6 @@ type artifactIndexMsg struct {
 	err       error
 }
 
-type interfaceOption struct {
-	label string
-	value interfaceFilter
-}
 type artifactContentMsg struct {
 	content  core.ArtifactContent
 	warnings []core.Warning
@@ -873,7 +874,7 @@ func filterLeadOptions(opts []leadOption, query string) []leadOption {
 // index (liveCount) rather than always trailing the last row.
 //
 // The same pass also rebuilds the Kanban columns. The board shares the lead and
-// interface filters but deliberately ignores the extras collapse: a board whose
+// lead and interface filters but deliberately ignores the extras collapse: a board whose
 // Done column hid done work would be lying about the stage it names. Grouping
 // here — rather than in the renderer — keeps it O(n) per data/filter change
 // instead of per frame.
@@ -959,8 +960,8 @@ func (m *Model) rowToItemIndex(idx int) (itemIdx int, isToggle bool) {
 	return idx - 1, false
 }
 
-// openLeadSelector enters the two-column filter selector with both cursors
-// parked on the currently active filters.
+// openLeadSelector enters the lead filter selector with the cursor parked on
+// the currently active filter.
 func (m *Model) openLeadSelector() {
 	m.previousView = m.currentView
 	m.pushOverlay(ViewLeadSelector)
@@ -994,31 +995,6 @@ func (m Model) buildInterfaceOptions() []interfaceOption {
 	return options
 }
 
-func (m *Model) openInterfaceSelector() {
-	m.previousView = m.currentView
-	m.pushOverlay(ViewInterfaceSelector)
-
-	m.interfaceOptions = m.buildInterfaceOptions()
-	m.interfaceCursor = 0
-	for i, option := range m.interfaceOptions {
-		if option.value == m.interfaceFilter {
-			m.interfaceCursor = i
-			break
-		}
-	}
-}
-
-func (m *Model) chooseInterface() {
-	if m.interfaceCursor >= 0 && m.interfaceCursor < len(m.interfaceOptions) {
-		m.interfaceFilter = m.interfaceOptions[m.interfaceCursor].value
-	}
-	m.applyFilters()
-	m.populateTableRows()
-	m.popOverlay()
-	m.table.SetCursor(0)
-	m.table.Focus()
-}
-
 // chooseLead applies the option under the cursor and drops into the dashboard.
 func (m *Model) chooseLead() {
 	if m.leadCursor >= 0 && m.leadCursor < len(m.leadResults) {
@@ -1039,7 +1015,7 @@ func (m *Model) chooseLead() {
 
 func (m *Model) startLinkInput() {
 	m.previousView = m.currentView
-	m.currentView = ViewLinkInput
+	m.pushOverlay(ViewLinkInput)
 	m.linkTextInput = textinput.New()
 	m.linkTextInput.Placeholder = "Enter raw content or description to link"
 	m.linkTextInput.Focus()
@@ -1048,7 +1024,7 @@ func (m *Model) startLinkInput() {
 
 func (m *Model) startMergeSelector(sourceID, sourceName string) {
 	m.previousView = m.currentView
-	m.currentView = ViewMergeSelector
+	m.pushOverlay(ViewMergeSelector)
 	m.mergeSourceID = sourceID
 	m.mergeSourceName = sourceName
 
@@ -1310,50 +1286,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.filterColumn = 1
 				return m, nil
 			case "up", "ctrl+p":
-				if m.filterColumn == 0 {
-					if len(m.leadResults) > 0 {
-						m.leadCursor = (m.leadCursor - 1 + len(m.leadResults)) % len(m.leadResults)
-					}
+				if m.filterColumn == 0 && len(m.leadResults) > 0 {
+					m.leadCursor = (m.leadCursor - 1 + len(m.leadResults)) % len(m.leadResults)
 				} else if len(m.interfaceOptions) > 0 {
 					m.interfaceCursor = (m.interfaceCursor - 1 + len(m.interfaceOptions)) % len(m.interfaceOptions)
 				}
 				return m, nil
 			case "down", "ctrl+n":
-				if m.filterColumn == 0 {
-					if len(m.leadResults) > 0 {
-						m.leadCursor = (m.leadCursor + 1) % len(m.leadResults)
-					}
+				if m.filterColumn == 0 && len(m.leadResults) > 0 {
+					m.leadCursor = (m.leadCursor + 1) % len(m.leadResults)
 				} else if len(m.interfaceOptions) > 0 {
 					m.interfaceCursor = (m.interfaceCursor + 1) % len(m.interfaceOptions)
 				}
 				return m, nil
 			case "enter":
-				if len(m.leadResults) > 0 && len(m.interfaceOptions) > 0 {
+				if len(m.leadResults) > 0 {
 					m.chooseLead()
 				}
-				return m, nil
-			}
-			return m, nil
-
-		case ViewInterfaceSelector:
-			switch msg.String() {
-			case "ctrl+c":
-				return m, tea.Quit
-			case "esc":
-				m.popOverlay()
-				return m, nil
-			case "up", "k":
-				if len(m.interfaceOptions) > 0 {
-					m.interfaceCursor = (m.interfaceCursor - 1 + len(m.interfaceOptions)) % len(m.interfaceOptions)
-				}
-				return m, nil
-			case "down", "j":
-				if len(m.interfaceOptions) > 0 {
-					m.interfaceCursor = (m.interfaceCursor + 1) % len(m.interfaceOptions)
-				}
-				return m, nil
-			case "enter":
-				m.chooseInterface()
 				return m, nil
 			}
 			return m, nil
@@ -1361,7 +1310,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewLinkInput:
 			switch msg.String() {
 			case "esc":
-				m.currentView = m.previousView
+				m.popOverlay()
 				return m, nil
 			case "enter":
 				m.loading = true
@@ -1374,7 +1323,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewLinkSelector:
 			switch msg.String() {
 			case "esc":
-				m.currentView = m.listView
+				m.dismissOverlays()
 				return m, nil
 			case "up", "k":
 				m.linkCursor = (m.linkCursor - 1 + len(m.linkSuggestions)) % len(m.linkSuggestions)
@@ -1390,7 +1339,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewMergeSelector:
 			switch msg.String() {
 			case "esc":
-				m.currentView = m.listView
+				m.dismissOverlays()
 				return m, nil
 			case "up", "k":
 				m.mergeCursor = (m.mergeCursor - 1 + len(m.mergeTargets)) % len(m.mergeTargets)
@@ -1409,7 +1358,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewMergeConflictResolver:
 			switch msg.String() {
 			case "esc":
-				m.currentView = m.listView
+				m.dismissOverlays()
 				return m, nil
 			case "tab", "shift+tab":
 				m.conflictResolverCursor = (m.conflictResolverCursor + 1) % 2
@@ -1419,7 +1368,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.err = nil
 					return m, m.mergeCmd(m.mergeSourceID, m.mergeTargetID, []string{m.mergeConflict.ID})
 				} else {
-					m.currentView = m.listView
+					m.dismissOverlays()
 					return m, nil
 				}
 			}
@@ -1595,15 +1544,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.recalculateTableLayout()
 				return m, nil
 			}
-		case "i":
-			if m.isListView() {
-				m.openInterfaceSelector()
-				return m, nil
-			}
 		case "k":
-			// Dashboard only: linking needs a list to pick a target from, and
-			// the board's stage columns are a poor picker.
-			if m.currentView == ViewDashboard {
+			if m.currentView == ViewDashboard || m.currentView == ViewDetail {
 				m.startLinkInput()
 				return m, nil
 			}
@@ -1765,6 +1707,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if dErr, ok := msg.err.(*core.DomainError); ok && dErr.Code == core.ErrAmbiguousTarget {
 				suggestions, ok := msg.result.Data.([]core.Suggestion)
 				if ok && len(suggestions) > 0 {
+					m.overlayStack[len(m.overlayStack)-1] = ViewLinkSelector
 					m.currentView = ViewLinkSelector
 					m.linkSuggestions = suggestions
 					m.linkContent = msg.content
@@ -1773,16 +1716,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.err = msg.err
-			m.currentView = m.listView
+			m.dismissOverlays()
 		} else {
-			m.currentView = m.listView
+			m.dismissOverlays()
 			m.err = nil
 			return m, m.listDossiersCmd()
 		}
 
 	case linkConfirmResultMsg:
 		m.loading = false
-		m.currentView = m.listView
+		m.dismissOverlays()
 		if msg.err != nil {
 			m.err = msg.err
 		} else {
@@ -1796,6 +1739,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if dErr, ok := msg.err.(*core.DomainError); ok && dErr.Code == core.ErrConflictDetected {
 				conflict, ok := msg.result.Data.(*core.Conflict)
 				if ok {
+					m.overlayStack[len(m.overlayStack)-1] = ViewMergeConflictResolver
 					m.currentView = ViewMergeConflictResolver
 					m.mergeConflict = conflict
 					diffMd := fmt.Sprintf("```diff\n%s\n```", conflict.DiffAgainstCurrent)
@@ -1806,9 +1750,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.err = msg.err
-			m.currentView = m.listView
+			m.dismissOverlays()
 		} else {
-			m.currentView = m.listView
+			m.dismissOverlays()
 			m.err = nil
 			// Show success info
 			return m, m.listDossiersCmd()
@@ -1822,6 +1766,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.renameSlugInput.Blur()
 			m.renameNameInput.Blur()
+			m.dismissOverlays()
 			m.currentView = ViewDetail
 			m.err = nil
 			return m, m.recallDossierCmd(msg.targetID)
@@ -2112,24 +2057,6 @@ func (m *Model) recalculateConflictViewportLayout() {
 	}
 }
 
-func nextInterfaceFilter(current interfaceFilter, configured ...[]string) interfaceFilter {
-	values := core.DefaultDiscussionInterfaces()
-	if len(configured) > 0 {
-		values = configured[0]
-	}
-	options := make([]interfaceFilter, 0, len(values)+1)
-	options = append(options, "")
-	for _, value := range values {
-		options = append(options, interfaceFilter(value))
-	}
-	for i, option := range options {
-		if option == current {
-			return options[(i+1)%len(options)]
-		}
-	}
-	return options[0]
-}
-
 func (m Model) renderLeadSelector() string {
 	var sb strings.Builder
 	sb.WriteString("Filters — scope the dashboard before a meeting.\n\n")
@@ -2176,7 +2103,7 @@ func (m Model) renderLeadSelector() string {
 	}
 
 	sb.WriteString("\n")
-	sb.WriteString("↑/↓ move • ←/→ column • enter apply • esc cancel")
+	sb.WriteString("↑/↓ move • enter apply • esc cancel")
 	return editorBoxStyle.Render(sb.String())
 }
 
@@ -2497,7 +2424,7 @@ func (m Model) emptyListNotice() string {
 	if !m.searchQuery.IsEmpty() {
 		return m.renderListSubtitle(fmt.Sprintf(" No dossiers match %q — esc to clear", m.searchInput.Value()))
 	}
-	return m.renderListSubtitle(fmt.Sprintf(" No dossiers for lead: %s / interface: %s — press f or i to change filters.", m.leadFilter.label(), m.interfaceFilter.label()))
+	return m.renderListSubtitle(fmt.Sprintf(" No dossiers for lead: %s / interface: %s — press f to change filters.", m.leadFilter.label(), m.interfaceFilter.label()))
 }
 
 // pinEmptyNotice writes notice over the first body line of an already rendered

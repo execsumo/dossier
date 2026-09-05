@@ -106,7 +106,15 @@ func (m *Model) moveEditVertical(forward bool) {
 			m.editFocus = editFieldDue
 		}
 	case editFieldStage:
-		m.editStatus = cycleStatus(m.editStatus, forward)
+		statuses := core.CanonicalStatuses()
+		if !forward && len(statuses) > 0 && m.editStatus == statuses[0] {
+			// The first stage is the visual boundary between the enum columns
+			// and the text fields above them. Let Up leave the stage column so
+			// the form can be traversed back to Next Action and Due Date.
+			m.editFocus = editFieldNextAction
+		} else {
+			m.editStatus = cycleStatus(m.editStatus, forward)
+		}
 	case editFieldPriority:
 		m.editPriority = cyclePriority(m.editPriority, forward)
 	case editFieldLead:
@@ -317,17 +325,18 @@ func renderEditColumn(title, body string, focused bool, width int) string {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(border).
+		Background(modalBackground).
 		Padding(0, 1).
 		Width(width).
 		Render(metaLabelStyle.Render(title) + "\n\n" + body)
 }
 
 func renderEditTextRow(label, value string, focused bool) string {
-	prefix := "  "
+	prefix := "   "
 	if focused {
 		prefix = " ▸ "
 	}
-	return prefix + metaLabelStyle.Render(label+":") + " " + value
+	return prefix + metaLabelStyle.Render(fmt.Sprintf("%-13s", label+":")) + value
 }
 
 func renderEnumColumn[T ~string](title string, options []T, selected T, focused bool, width int) string {
@@ -343,7 +352,7 @@ func renderEnumColumn[T ~string](title string, options []T, selected T, focused 
 		}
 		line := marker + " " + truncateCell(label, width-7)
 		if option == selected && focused {
-			sb.WriteString(focusedItemStyle.Copy().Padding(0).Render(line))
+			sb.WriteString(focusedItemStyle.Copy().Background(modalBackground).Padding(0).Render(line))
 		} else {
 			sb.WriteString(line)
 		}
@@ -372,7 +381,7 @@ func renderInterfacesColumn(title string, options, selected []string, cursor int
 		}
 		line := marker + " " + truncateCell(label, width-7)
 		if i == cursor && focused {
-			sb.WriteString(focusedItemStyle.Copy().Padding(0).Render(line))
+			sb.WriteString(focusedItemStyle.Copy().Background(modalBackground).Padding(0).Render(line))
 		} else {
 			sb.WriteString(line)
 		}
@@ -407,7 +416,6 @@ func (m Model) renderEditor() string {
 		renderInterfacesColumn("Interfaces", m.configuredInterfaces, m.editInterfaces, m.editInterfaceCursor, m.editFocus == editFieldInterfaces, columnWidth),
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Edit %s\n\n", lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true).Render(m.targetName)))
 	sb.WriteString(renderEditTextRow("Due date", due, m.editFocus == editFieldDue))
 	sb.WriteString("\n")
 	sb.WriteString(renderEditTextRow("Next action", next, m.editFocus == editFieldNextAction))

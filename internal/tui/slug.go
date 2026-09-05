@@ -22,7 +22,7 @@ func (m *Model) startSlugRename() {
 		return
 	}
 	m.previousView = ViewDetail
-	m.currentView = ViewRenameSlug
+	m.pushOverlay(ViewRenameSlug)
 	m.targetID = fm.ID
 	m.targetName = fm.Name
 	m.targetBaseRevision = m.recallResult.Revision
@@ -59,10 +59,10 @@ func (m Model) updateSlugRename(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.renameSlugInput.Blur()
 		m.renameNameInput.Blur()
-		m.currentView = ViewDetail
+		m.popOverlay()
 		m.err = nil
 		return m, nil
-	case "tab", "shift+tab":
+	case "tab", "shift+tab", "up", "down":
 		m.renameSlugInput.Blur()
 		m.renameNameInput.Blur()
 		// There are two fields, so either tab direction toggles the selection.
@@ -98,11 +98,10 @@ func (m Model) renderSlugRename() string {
 		nameLabel = "> Title: "
 	}
 	body := fmt.Sprintf(
-		"Rename %s\n\n%s%s\n%s%s\n\nThe dossier ID stays fixed. Use the new slug after renaming; the complete dossier directory moves with it.\n\n%s",
-		m.targetName,
+		"%s%s\n%s%s\n\n%s",
 		slugLabel, m.renameSlugInput.View(),
 		nameLabel, m.renameNameInput.View(),
-		mutedStyle.Render("Tab: choose slug or title. Use lowercase letters, digits, and single hyphens for slugs."),
+		mutedStyle.Render("Tab switch · Enter save · Esc cancel · slug: lowercase, digits, hyphens."),
 	)
-	return editorBoxStyle.Render(body)
+	return body
 }

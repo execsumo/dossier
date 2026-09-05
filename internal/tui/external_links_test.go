@@ -79,12 +79,18 @@ func TestFilterOverlayUsesSharedModalNavigation(t *testing.T) {
 	if !strings.Contains(stripANSI(m.View()), "Dashboard · Filters") {
 		t.Fatalf("filter overlay did not retain parent context:\n%s", stripANSI(m.View()))
 	}
-	before := m.interfaceFilter
+	m, _ = press(t, m, "down")
+	m, _ = press(t, m, "down")
+	m, _ = press(t, m, "enter")
+	if m.leadFilter.label() != "Alice" {
+		t.Fatalf("lead selection did not apply: %q", m.leadFilter.label())
+	}
+	m, _ = press(t, m, "f")
 	m, _ = press(t, m, "right")
 	m, _ = press(t, m, "down")
 	m, _ = press(t, m, "enter")
-	if m.interfaceFilter == before {
-		t.Fatal("interface column selection did not apply a filter")
+	if m.interfaceFilter != interfaceFilter(m.configuredInterfaces[0]) {
+		t.Fatalf("interface selection did not apply: %q", m.interfaceFilter)
 	}
 	m, _ = press(t, m, "f")
 	m, _ = press(t, m, "esc")

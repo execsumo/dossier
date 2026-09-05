@@ -333,6 +333,14 @@ func TestDetailSlugRenameKeepsIDAndReturnsToDetail(t *testing.T) {
 	if m.currentView != ViewRenameSlug || m.renameSlugInput.Value() != "spark-one" {
 		t.Fatalf("rename view = %v, input = %q", m.currentView, m.renameSlugInput.Value())
 	}
+	m, _ = press(t, m, "down")
+	if m.renameField != renameNameField {
+		t.Fatal("down did not move to title field")
+	}
+	m, _ = press(t, m, "up")
+	if m.renameField != renameSlugField {
+		t.Fatal("up did not move back to slug field")
+	}
 	m.renameSlugInput.SetValue("clearer-spark")
 	m, cmd = press(t, m, "enter")
 	if cmd == nil {
@@ -407,7 +415,6 @@ func TestKanbanHonoursFiltersAndShowsTerminalWork(t *testing.T) {
 
 	m := boardModel(t, store, 140, 40)
 	m.leadFilter = leadFilter{kind: filterByName, name: "Alice"}
-	m.interfaceFilter = interfaceFilter("Pricing WBR")
 	m.applyFilters()
 
 	view := stripANSI(m.View())
@@ -416,7 +423,7 @@ func TestKanbanHonoursFiltersAndShowsTerminalWork(t *testing.T) {
 			t.Errorf("expected board to show %q, got:\n%s", want, view)
 		}
 	}
-	for _, unwanted := range []string{"Bob Topic", "Alice Elsewhere"} {
+	for _, unwanted := range []string{"Bob Topic"} {
 		if strings.Contains(view, unwanted) {
 			t.Errorf("expected %q to be filtered out, got:\n%s", unwanted, view)
 		}
@@ -766,10 +773,9 @@ func TestEmptyStateFitsTerminalWidth(t *testing.T) {
 
 	for _, dim := range []struct{ w, h int }{{80, 24}, {60, 20}} {
 		m := boardModel(t, store, dim.w, dim.h)
-		// A filter pair that matches nothing, with a lead name long enough to
+		// A lead filter that matches nothing, with a lead name long enough to
 		// overflow both widths.
-		m.leadFilter = leadFilter{kind: filterByName, name: "Alexandra Featherstonehaugh"}
-		m.interfaceFilter = interfaceFilter("Pricing WBR")
+		m.leadFilter = leadFilter{kind: filterByName, name: "Alexandra Featherstonehaugh With An Exceptionally Long Name For Narrow Terminals"}
 		m.applyFilters()
 		m.populateTableRows()
 

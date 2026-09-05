@@ -18,7 +18,7 @@ var (
 	overlayPanelStyle = lipglossv2.NewStyle().
 				Border(lipglossv2.RoundedBorder()).
 				BorderForeground(lipglossv2.Color("#A78BFA")).
-				Background(lipglossv2.Color("#25243A")).
+				Background(lipglossv2.Color(modalBackgroundHex)).
 				Padding(1, 2)
 	overlayTitleStyle = lipglossv2.NewStyle().
 				Foreground(lipglossv2.Color("#B18CFF")).
@@ -52,7 +52,7 @@ type externalLinkRow struct {
 
 func isOverlayView(v View) bool {
 	switch v {
-	case ViewLeadSelector, ViewInterfaceSelector, ViewEdit, ViewArtifactIndex, ViewArtifactContent, ViewLinks:
+	case ViewLeadSelector, ViewEdit, ViewLinkInput, ViewLinkSelector, ViewMergeSelector, ViewMergeConflictResolver, ViewRenameSlug, ViewArtifactIndex, ViewArtifactContent, ViewLinks:
 		return true
 	default:
 		return false
@@ -171,8 +171,16 @@ func (m Model) overlayLabel(v View) string {
 	switch v {
 	case ViewLeadSelector:
 		return "Filters"
-	case ViewInterfaceSelector:
-		return "Interface Filter"
+	case ViewLinkInput:
+		return "Link Content"
+	case ViewLinkSelector:
+		return "Resolve Link"
+	case ViewMergeSelector:
+		return "Merge"
+	case ViewMergeConflictResolver:
+		return "Merge Conflict"
+	case ViewRenameSlug:
+		return "Rename"
 	case ViewEdit:
 		return "Edit"
 	case ViewLinks:
@@ -190,8 +198,16 @@ func (m Model) renderOverlayContent(v View) string {
 	switch v {
 	case ViewLeadSelector:
 		return m.renderFilterOverlay()
-	case ViewInterfaceSelector:
-		return m.renderInterfaceFilterOverlay()
+	case ViewLinkInput:
+		return m.renderLinkInput()
+	case ViewLinkSelector:
+		return m.renderLinkSelector()
+	case ViewMergeSelector:
+		return m.renderMergeSelector()
+	case ViewMergeConflictResolver:
+		return m.renderMergeConflictResolver()
+	case ViewRenameSlug:
+		return m.renderSlugRename()
 	case ViewEdit:
 		return m.renderEditor()
 	case ViewLinks:
@@ -226,7 +242,6 @@ func (m Model) renderFilterOverlay() string {
 	for i, option := range m.interfaceOptions {
 		interfaceLabels[i] = option.label
 	}
-
 	columns := []string{
 		renderFilterColumn("Lead", leadLabels, m.leadCursor, m.filterColumn == 0, columnWidth),
 		renderFilterColumn("Interface", interfaceLabels, m.interfaceCursor, m.filterColumn == 1, columnWidth),
@@ -244,7 +259,7 @@ func renderFilterColumn(title string, options []string, cursor int, focused bool
 		}
 		line := marker + " " + truncateCell(option, width-7)
 		if i == cursor {
-			sb.WriteString(focusedItemStyle.Copy().Padding(0).Render(line))
+			sb.WriteString(focusedItemStyle.Copy().Background(modalBackground).Padding(0).Render(line))
 		} else {
 			sb.WriteString(line)
 		}
@@ -260,30 +275,10 @@ func renderFilterColumn(title string, options []string, cursor int, focused bool
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(border).
+		Background(modalBackground).
 		Padding(0, 1).
 		Width(width).
 		Render(metaLabelStyle.Render(title) + "\n\n" + strings.TrimRight(sb.String(), "\n"))
-}
-
-func (m Model) renderInterfaceFilterOverlay() string {
-	var sb strings.Builder
-	sb.WriteString("Choose an interface filter\n\n")
-	for i, option := range m.interfaceOptions {
-		marker := "( )"
-		if i == m.interfaceCursor {
-			marker = "(•)"
-		}
-		line := marker + " " + option.label
-		if i == m.interfaceCursor {
-			sb.WriteString(focusedItemStyle.Render(line))
-		} else {
-			sb.WriteString(line)
-		}
-		sb.WriteString("\n")
-	}
-	sb.WriteString("\n")
-	sb.WriteString(overlayHintStyle.Render("↑/↓ move · enter apply · esc cancel"))
-	return strings.TrimRight(sb.String(), "\n")
 }
 
 func (m Model) externalLinkEntries() []externalLinkEntry {

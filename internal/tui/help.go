@@ -30,9 +30,9 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 	switch v {
 	case ViewDashboard:
 		contextual = []bubbleskey.Binding{
-			tuiHelpKey("/", "search"), tuiHelpKey("f", "lead filter"),
-			tuiHelpKey("i", "interface filter"), tuiHelpKey("v", "view"),
-			tuiHelpKey("e", "edit"), tuiHelpKey("k", "link"),
+			tuiHelpKey("/", "search"), tuiHelpKey("f", "filters"),
+			tuiHelpKey("v", "view"),
+			tuiHelpKey("e", "edit"), tuiHelpKey("k", "add link"),
 			tuiHelpKey("m", "merge"), tuiHelpKey("c", "open agent"),
 		}
 		shortContextual = []bubbleskey.Binding{
@@ -41,8 +41,8 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 		}
 	case ViewKanban:
 		contextual = []bubbleskey.Binding{
-			tuiHelpKey("/", "search"), tuiHelpKey("f", "lead filter"),
-			tuiHelpKey("i", "interface filter"), tuiHelpKey("v", "dashboard"),
+			tuiHelpKey("/", "search"), tuiHelpKey("f", "filters"),
+			tuiHelpKey("v", "dashboard"),
 			tuiHelpKey("e", "edit"), tuiHelpKey("c", "open agent"),
 		}
 		shortContextual = []bubbleskey.Binding{
@@ -53,7 +53,7 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 		contextual = []bubbleskey.Binding{
 			tuiHelpKey("e", "edit"), tuiHelpKey("r", "rename"),
 			tuiHelpKey("a", "artifacts"), tuiHelpKey("l", "links"), tuiHelpKey("o", "open in editor"),
-			tuiHelpKey("c", "open agent"), tuiHelpKey("v", "view"),
+			tuiHelpKey("k", "add link"), tuiHelpKey("c", "open agent"), tuiHelpKey("v", "view"),
 		}
 		shortContextual = []bubbleskey.Binding{
 			tuiHelpKey("a", "artifacts"), tuiHelpKey("l", "links"), tuiHelpKey("v", "view"),
@@ -61,8 +61,20 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 	case ViewLeadSelector:
 		contextual = []bubbleskey.Binding{tuiHelpKey("←/→", "column"), tuiHelpKey("↑/↓", "move"), tuiHelpKey("esc", "cancel"), tuiHelpKey("enter", "apply")}
 		shortContextual = contextual
-	case ViewInterfaceSelector:
-		contextual = []bubbleskey.Binding{tuiHelpKey("↑/↓", "move"), tuiHelpKey("enter", "apply"), tuiHelpKey("esc", "cancel")}
+	case ViewLinkInput:
+		contextual = []bubbleskey.Binding{tuiHelpKey("enter", "find target"), tuiHelpKey("esc", "cancel")}
+		shortContextual = contextual
+	case ViewLinkSelector:
+		contextual = []bubbleskey.Binding{tuiHelpKey("↑/↓", "move"), tuiHelpKey("enter", "confirm"), tuiHelpKey("esc", "cancel")}
+		shortContextual = contextual
+	case ViewMergeSelector:
+		contextual = []bubbleskey.Binding{tuiHelpKey("↑/↓", "move"), tuiHelpKey("enter", "merge"), tuiHelpKey("esc", "cancel")}
+		shortContextual = contextual
+	case ViewMergeConflictResolver:
+		contextual = []bubbleskey.Binding{tuiHelpKey("tab", "choose"), tuiHelpKey("enter", "apply"), tuiHelpKey("esc", "cancel")}
+		shortContextual = contextual
+	case ViewRenameSlug:
+		contextual = []bubbleskey.Binding{tuiHelpKey("tab", "switch field"), tuiHelpKey("enter", "save"), tuiHelpKey("esc", "cancel")}
 		shortContextual = contextual
 	case ViewArtifactIndex:
 		contextual = []bubbleskey.Binding{tuiHelpKey("esc", "back"), tuiHelpKey("enter", "view artifact")}

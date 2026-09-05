@@ -329,74 +329,6 @@ func setupTestService(store core.Store) *core.Service {
 	)
 }
 
-func TestInterfaceFilter(t *testing.T) {
-	item := core.ListItem{Interfaces: []string{"Pricing WBR", "Steerco"}}
-	if !interfaceFilter("Pricing WBR").matches(item) {
-		t.Fatal("expected matching interface to pass")
-	}
-	if interfaceFilter("1:1").matches(item) {
-		t.Fatal("expected non-matching interface to be filtered")
-	}
-	if !interfaceFilter("").matches(item) {
-		t.Fatal("expected empty interface filter to match all")
-	}
-}
-
-func TestInterfaceFilterOpensModalWithAllOption(t *testing.T) {
-	m := NewModel(setupTestService(newTestStore()))
-	m.currentView = ViewDashboard
-	m.listView = ViewDashboard
-	m.configuredInterfaces = []string{"Planning", "Customer Review"}
-
-	newM, cmd := m.Update(key("i"))
-	m = newM.(Model)
-	if cmd != nil || m.currentView != ViewInterfaceSelector || len(m.overlayStack) != 1 {
-		t.Fatalf("interface selector state = view %v, stack %d, cmd %v", m.currentView, len(m.overlayStack), cmd != nil)
-	}
-	if len(m.interfaceOptions) != 3 || m.interfaceOptions[0].label != "All" || m.interfaceOptions[0].value != "" {
-		t.Fatalf("interface options = %+v, want All plus configured values", m.interfaceOptions)
-	}
-	view := stripANSI(m.View())
-	for _, want := range []string{"(•) All", "( ) Planning", "( ) Customer Review"} {
-		if !strings.Contains(view, want) {
-			t.Errorf("interface selector missing %q:\n%s", want, view)
-		}
-	}
-
-	m, _ = press(t, m, "down")
-	m, _ = press(t, m, "enter")
-	if m.currentView != ViewDashboard || len(m.overlayStack) != 0 || m.interfaceFilter != "Planning" {
-		t.Fatalf("interface selection state = view %v, stack %d, filter %q", m.currentView, len(m.overlayStack), m.interfaceFilter)
-	}
-}
-
-func TestNextInterfaceFilterCyclesCanonicalOrder(t *testing.T) {
-	current := interfaceFilter("")
-	for _, want := range core.DefaultDiscussionInterfaces() {
-		current = nextInterfaceFilter(current)
-		if current != interfaceFilter(want) {
-			t.Fatalf("next filter = %q, want %q", current, want)
-		}
-	}
-	if nextInterfaceFilter(current) != "" {
-		t.Fatal("expected interface filter cycle to return to All")
-	}
-
-	custom := []string{"Planning", "Customer Review"}
-	if got := nextInterfaceFilter("", custom); got != "Planning" {
-		t.Fatalf("custom interface cycle started at %q", got)
-	}
-	if got := nextInterfaceFilter("Planning", custom); got != "Customer Review" {
-		t.Fatalf("custom interface cycle continued at %q", got)
-	}
-	if got := nextInterfaceFilter("Customer Review", custom); got != "" {
-		t.Fatalf("custom interface cycle ended at %q, want All", got)
-	}
-	if got := nextInterfaceFilter("", []string{}); got != "" {
-		t.Fatalf("empty interface list produced %q, want All", got)
-	}
-}
-
 func TestTUI_Dashboard(t *testing.T) {
 	store := newTestStore()
 	// Seed a dossier
@@ -900,6 +832,20 @@ func TestTUI_InlineEditing(t *testing.T) {
 	}
 }
 
+func TestEditTextRowsKeepValuesAlignedWhenFocusChanges(t *testing.T) {
+	unfocusedDue := stripANSI(renderEditTextRow("Due date", "2026-12-01", false))
+	focusedNext := stripANSI(renderEditTextRow("Next action", "Draft the memo", true))
+	if lipgloss.Width(unfocusedDue[:strings.Index(unfocusedDue, "2026-12-01")]) != lipgloss.Width(focusedNext[:strings.Index(focusedNext, "Draft the memo")]) {
+		t.Fatalf("edit values are misaligned:\n%q\n%q", unfocusedDue, focusedNext)
+	}
+
+	focusedDue := stripANSI(renderEditTextRow("Due date", "2026-12-01", true))
+	unfocusedNext := stripANSI(renderEditTextRow("Next action", "Draft the memo", false))
+	if lipgloss.Width(focusedDue[:strings.Index(focusedDue, "2026-12-01")]) != lipgloss.Width(unfocusedNext[:strings.Index(unfocusedNext, "Draft the memo")]) {
+		t.Fatalf("focused edit values are misaligned:\n%q\n%q", focusedDue, unfocusedNext)
+	}
+}
+
 // TestStartEditPropagatesBaseRevision guards against a regression where the
 // edit path forgot to copy the target's base revision into the model, leaving a
 // stale (or empty) revision from whatever edit ran previously. Against the real
@@ -1156,6 +1102,31 @@ func TestLeadEditorUsesConfiguredEnum(t *testing.T) {
 	}
 }
 
+func TestEditStageBoundaryReturnsToTextFields(t *testing.T) {
+	m := NewModel(setupTestService(newTestStore()))
+	m.startEdit(targetDossier{id: "dos_test", name: "Boundary Test"})
+	m.editFocus = editFieldStage
+	m.editStatus = core.CanonicalStatuses()[0]
+	m.syncEditFocus()
+
+	m.moveEditVertical(false)
+	if m.editFocus != editFieldNextAction {
+		t.Fatalf("Up at first stage focused %v, want next action", m.editFocus)
+	}
+	m.moveEditVertical(false)
+	if m.editFocus != editFieldDue {
+		t.Fatalf("Up from next action focused %v, want due date", m.editFocus)
+	}
+
+	m.editFocus = editFieldStage
+	m.editStatus = core.CanonicalStatuses()[1]
+	m.syncEditFocus()
+	m.moveEditVertical(false)
+	if m.editFocus != editFieldStage || m.editStatus != core.CanonicalStatuses()[0] {
+		t.Fatalf("Up at non-first stage focused %v with status %q, want previous stage", m.editFocus, m.editStatus)
+	}
+}
+
 func TestDeriveLeadOptions(t *testing.T) {
 	items := []core.ListItem{
 		{ID: "1", Name: "Alpha", Lead: "Bob"},
@@ -1264,6 +1235,31 @@ func TestLeadFilterMatches(t *testing.T) {
 		if got := tc.filter.matches(tc.item); got != tc.want {
 			t.Errorf("%s: matches = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestFiltersModalAppliesInterfaceFilter(t *testing.T) {
+	store := newTestStore()
+	store.dossiers["pricing"] = &core.Dossier{Frontmatter: core.Frontmatter{
+		ID: "pricing", Name: "Pricing", Slug: "pricing", Status: core.StatusSpark,
+		Interfaces: []string{"Pricing WBR"},
+	}}
+	store.dossiers["steerco"] = &core.Dossier{Frontmatter: core.Frontmatter{
+		ID: "steerco", Name: "Steerco", Slug: "steerco", Status: core.StatusSpark,
+		Interfaces: []string{"Steerco"},
+	}}
+	m := dashboardModel(t, store, 100, 30)
+
+	m, _ = press(t, m, "f")
+	m, _ = press(t, m, "right")
+	m, _ = press(t, m, "down")
+	m, _ = press(t, m, "enter")
+
+	if m.interfaceFilter != interfaceFilter("Pricing WBR") {
+		t.Fatalf("interface filter = %q, want Pricing WBR", m.interfaceFilter)
+	}
+	if len(m.visibleItems) != 1 || m.visibleItems[0].ID != "pricing" {
+		t.Fatalf("filtered dossiers = %+v, want pricing only", m.visibleItems)
 	}
 }
 
