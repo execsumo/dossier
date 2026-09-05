@@ -172,3 +172,55 @@ func TestCompileTranscriptLineNumbersAreCitable(t *testing.T) {
 		t.Errorf("line %d = %q, want the tool result", target, got)
 	}
 }
+
+func TestCompileTranscriptHandlesPiTrace(t *testing.T) {
+	const piTrace = `{"type":"session","version":3,"id":"01a06051-..","timestamp":"..","cwd":"/home/dev/projects/x"}
+{"type":"model_change","id":"..","parentId":null,"timestamp":"..","provider":"openai-codex","modelId":"gpt-5.6-luna"}
+{"type":"thinking_level_change","id":"..","parentId":"..","timestamp":"..","thinkingLevel":"high"}
+{"type":"custom","customType":"om.observations.recorded","data":{"observations":[]}}
+{"type":"message","id":"m1","parentId":"m0","timestamp":"t1","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_id|fc","name":"read","arguments":{"path":"/some/path"}}]}}
+{"type":"message","id":"m2","parentId":"m1","timestamp":"t2","message":{"role":"toolResult","toolCallId":"call_id|fc","toolName":"read","content":[{"type":"text","text":"ENOENT: no such file"}],"details":{},"isError":true,"timestamp":1788327186171}}
+{"type":"compaction","id":"c1","parentId":"m2","timestamp":"t3","summary":"<prose>","firstKeptEntryId":"m2","tokensBefore":123,"fromHook":false,"details":{}}
+{"type":"message","id":"m3","parentId":"c1","timestamp":"t4","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Hmm"}]}}`
+
+	out, _, warnings := CompileTranscript(piTrace)
+
+	if !strings.Contains(out, "## [1] tool_call read (call_id|fc)") {
+		t.Errorf("missing tool_call header, got:\n%s", out)
+	}
+	if !strings.Contains(out, "path: /some/path") {
+		t.Errorf("missing toolCall arguments, got:\n%s", out)
+	}
+
+	if !strings.Contains(out, "## [2] tool_result read (call_id|fc)") {
+		t.Errorf("missing tool_result header, got:\n%s", out)
+	}
+	if !strings.Contains(out, "ENOENT: no such file") {
+		t.Errorf("missing tool result content, got:\n%s", out)
+	}
+
+	if !strings.Contains(out, "## [3] system") {
+		t.Errorf("missing compaction system header, got:\n%s", out)
+	}
+	if !strings.Contains(out, "<prose>") {
+		t.Errorf("missing compaction summary, got:\n%s", out)
+	}
+
+	for _, wantType := range []string{"session=1", "model_change=1", "thinking_level_change=1", "custom=1"} {
+		if !strings.Contains(out, wantType) {
+			t.Errorf("header missing count for %s, got:\n%s", wantType, out)
+		}
+	}
+
+	if !strings.Contains(out, "Records read: 8. Content nodes: 3.") {
+		t.Errorf("unexpected record counts, got:\n%s", out)
+	}
+
+	if !strings.Contains(out, "Assistant thinking turns excluded from this view: 1") {
+		t.Errorf("thinking elision not tallied, got:\n%s", out)
+	}
+
+	if len(warnings) > 0 {
+		t.Errorf("unexpected warnings: %v", warnings)
+	}
+}

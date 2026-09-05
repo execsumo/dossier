@@ -26,7 +26,16 @@ All capabilities are available, so Claude Code supports Dossier's full determini
 
 ## 2. Capability Matrix (Pi)
 
-> **Verified against Pi (`@earendil-works/pi-coding-agent`) 0.83.0 — source-read, not assumed.**
+> **Verified against Pi (`@earendil-works/pi-coding-agent`) 0.83.0, re-verified against 0.85.0 on 2026-09-05 — source-read, not assumed.**
+> The 0.85.0 re-read confirmed every API the bundled extension depends on:
+> `session_start` / `session_shutdown` events, `ctx.sessionManager.getSessionId()`
+> and `getSessionFile()`, `ctx.ui.notify`, `registerCommand`, and
+> `sendUserMessage(..., { expandPromptTemplates })`. It also confirmed
+> `session_shutdown.reason` is exactly `"quit" | "reload" | "new" | "resume" | "fork"`,
+> which is what makes clearing the pointer on `"quit"` alone correct, and that the
+> bash tool deletes and re-adds `PI_SESSION_ID`/`PI_SESSION_FILE` per invocation
+> (`dist/core/tools/bash.js`), gated on an `exposeSessionEnvironment` option that
+> defaults to true.
 > This section **corrects** the earlier assumption (2026-08-03) that a user's
 > Claude-like hooks extension would supply the whole contract through
 > `PI_SESSION_ID`/`PI_SESSION_FILE` in the process environment. Two of those
@@ -102,6 +111,13 @@ installed `dossier` CLI because Pi has no built-in MCP client. The CLI's
   `mcp.json` for Pi.
 - Pi's JSONL is archived as provided — Dossier never mutates or reinterprets the
   source transcript.
+- **No automated validation of the bundled extension.** `assets/pi-extension.ts`
+  is embedded and byte-compared, but nothing in the build type-checks it or
+  asserts that Pi can load it, so a breaking change to Pi's extension API would
+  surface only at runtime — as a session that reports no id. The extension's
+  own `ctx.ui.notify` warning covers a throwing `publish()`, not a handler that
+  never registers. Re-read this section's API list when bumping the pinned Pi
+  version.
 
 ---
 

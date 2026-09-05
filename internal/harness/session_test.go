@@ -145,7 +145,24 @@ func TestResolveSessionIDUsesPiPointerWhenEnvIsAbsent(t *testing.T) {
 	}
 }
 
-func TestResolveSessionIDPrefersPiEnvOverPointer(t *testing.T) {
+func TestResolveSessionIDUsesPiEnvWhenPointerAbsent(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("PI_SESSION_ID", "pi-env-session")
+	t.Setenv("DOSSIER_SESSION", "")
+	t.Setenv("DOSSIER_PI_SESSION_DIR", dir)
+	// Do not write pointer.
+
+	got, err := ResolveSessionID("", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "pi-env-session" {
+		t.Errorf("expected env session id to win when no pointer, got %q", got)
+	}
+}
+
+func TestResolveSessionIDPrefersPiPointerOverEnv(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Setenv("PI_SESSION_ID", "pi-env-session")
@@ -161,7 +178,7 @@ func TestResolveSessionIDPrefersPiEnvOverPointer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != "pi-env-session" {
-		t.Errorf("expected env session id to win, got %q", got)
+	if got != "pi-pointer-session" {
+		t.Errorf("expected pointer session id to win, got %q", got)
 	}
 }

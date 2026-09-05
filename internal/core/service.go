@@ -186,7 +186,11 @@ func (s *Service) Init(ctx context.Context, req InitReq) (Result, error) {
 			StableBinaryPath: stablePath,
 		})
 		if installErr != nil {
-			warnings = append(warnings, Warning(fmt.Sprintf("Failed to install for %s: %v", h.Name(), installErr)))
+			if errors.Is(installErr, ErrInstallSkipped) {
+				warnings = append(warnings, Warning(installErr.Error()))
+			} else {
+				warnings = append(warnings, Warning(fmt.Sprintf("Failed to install for %s: %v", h.Name(), installErr)))
+			}
 		}
 
 		// Re-detect: installing an integration is what turns a capability on
@@ -197,6 +201,10 @@ func (s *Service) Init(ctx context.Context, req InitReq) (Result, error) {
 		}
 		report := newHarnessReport(h.Name(), caps)
 		report.Notes = append(report.Notes, harnessAdvisories(h.Name(), caps)...)
+
+		if adv, ok := h.(PostInstallAdvisor); ok {
+			report.Notes = append(report.Notes, adv.PostInstallNotes()...)
+		}
 		reports = append(reports, report)
 	}
 
@@ -367,12 +375,27 @@ func (s *Service) InstallHarness(ctx context.Context, req InstallHarnessReq) (Re
 	if stablePath == "" {
 		stablePath = "dossier"
 	}
-	if err := h.Install(InstallOpts{
+	installErr := h.Install(InstallOpts{
 		Interactive:      !req.YesToAll,
 		YesToAll:         req.YesToAll,
 		StableBinaryPath: stablePath,
-	}); err != nil {
-		return Result{OK: false}, WrapError(ErrInternal, fmt.Sprintf("failed to install %s integration", req.Name), err)
+	})
+
+	if installErr != nil {
+		if errors.Is(installErr, ErrInstallSkipped) {
+			if postCaps, err := h.Detect(); err == nil {
+				caps = postCaps
+			}
+			report := newHarnessReport(h.Name(), caps)
+			report.Notes = append(report.Notes, harnessAdvisories(h.Name(), caps)...)
+			var warnings []Warning
+			for _, note := range report.Notes {
+				warnings = append(warnings, Warning(note))
+			}
+			warnings = append(warnings, Warning(installErr.Error()))
+			return Result{OK: false, Data: report, Warnings: warnings}, nil
+		}
+		return Result{OK: false}, WrapError(ErrInternal, fmt.Sprintf("failed to install %s integration", req.Name), installErr)
 	}
 
 	if postCaps, err := h.Detect(); err == nil {
@@ -380,6 +403,10 @@ func (s *Service) InstallHarness(ctx context.Context, req InstallHarnessReq) (Re
 	}
 	report := newHarnessReport(h.Name(), caps)
 	report.Notes = append(report.Notes, harnessAdvisories(h.Name(), caps)...)
+
+	if adv, ok := h.(PostInstallAdvisor); ok {
+		report.Notes = append(report.Notes, adv.PostInstallNotes()...)
+	}
 
 	var warnings []Warning
 	for _, note := range report.Notes {

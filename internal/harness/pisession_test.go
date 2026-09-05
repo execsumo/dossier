@@ -59,6 +59,34 @@ func TestLookupPiSessionPointerRejectsUnusablePointers(t *testing.T) {
 	}
 }
 
+func TestLookupPiSessionPointerValidatesHostname(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DOSSIER_PI_SESSION_DIR", dir)
+
+	host, err := os.Hostname()
+	if err != nil {
+		t.Skipf("cannot resolve hostname: %v", err)
+	}
+
+	// 1. matching hostname resolves
+	writePointer(t, dir, 20, PiSessionPointer{Schema: PiPointerSchema, PID: 20, SessionID: "matching-host", Hostname: host})
+	if p, ok := lookupPiSessionPointer(20, func(int) (int, bool) { return 1, true }); !ok || p.SessionID != "matching-host" {
+		t.Errorf("pointer with matching hostname should have resolved")
+	}
+
+	// 2. foreign hostname is rejected
+	writePointer(t, dir, 21, PiSessionPointer{Schema: PiPointerSchema, PID: 21, SessionID: "foreign-host", Hostname: host + "-other"})
+	if _, ok := lookupPiSessionPointer(21, func(int) (int, bool) { return 1, true }); ok {
+		t.Errorf("pointer with foreign hostname should have been rejected")
+	}
+
+	// 3. missing hostname (old record) still resolves
+	writePointer(t, dir, 22, PiSessionPointer{Schema: PiPointerSchema, PID: 22, SessionID: "no-host"})
+	if p, ok := lookupPiSessionPointer(22, func(int) (int, bool) { return 1, true }); !ok || p.SessionID != "no-host" {
+		t.Errorf("pointer with no hostname should have resolved")
+	}
+}
+
 // A broken ancestry read stops the walk instead of guessing at a parent.
 func TestLookupPiSessionPointerStopsWhenAncestryUnavailable(t *testing.T) {
 	dir := t.TempDir()
