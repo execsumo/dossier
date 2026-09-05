@@ -25,10 +25,15 @@ const piExtensionAsset = "pi-extension.ts"
 // pre-compaction) is not bridged yet — see docs/harness-capabilities.md.
 type PiHarness struct {
 	dossierHome string
+	notes       []string
 }
 
 func NewPiHarness(dossierHome string) *PiHarness {
 	return &PiHarness{dossierHome: dossierHome}
+}
+
+func (p *PiHarness) PostInstallNotes() []string {
+	return p.notes
 }
 
 func (p *PiHarness) Name() string { return "pi" }
@@ -121,8 +126,9 @@ func (p *PiHarness) Detect() (core.Capabilities, error) {
 // files are left alone, modified files are backed up before being replaced, and
 // without confirmation (or a terminal to ask on) nothing is written.
 func (p *PiHarness) Install(opts core.InstallOpts) error {
+	p.notes = nil
 	if !PiInstalled() {
-		return nil
+		return fmt.Errorf("%w: Pi is not installed on this device", core.ErrInstallSkipped)
 	}
 
 	content, err := assets.FS.ReadFile(piExtensionAsset)
@@ -150,11 +156,17 @@ func (p *PiHarness) Install(opts core.InstallOpts) error {
 		return nil
 	}
 
+	// We rely on YesToAll and the TTY check instead of opts.Interactive;
+	// if YesToAll is false, we always require a terminal to prompt on,
+	// effectively ignoring opts.Interactive.
 	if !opts.YesToAll {
-		stat, _ := os.Stdin.Stat()
+		stat, err := os.Stdin.Stat()
+		if err != nil {
+			return fmt.Errorf("%w: could not stat stdin: %v", core.ErrInstallSkipped, err)
+		}
 		if (stat.Mode() & os.ModeCharDevice) == 0 {
 			// Not a terminal: never write config the user could not consent to.
-			return nil
+			return fmt.Errorf("%w: no terminal to confirm on", core.ErrInstallSkipped)
 		}
 
 		fmt.Printf("Install the Dossier Pi integration (session identity + /spark) to %s? [y/N]: ", dest)
@@ -162,7 +174,7 @@ func (p *PiHarness) Install(opts core.InstallOpts) error {
 		_, _ = fmt.Scanln(&response)
 		response = strings.ToLower(strings.TrimSpace(response))
 		if response != "y" && response != "yes" {
-			return nil
+			return fmt.Errorf("%w: user declined", core.ErrInstallSkipped)
 		}
 	}
 
@@ -172,6 +184,11 @@ func (p *PiHarness) Install(opts core.InstallOpts) error {
 	}
 	if err := installManagedAsset(sparkDest, sparkContent, timestamp); err != nil {
 		return fmt.Errorf("failed to install Pi spark skill: %w", err)
+	}
+
+	_, hasPointer := LookupPiSessionPointer()
+	if os.Getenv("PI_SESSION_ID") == "" && !hasPointer {
+		p.notes = append(p.notes, "Please restart Pi for the new integration to take effect.")
 	}
 
 	return nil

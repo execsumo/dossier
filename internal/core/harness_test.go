@@ -15,7 +15,10 @@ type stubHarness struct {
 	afterCaps   *Capabilities
 	installs    int
 	installFail error
+	notes       []string
 }
+
+func (h *stubHarness) PostInstallNotes() []string { return h.notes }
 
 func (h *stubHarness) Name() string { return h.name }
 
@@ -268,4 +271,58 @@ func TestSwitchFallsBackToDetectionWhenSourceUnknown(t *testing.T) {
 
 func warningsContain(warnings []Warning, substr string) bool {
 	return strings.Contains(warningsText(warnings), substr)
+}
+
+func TestInstallHarnessReportsSkippedAsWarningNotFailure(t *testing.T) {
+	pi := &stubHarness{name: "pi", caps: Capabilities{Installed: true}, installFail: ErrInstallSkipped}
+	svc := serviceWithHarnesses(t, pi)
+
+	res, err := svc.InstallHarness(context.Background(), InstallHarnessReq{Name: "pi"})
+	if err != nil {
+		t.Fatalf("expected no error for skipped install, got %v", err)
+	}
+	if res.OK {
+		t.Error("expected non-success (OK=false) outcome for skipped install")
+	}
+	if !warningsContain(res.Warnings, "install skipped") {
+		t.Errorf("expected warning to name reason, got %v", res.Warnings)
+	}
+	if warningsContain(res.Warnings, "Failed to install") {
+		t.Errorf("declined install must not be phrased as failed, got %v", res.Warnings)
+	}
+}
+
+func TestInitReportsSkippedAsWarningNotFailure(t *testing.T) {
+	pi := &stubHarness{name: "pi", caps: Capabilities{Installed: true}, installFail: ErrInstallSkipped}
+	svc := serviceWithHarnesses(t, pi)
+
+	res, err := svc.Init(context.Background(), InitReq{})
+	if err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+	if !warningsContain(res.Warnings, "install skipped") {
+		t.Errorf("expected warning to name reason, got %v", res.Warnings)
+	}
+	if warningsContain(res.Warnings, "Failed to install") {
+		t.Errorf("declined install must not be phrased as failed, got %v", res.Warnings)
+	}
+}
+
+func TestInstallHarnessAppendsPostInstallNotes(t *testing.T) {
+	identity := Capabilities{Installed: true, SessionIdentity: true}
+	pi := &stubHarness{
+		name:      "pi",
+		caps:      Capabilities{Installed: true},
+		afterCaps: &identity,
+		notes:     []string{"Please restart Pi for the new integration to take effect."},
+	}
+	svc := serviceWithHarnesses(t, pi)
+
+	res, err := svc.InstallHarness(context.Background(), InstallHarnessReq{Name: "pi", YesToAll: true})
+	if err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+	if !warningsContain(res.Warnings, "restart Pi") {
+		t.Errorf("expected post-install notes to surface as warnings, got %v", res.Warnings)
+	}
 }

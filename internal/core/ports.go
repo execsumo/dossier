@@ -111,6 +111,12 @@ type Harness interface {
 	Install(opts InstallOpts) error
 }
 
+// PostInstallAdvisor lets a harness adapter report notes about an install that
+// only it can know — e.g. that the harness must restart to load what was written.
+type PostInstallAdvisor interface {
+	PostInstallNotes() []string
+}
+
 // HarnessRegistry manages the set of supported client harnesses.
 type HarnessRegistry interface {
 	All() []Harness
