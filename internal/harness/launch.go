@@ -161,7 +161,7 @@ func PlanOpenWith(name string, req LaunchRequest) (HandoffPlan, error) {
 			return HandoffPlan{}, err
 		}
 		return PlanPromptHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug, []string{
-			"PI_SESSION_ID=" + req.SessionID,
+			"PI_SESSION_ID=",
 			"PI_SESSION_FILE=",
 			"CLAUDE_CODE_SESSION_ID=",
 		}), nil

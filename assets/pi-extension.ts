@@ -47,6 +47,7 @@ interface SessionPointer {
 	session_id: string;
 	session_file?: string;
 	cwd?: string;
+	hostname?: string;
 	reason?: string;
 	updated_at: string;
 }
@@ -128,6 +129,7 @@ function publish(ctx: ExtensionContext, reason: string): SessionPointer {
 		session_id: sessionId,
 		session_file: sessionFile,
 		cwd: ctx.cwd,
+		hostname: os.hostname(),
 		reason,
 		updated_at: new Date().toISOString(),
 	};

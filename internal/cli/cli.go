@@ -1410,13 +1410,17 @@ func NewRootCmd() *cobra.Command {
 				return err
 			}
 
-			_, err = svc.Switch(ctx, core.SwitchReq{
-				ID:          args[0],
-				SessionID:   sessionID,
-				HarnessName: openWith,
-			})
-			if err != nil {
-				return err
+			if openWith != "pi" {
+				_, err = svc.Switch(ctx, core.SwitchReq{
+					ID:          args[0],
+					SessionID:   sessionID,
+					HarnessName: openWith,
+				})
+				if err != nil {
+					return err
+				}
+			} else {
+				fmt.Fprintln(cmd.ErrOrStderr(), "Notice: Pi will bind this dossier on the agent's first dossier_session call.")
 			}
 
 			agent := plan.Command()
