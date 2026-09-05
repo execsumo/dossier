@@ -225,10 +225,11 @@ type recallDossierMsg struct {
 	warnings []core.Warning
 }
 type mutationResultMsg struct {
-	err       error
-	prevView  View
-	targetID  string
-	addedLead string
+	err             error
+	prevView        View
+	targetID        string
+	addedLead       string
+	addedInterfaces []string
 }
 type renameSlugResultMsg struct {
 	err      error
@@ -351,20 +352,22 @@ type Model struct {
 
 	// Combined editor view state. editOriginal is the dossier as it was when the
 	// form opened, so save can send only the fields that actually changed.
-	editOriginal        targetDossier
-	editFocus           editField
-	editStatus          core.Status
-	editPriority        core.Priority
-	editLead            string
-	editLeadCustom      bool
-	editLeadCustomInput textinput.Model
-	editInterfaces      []string
-	editInterfaceCursor int
-	dueDateInput        textinput.Model
-	nextActionInput     textinput.Model
-	renameSlugInput     textinput.Model
-	renameNameInput     textinput.Model
-	renameField         renameField
+	editOriginal             targetDossier
+	editFocus                editField
+	editStatus               core.Status
+	editPriority             core.Priority
+	editLead                 string
+	editLeadCustom           bool
+	editLeadCustomInput      textinput.Model
+	editInterfaces           []string
+	editInterfaceCustom      bool
+	editInterfaceCustomInput textinput.Model
+	editInterfaceCursor      int
+	dueDateInput             textinput.Model
+	nextActionInput          textinput.Model
+	renameSlugInput          textinput.Model
+	renameNameInput          textinput.Model
+	renameField              renameField
 
 	// Link view state
 	linkTextInput   textinput.Model
@@ -402,11 +405,12 @@ type Model struct {
 	// Seams for the configured agent handoff, defaulted in NewModel. They exist
 	// so tests can press 'c' without an agent binary on PATH and without ever
 	// spawning a process.
-	persistConfiguredLead func(string) error
-	openWith              string
-	planOpenWith          func(string, harness.LaunchRequest) (harness.HandoffPlan, error)
-	execProcess           func(*exec.Cmd, tea.ExecCallback) tea.Cmd
-	openURL               func(string) tea.Cmd
+	persistConfiguredLead      func(string) error
+	persistConfiguredInterface func(string) error
+	openWith                   string
+	planOpenWith               func(string, harness.LaunchRequest) (harness.HandoffPlan, error)
+	execProcess                func(*exec.Cmd, tea.ExecCallback) tea.Cmd
+	openURL                    func(string) tea.Cmd
 
 	watcher      *fsnotify.Watcher
 	updateChan   chan string
@@ -522,15 +526,25 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		persistConfiguredLead: func(name string) error {
 			return persistLeadToConfig(filepath.Join(svc.DossierHome(), "config.yaml"), name)
 		},
+		persistConfiguredInterface: func(name string) error {
+			return persistInterfaceToConfig(filepath.Join(svc.DossierHome(), "config.yaml"), name)
+		},
 		execProcess: tea.ExecProcess,
 		openURL:     launchExternalURL,
 	}
 }
 
-// persistLeadToConfig expands the machine-local vocabulary only after a user
-// explicitly enters a lead in the editor. Configured vocabularies remain
-// ordered, so the new value is appended rather than unexpectedly resorted.
+// persistLeadToConfig and persistInterfaceToConfig expand the machine-local
+// vocabularies only after a user explicitly enters a value in the editor.
 func persistLeadToConfig(path, name string) error {
+	return persistVocabularyValue(path, name, func(cfg *config.Config) *[]string { return &cfg.Leads })
+}
+
+func persistInterfaceToConfig(path, name string) error {
+	return persistVocabularyValue(path, name, func(cfg *config.Config) *[]string { return &cfg.Interfaces })
+}
+
+func persistVocabularyValue(path, name string, values func(*config.Config) *[]string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil
@@ -539,12 +553,13 @@ func persistLeadToConfig(path, name string) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-	for _, existing := range cfg.Leads {
+	list := values(cfg)
+	for _, existing := range *list {
 		if existing == name {
 			return nil
 		}
 	}
-	cfg.Leads = append(cfg.Leads, name)
+	*list = append(*list, name)
 	if err := cfg.Save(path); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
@@ -1841,6 +1856,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			if msg.addedLead != "" && !m.isConfiguredLead(msg.addedLead) {
 				m.configuredLeads = append(m.configuredLeads, msg.addedLead)
+			}
+			for _, iface := range msg.addedInterfaces {
+				if !m.isConfiguredInterface(iface) {
+					m.configuredInterfaces = append(m.configuredInterfaces, iface)
+				}
 			}
 			if m.currentView == ViewDetail {
 				return m, m.recallDossierCmd(msg.targetID)

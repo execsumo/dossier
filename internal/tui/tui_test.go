@@ -1166,6 +1166,50 @@ func TestPersistLeadToConfigAppendsWithoutDuplicates(t *testing.T) {
 	}
 }
 
+func TestInterfaceEditorSupportsNewConfiguredInterface(t *testing.T) {
+	m := NewModel(setupTestService(newTestStore()))
+	m.configuredInterfaces = []string{"Existing"}
+	m.startEdit(targetDossier{id: "dos_test", name: "Interface Test"})
+	m.editFocus = editFieldInterfaces
+	m.editInterfaceCursor = len(m.configuredInterfaces)
+	m.syncEditFocus()
+	m, _ = press(t, m, " ")
+	m, _ = press(t, m, "New")
+	m, _ = press(t, m, " ")
+	m, _ = press(t, m, "Interface")
+	selected := m.selectedEditInterfaces()
+	if len(selected) != 1 || selected[0] != "New Interface" {
+		t.Fatalf("selected interfaces = %v, want [New Interface]", selected)
+	}
+	updates := m.editUpdates()
+	if got, ok := updates["interfaces"].([]string); !ok || len(got) != 1 || got[0] != "New Interface" {
+		t.Fatalf("interface updates = %#v, want new interface", updates["interfaces"])
+	}
+}
+
+func TestPersistInterfaceToConfigAppendsWithoutDuplicates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := config.Default()
+	cfg.DossierHome = filepath.Dir(path)
+	cfg.Interfaces = []string{"Existing"}
+	if err := cfg.SaveDefault(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := persistInterfaceToConfig(path, "New Interface"); err != nil {
+		t.Fatal(err)
+	}
+	if err := persistInterfaceToConfig(path, "New Interface"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Interfaces) != 2 || got.Interfaces[1] != "New Interface" {
+		t.Fatalf("configured interfaces = %v, want [Existing New Interface]", got.Interfaces)
+	}
+}
+
 func TestEditStageBoundaryReturnsToTextFields(t *testing.T) {
 	m := NewModel(setupTestService(newTestStore()))
 	m.startEdit(targetDossier{id: "dos_test", name: "Boundary Test"})

@@ -59,10 +59,27 @@ func (m *Model) startEdit(t targetDossier) {
 	m.editLeadCustom = !m.isConfiguredLead(t.lead) && t.lead != ""
 	m.editLeadCustomInput = textinput.New()
 	m.editLeadCustomInput.Placeholder = "new lead"
-	m.editLeadCustomInput.SetValue(t.lead)
+	if m.editLeadCustom {
+		m.editLeadCustomInput.SetValue(t.lead)
+	}
 	m.editLeadCustomInput.Width = 16
-	m.editInterfaces = append([]string{}, t.interfaces...)
+	m.editInterfaces = nil
+	m.editInterfaceCustom = false
+	m.editInterfaceCustomInput = textinput.New()
+	m.editInterfaceCustomInput.Placeholder = "new interface"
+	m.editInterfaceCustomInput.Width = 16
+	for _, iface := range t.interfaces {
+		if !m.isConfiguredInterface(iface) && !m.editInterfaceCustom {
+			m.editInterfaceCustom = true
+			m.editInterfaceCustomInput.SetValue(iface)
+			continue
+		}
+		m.editInterfaces = append(m.editInterfaces, iface)
+	}
 	m.editInterfaceCursor = 0
+	if m.editInterfaceCustom {
+		m.editInterfaceCursor = len(m.configuredInterfaces)
+	}
 
 	m.nextActionInput = textinput.New()
 	// Set the existing value before applying the limit so legacy overlong
@@ -81,6 +98,7 @@ func (m *Model) syncEditFocus() {
 	m.dueDateInput.Blur()
 	m.nextActionInput.Blur()
 	m.editLeadCustomInput.Blur()
+	m.editInterfaceCustomInput.Blur()
 	switch m.editFocus {
 	case editFieldDue:
 		m.dueDateInput.Focus()
@@ -89,6 +107,10 @@ func (m *Model) syncEditFocus() {
 	case editFieldLead:
 		if m.editLeadCustom {
 			m.editLeadCustomInput.Focus()
+		}
+	case editFieldInterfaces:
+		if m.editInterfaceCustom && m.editInterfaceCursor == len(m.configuredInterfaces) {
+			m.editInterfaceCustomInput.Focus()
 		}
 	}
 }
@@ -185,6 +207,7 @@ func (m *Model) cycleLead(forward bool) {
 		m.editLead = m.editLeadCustomInput.Value()
 	} else {
 		m.editLeadCustom = false
+		m.editLeadCustomInput.SetValue("")
 		m.editLead = opts[idx]
 	}
 }
@@ -205,14 +228,32 @@ func (m Model) selectedEditLead() string {
 	return m.editLead
 }
 
-func (m *Model) cycleInterfaceCursor(forward bool) {
-	if len(m.configuredInterfaces) == 0 {
-		return
+func (m Model) isConfiguredInterface(name string) bool {
+	for _, configured := range m.configuredInterfaces {
+		if configured == name {
+			return true
+		}
 	}
+	return false
+}
+
+func (m Model) selectedEditInterfaces() []string {
+	selected := append([]string{}, m.editInterfaces...)
+	if m.editInterfaceCustom {
+		name := strings.TrimSpace(m.editInterfaceCustomInput.Value())
+		if name != "" {
+			selected = append(selected, name)
+		}
+	}
+	return selected
+}
+
+func (m *Model) cycleInterfaceCursor(forward bool) {
+	optionCount := len(m.configuredInterfaces) + 1 // final option is free-form
 	if forward {
-		m.editInterfaceCursor = (m.editInterfaceCursor + 1) % len(m.configuredInterfaces)
+		m.editInterfaceCursor = (m.editInterfaceCursor + 1) % optionCount
 	} else {
-		m.editInterfaceCursor = (m.editInterfaceCursor - 1 + len(m.configuredInterfaces)) % len(m.configuredInterfaces)
+		m.editInterfaceCursor = (m.editInterfaceCursor - 1 + optionCount) % optionCount
 	}
 }
 
@@ -263,6 +304,7 @@ func cycleStatus(curr core.Status, forward bool) core.Status {
 func (m Model) editUpdates() map[string]any {
 	updates := map[string]any{}
 	selectedLead := m.selectedEditLead()
+	selectedInterfaces := m.selectedEditInterfaces()
 	if m.editStatus != core.NormalizeStatus(m.editOriginal.status) {
 		updates["status"] = string(m.editStatus)
 	}
@@ -275,8 +317,8 @@ func (m Model) editUpdates() map[string]any {
 	if selectedLead != m.editOriginal.lead {
 		updates["lead"] = selectedLead
 	}
-	if strings.Join(m.editInterfaces, "|||") != strings.Join(m.editOriginal.interfaces, "|||") {
-		updates["interfaces"] = append([]string{}, m.editInterfaces...)
+	if strings.Join(selectedInterfaces, "|||") != strings.Join(m.editOriginal.interfaces, "|||") {
+		updates["interfaces"] = selectedInterfaces
 	}
 	if v := m.nextActionInput.Value(); v != m.editOriginal.nextAction {
 		updates["next_action"] = v
@@ -300,12 +342,28 @@ func (m Model) saveEditCmd(id string, baseRev core.Revision, updates map[string]
 			m.svc.AddLead(lead)
 			addedLead = lead
 		}
+		addedInterfaces := []string{}
+		if interfaces, changed := updates["interfaces"].([]string); changed {
+			for _, iface := range interfaces {
+				if iface == "" || m.isConfiguredInterface(iface) {
+					continue
+				}
+				if m.persistConfiguredInterface == nil {
+					return mutationResultMsg{err: fmt.Errorf("cannot persist new interface %q: config persistence is unavailable", iface), prevView: m.previousView, targetID: id}
+				}
+				if err := m.persistConfiguredInterface(iface); err != nil {
+					return mutationResultMsg{err: fmt.Errorf("add interface %q to config: %w", iface, err), prevView: m.previousView, targetID: id}
+				}
+				m.svc.AddInterface(iface)
+				addedInterfaces = append(addedInterfaces, iface)
+			}
+		}
 		_, err := m.svc.Save(context.Background(), core.SaveReq{
 			ID:                 id,
 			BaseRevision:       baseRev,
 			FrontmatterUpdates: updates,
 		})
-		return mutationResultMsg{err: err, prevView: m.previousView, targetID: id, addedLead: addedLead}
+		return mutationResultMsg{err: err, prevView: m.previousView, targetID: id, addedLead: addedLead, addedInterfaces: addedInterfaces}
 	}
 }
 
@@ -339,17 +397,38 @@ func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.moveEditHorizontal(true)
 			return m, nil
 		}
+	case "ctrl+space":
+		if m.editFocus == editFieldInterfaces && m.editInterfaceCursor == len(m.configuredInterfaces) {
+			m.editInterfaceCustom = !m.editInterfaceCustom
+			if m.editInterfaceCustom {
+				m.editInterfaceCustomInput.Focus()
+			} else {
+				m.editInterfaceCustomInput.Blur()
+				m.editInterfaceCustomInput.SetValue("")
+			}
+			return m, nil
+		}
 	case " ":
-		if m.editFocus == editFieldInterfaces && len(m.configuredInterfaces) > 0 {
-			name := m.configuredInterfaces[m.editInterfaceCursor]
-			for i, selected := range m.editInterfaces {
-				if selected == name {
-					m.editInterfaces = append(m.editInterfaces[:i], m.editInterfaces[i+1:]...)
+		if m.editFocus == editFieldInterfaces {
+			if m.editInterfaceCursor == len(m.configuredInterfaces) {
+				if !m.editInterfaceCustom {
+					m.editInterfaceCustom = true
+					m.editInterfaceCustomInput.Focus()
 					return m, nil
 				}
+				// Space belongs to the selected text input, allowing names such
+				// as "Customer Review".
+			} else {
+				name := m.configuredInterfaces[m.editInterfaceCursor]
+				for i, selected := range m.editInterfaces {
+					if selected == name {
+						m.editInterfaces = append(m.editInterfaces[:i], m.editInterfaces[i+1:]...)
+						return m, nil
+					}
+				}
+				m.editInterfaces = append(m.editInterfaces, name)
+				return m, nil
 			}
-			m.editInterfaces = append(m.editInterfaces, name)
-			return m, nil
 		}
 	case "enter":
 		updates := m.editUpdates()
@@ -373,6 +452,10 @@ func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.editLeadCustom {
 			m.editLeadCustomInput, cmd = m.editLeadCustomInput.Update(msg)
 			m.editLead = m.editLeadCustomInput.Value()
+		}
+	case editFieldInterfaces:
+		if m.editInterfaceCustom && m.editInterfaceCursor == len(m.configuredInterfaces) {
+			m.editInterfaceCustomInput, cmd = m.editInterfaceCustomInput.Update(msg)
 		}
 	}
 	return m, cmd
@@ -428,7 +511,7 @@ func renderLeadColumn(title string, options []string, selected string, custom bo
 	for _, option := range allOptions {
 		label := option
 		if label == "" {
-			label = "(unassigned)"
+			label = "Unassigned"
 		}
 		marker := "( )"
 		if !custom && option == selected {
@@ -445,47 +528,69 @@ func renderLeadColumn(title string, options []string, selected string, custom bo
 	if custom {
 		marker = "(•)"
 	}
-	customValue := customInput.Value()
-	if custom && focused {
+	// The input itself identifies this option; an additional label only
+	// consumes width and makes the prompt wrap awkwardly. Keep its width within
+	// the column so the radio marker and "new lead" stay together.
+	inputWidth := width - 6
+	if inputWidth < 8 {
+		inputWidth = 8
+	}
+	customInput.Width = inputWidth
+	customValue := mutedStyle.Render("new lead")
+	if custom {
 		customValue = customInput.View()
+		if customInput.Value() == "" && !focused {
+			customValue = mutedStyle.Render("new lead")
+		}
 	}
-	if customValue == "" && !custom {
-		customValue = mutedStyle.Render("(enter lead name)")
-	}
-	line := marker + " Other: " + customValue
+	inputLine := marker + " " + customValue
 	if custom && focused {
-		line = focusedItemStyle.Copy().Background(modalBackground).Padding(0).Render(line)
+		inputLine = focusedItemStyle.Copy().Background(modalBackground).Padding(0).Render(inputLine)
 	}
-	sb.WriteString(line)
+	sb.WriteString(inputLine)
 	return renderEditColumn(title, sb.String(), focused, width)
 }
 
-func renderInterfacesColumn(title string, options, selected []string, cursor int, focused bool, width int) string {
-	if len(options) == 0 {
-		options = []string{""}
-	}
+func renderInterfacesColumn(title string, options, selected []string, custom bool, customInput textinput.Model, cursor int, focused bool, width int) string {
 	selectedSet := make(map[string]bool, len(selected))
 	for _, value := range selected {
 		selectedSet[value] = true
 	}
 	var sb strings.Builder
 	for i, option := range options {
-		label := option
-		if label == "" {
-			label = "(none)"
-		}
 		marker := "[ ]"
 		if selectedSet[option] {
 			marker = "[x]"
 		}
-		line := marker + " " + truncateCell(label, width-7)
+		line := marker + " " + truncateCell(option, width-7)
 		if i == cursor && focused {
-			sb.WriteString(focusedItemStyle.Copy().Background(modalBackground).Padding(0).Render(line))
-		} else {
-			sb.WriteString(line)
+			line = focusedItemStyle.Copy().Background(modalBackground).Padding(0).Render(line)
 		}
+		sb.WriteString(line)
 		sb.WriteString("\n")
 	}
+
+	marker := "[ ]"
+	if custom {
+		marker = "[x]"
+	}
+	inputWidth := width - 7
+	if inputWidth < 8 {
+		inputWidth = 8
+	}
+	customInput.Width = inputWidth
+	customValue := mutedStyle.Render("new interface")
+	if custom {
+		customValue = customInput.View()
+		if customInput.Value() == "" && !focused {
+			customValue = mutedStyle.Render("new interface")
+		}
+	}
+	line := marker + " " + customValue
+	if cursor == len(options) && focused {
+		line = focusedItemStyle.Copy().Background(modalBackground).Padding(0).Render(line)
+	}
+	sb.WriteString(line)
 	return renderEditColumn(title, strings.TrimRight(sb.String(), "\n"), focused, width)
 }
 
@@ -511,7 +616,7 @@ func (m Model) renderEditor() string {
 		renderEnumColumn("Stage", core.CanonicalStatuses(), m.editStatus, m.editFocus == editFieldStage, columnWidth),
 		renderEnumColumn("Priority", priorityOptions, m.editPriority, m.editFocus == editFieldPriority, columnWidth),
 		renderLeadColumn("Lead", m.configuredLeads, m.editLead, m.editLeadCustom, m.editLeadCustomInput, m.editFocus == editFieldLead, columnWidth),
-		renderInterfacesColumn("Interfaces", m.configuredInterfaces, m.editInterfaces, m.editInterfaceCursor, m.editFocus == editFieldInterfaces, columnWidth),
+		renderInterfacesColumn("Interfaces", m.configuredInterfaces, m.editInterfaces, m.editInterfaceCustom, m.editInterfaceCustomInput, m.editInterfaceCursor, m.editFocus == editFieldInterfaces, columnWidth),
 	}
 	var sb strings.Builder
 	sb.WriteString(renderEditTextRow("Due date", due, m.editFocus == editFieldDue))

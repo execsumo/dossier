@@ -150,6 +150,22 @@ func (s *Service) AddLead(name string) {
 	s.cfg.Leads = append(s.cfg.Leads, name)
 }
 
+// AddInterface updates the in-memory interface vocabulary after an adapter
+// persists the same change to config.yaml. This keeps subsequent Saves in this
+// process consistent with the newly expanded vocabulary.
+func (s *Service) AddInterface(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	for _, existing := range s.cfg.Interfaces {
+		if existing == name {
+			return
+		}
+	}
+	s.cfg.Interfaces = append(s.cfg.Interfaces, name)
+}
+
 // Leads returns the configured lead vocabulary in display order. An empty list
 // preserves free-form lead assignment for backwards compatibility.
 func (s *Service) Leads() []string {
