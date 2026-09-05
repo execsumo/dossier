@@ -38,7 +38,7 @@ Pricing review is underway.`
 		t.Fatalf("links overlay state = view %v, stack %d; want ViewLinks, 1", m.currentView, len(m.overlayStack))
 	}
 	view := stripANSI(m.View())
-	if !strings.Contains(view, "Pricing Model · Links") || !strings.Contains(view, "PROJ-123") {
+	if !strings.Contains(view, "Pricing Model · View Links") || !strings.Contains(view, "PROJ-123") {
 		t.Fatalf("links overlay lost dossier context or link label:\n%s", view)
 	}
 	linksBody := stripANSI(m.renderExternalLinks())
@@ -123,7 +123,7 @@ func TestFilterOverlayUsesSharedModalNavigation(t *testing.T) {
 	if m.currentView != ViewLeadSelector || len(m.overlayStack) != 1 {
 		t.Fatalf("filter overlay state = view %v, stack %d; want ViewLeadSelector, 1", m.currentView, len(m.overlayStack))
 	}
-	if !strings.Contains(stripANSI(m.View()), "Dashboard · Filters") {
+	if !strings.Contains(stripANSI(m.View()), "Dashboard · Filter Dossiers") {
 		t.Fatalf("filter overlay did not retain parent context:\n%s", stripANSI(m.View()))
 	}
 	m, _ = press(t, m, "down")

@@ -103,6 +103,7 @@ func (m Model) renderLayeredView() string {
 	base := m
 	base.overlayStack = nil
 	base.currentView = m.overlayBase
+	base.suppressFooter = true
 	rendered := clipScreenHeight(base.renderNormalView(), m.height)
 	for _, overlay := range m.overlayStack {
 		rendered = m.renderOverlay(rendered, overlay)
@@ -112,6 +113,9 @@ func (m Model) renderLayeredView() string {
 
 func (m Model) renderOverlay(background string, v View) string {
 	content := m.renderOverlayContent(v)
+	if footer := renderModalFooter(v); footer != "" {
+		content += "\n\n" + footer
+	}
 	context := m.recallResult.Frontmatter.Name
 	if v == ViewLeadSelector {
 		context = "Dashboard"
@@ -167,31 +171,58 @@ func clipScreenHeight(content string, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) overlayLabel(v View) string {
+// modalTitle is the canonical title for every modal. Titles use the same
+// action-oriented, title-case vocabulary whether the view is rendered as an
+// overlay or directly (for example, in a narrow-terminal fallback).
+func modalTitle(v View) string {
 	switch v {
 	case ViewLeadSelector:
-		return "Filters"
+		return "Filter Dossiers"
 	case ViewLinkInput:
-		return "Link Content"
+		return "Add Link"
 	case ViewLinkSelector:
-		return "Resolve Link"
+		return "Choose Link Target"
 	case ViewMergeSelector:
-		return "Merge"
+		return "Merge Dossiers"
 	case ViewMergeConflictResolver:
-		return "Merge Conflict"
+		return "Resolve Merge Conflict"
 	case ViewRenameSlug:
-		return "Rename"
+		return "Rename Dossier"
 	case ViewEdit:
-		return "Edit"
+		return "Edit Dossier"
 	case ViewLinks:
-		return "Links"
+		return "View Links"
 	case ViewArtifactIndex:
-		return "Artifacts"
+		return "Browse Artifacts"
 	case ViewArtifactContent:
-		return "Artifact Content"
+		return "View Artifact"
 	default:
 		return "Details"
 	}
+}
+
+func (m Model) overlayLabel(v View) string {
+	return modalTitle(v)
+}
+
+// renderModalFooter is the one footer format used inside modal panels. It is
+// sourced from the same bindings as the direct-view footer, keeping both render
+// paths consistent while omitting obvious navigation commands.
+func renderModalFooter(v View) string {
+	bindings := modalHelpBindings(v)
+	if len(bindings) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(bindings))
+	for _, binding := range bindings {
+		help := binding.Help()
+		parts = append(parts, help.Key+" "+help.Desc)
+	}
+	return overlayHintStyle.Render(strings.Join(parts, " · "))
+}
+
+func renderModalTip(text string) string {
+	return overlayHintStyle.Render("Tip: " + text)
 }
 
 func (m Model) renderOverlayContent(v View) string {
@@ -246,8 +277,7 @@ func (m Model) renderFilterOverlay() string {
 		renderFilterColumn("Lead", leadLabels, m.leadCursor, m.filterColumn == 0, columnWidth),
 		renderFilterColumn("Interface", interfaceLabels, m.interfaceCursor, m.filterColumn == 1, columnWidth),
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, columns...) + "\n\n" +
-		overlayHintStyle.Render("←/→ column · ↑/↓ move · enter apply · esc cancel")
+	return lipgloss.JoinHorizontal(lipgloss.Top, columns...)
 }
 
 func renderFilterColumn(title string, options []string, cursor int, focused bool, width int) string {
@@ -376,8 +406,6 @@ func (m Model) renderExternalLinks() string {
 		sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↓ %d more below", len(rows)-end)))
 		sb.WriteString("\n")
 	}
-	sb.WriteString("\n")
-	sb.WriteString(overlayHintStyle.Render("enter open link · ↑/↓ move · esc close"))
 	return strings.TrimRight(sb.String(), "\n")
 }
 
@@ -422,10 +450,6 @@ func (m Model) renderArtifactIndexBody() string {
 	}
 	if end < len(m.artifactIndex) {
 		sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↓ %d more below", len(m.artifactIndex)-end)))
-	}
-	if m.hasOverlay() {
-		sb.WriteString("\n\n")
-		sb.WriteString(overlayHintStyle.Render("enter view artifact · ↑/↓ move · esc close"))
 	}
 	return strings.TrimRight(sb.String(), "\n")
 }

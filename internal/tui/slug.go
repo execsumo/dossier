@@ -101,7 +101,7 @@ func (m Model) renderSlugRename() string {
 		"%s%s\n%s%s\n\n%s",
 		slugLabel, m.renameSlugInput.View(),
 		nameLabel, m.renameNameInput.View(),
-		mutedStyle.Render("Tab switch · Enter save · Esc cancel · slug: lowercase, digits, hyphens."),
+		renderModalTip("Slug uses lowercase letters, digits, and hyphens."),
 	)
 	return body
 }

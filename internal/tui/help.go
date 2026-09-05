@@ -27,7 +27,42 @@ func (m Model) searchHelpKeyMap() help.KeyMap {
 	return tuiKeyMap{short: bindings, full: [][]bubbleskey.Binding{bindings}}
 }
 
+// modalHelpBindings contains only controls that add context beyond the modal's
+// obvious interaction. Escape/back navigation and routine cursor movement are
+// omitted; they are consistent across the TUI and do not need repeating in every modal.
+func modalHelpBindings(v View) []bubbleskey.Binding {
+	switch v {
+	case ViewLeadSelector:
+		return []bubbleskey.Binding{tuiHelpKey("←/→", "column"), tuiHelpKey("enter", "apply")}
+	case ViewLinkInput:
+		return []bubbleskey.Binding{tuiHelpKey("enter", "find target")}
+	case ViewLinkSelector:
+		return []bubbleskey.Binding{tuiHelpKey("enter", "choose target")}
+	case ViewMergeSelector:
+		return []bubbleskey.Binding{tuiHelpKey("enter", "merge")}
+	case ViewMergeConflictResolver:
+		return []bubbleskey.Binding{tuiHelpKey("tab", "choose action"), tuiHelpKey("enter", "apply")}
+	case ViewRenameSlug:
+		return []bubbleskey.Binding{tuiHelpKey("tab", "next field"), tuiHelpKey("enter", "save")}
+	case ViewEdit:
+		return []bubbleskey.Binding{tuiHelpKey("tab", "next field"), tuiHelpKey("↑/↓", "change option"), tuiHelpKey("space", "toggle interface")}
+	case ViewArtifactIndex:
+		return []bubbleskey.Binding{tuiHelpKey("enter", "view artifact")}
+	case ViewLinks:
+		return []bubbleskey.Binding{tuiHelpKey("enter", "open link")}
+	}
+	return nil
+}
+
 func (m Model) helpKeyMap(v View) help.KeyMap {
+	// Modals use a deliberately minimal footer. The parent surface's commands
+	// are not actionable while an overlay is open, so do not show them through
+	// the modal's own help map.
+	if isOverlayView(v) {
+		contextual := modalHelpBindings(v)
+		return tuiKeyMap{short: contextual, full: [][]bubbleskey.Binding{contextual}}
+	}
+
 	common := []bubbleskey.Binding{
 		tuiHelpKey("q", "quit"),
 		tuiHelpKey("?", "more help"),
@@ -66,33 +101,6 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 		shortContextual = []bubbleskey.Binding{
 			tuiHelpKey("l", "links"), tuiHelpKey("v", "view"),
 		}
-	case ViewLeadSelector:
-		contextual = []bubbleskey.Binding{tuiHelpKey("←/→", "column"), tuiHelpKey("↑/↓", "move"), tuiHelpKey("esc", "cancel"), tuiHelpKey("enter", "apply")}
-		shortContextual = contextual
-	case ViewLinkInput:
-		contextual = []bubbleskey.Binding{tuiHelpKey("enter", "find target"), tuiHelpKey("esc", "cancel")}
-		shortContextual = contextual
-	case ViewLinkSelector:
-		contextual = []bubbleskey.Binding{tuiHelpKey("↑/↓", "move"), tuiHelpKey("enter", "confirm"), tuiHelpKey("esc", "cancel")}
-		shortContextual = contextual
-	case ViewMergeSelector:
-		contextual = []bubbleskey.Binding{tuiHelpKey("↑/↓", "move"), tuiHelpKey("enter", "merge"), tuiHelpKey("esc", "cancel")}
-		shortContextual = contextual
-	case ViewMergeConflictResolver:
-		contextual = []bubbleskey.Binding{tuiHelpKey("tab", "choose"), tuiHelpKey("enter", "apply"), tuiHelpKey("esc", "cancel")}
-		shortContextual = contextual
-	case ViewRenameSlug:
-		contextual = []bubbleskey.Binding{tuiHelpKey("tab", "switch field"), tuiHelpKey("enter", "save"), tuiHelpKey("esc", "cancel")}
-		shortContextual = contextual
-	case ViewArtifactIndex:
-		contextual = []bubbleskey.Binding{tuiHelpKey("esc", "back"), tuiHelpKey("enter", "view artifact")}
-		shortContextual = []bubbleskey.Binding{tuiHelpKey("esc", "back")}
-	case ViewArtifactContent:
-		contextual = []bubbleskey.Binding{tuiHelpKey("esc", "back")}
-		shortContextual = contextual
-	case ViewLinks:
-		contextual = []bubbleskey.Binding{tuiHelpKey("enter", "open link"), tuiHelpKey("esc", "close")}
-		shortContextual = contextual
 	default:
 		contextual = []bubbleskey.Binding{tuiHelpKey("esc", "back")}
 		shortContextual = contextual

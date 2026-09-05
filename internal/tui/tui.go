@@ -341,7 +341,8 @@ type Model struct {
 	warnings []core.Warning
 
 	// View state helpers
-	loading bool
+	loading        bool
+	suppressFooter bool // modal owns command help; parent warnings remain visible
 
 	// Mutation target cache
 	previousView       View
@@ -2136,7 +2137,6 @@ func (m *Model) recalculateConflictViewportLayout() {
 
 func (m Model) renderLeadSelector() string {
 	var sb strings.Builder
-	sb.WriteString("Filters — scope the dashboard before a meeting.\n\n")
 
 	if m.loading && len(m.items) == 0 {
 		sb.WriteString(" Loading leads…\n")
@@ -2144,9 +2144,7 @@ func (m Model) renderLeadSelector() string {
 	}
 
 	if len(m.leadResults) == 0 {
-		sb.WriteString(subtitleStyle.Render(" No leads available.\n"))
-		sb.WriteString("\n")
-		sb.WriteString("↑/↓ move • enter apply • esc cancel")
+		sb.WriteString(subtitleStyle.Render("No leads available."))
 		return editorBoxStyle.Render(sb.String())
 	}
 
@@ -2179,15 +2177,13 @@ func (m Model) renderLeadSelector() string {
 		sb.WriteString(subtitleStyle.Render(fmt.Sprintf("  ↓ %d more below\n", len(m.leadResults)-end)))
 	}
 
-	sb.WriteString("\n")
-	sb.WriteString("↑/↓ move • enter apply • esc cancel")
 	return editorBoxStyle.Render(sb.String())
 }
 
 // leadVisibleRows is how many option rows the lead selector shows at once,
 // derived from the terminal height. Remaining rows scroll into view with the
 // cursor. The constant reserves space for the screen chrome (title, subtitle,
-// box padding, intro line, the two "more" indicators, help, footer).
+// box padding, the two "more" indicators, help, footer).
 func (m Model) leadVisibleRows() int {
 	chrome := 14
 	if m.hasOverlay() {
@@ -2256,18 +2252,14 @@ func renderArtifactContent(content core.ArtifactContent) string {
 
 func (m Model) renderLinkInput() string {
 	var sb strings.Builder
-	sb.WriteString("Link Session Content:\n\n")
-	sb.WriteString("Enter raw content or description to link to a dossier:\n\n")
+	sb.WriteString("Enter session content or a description to link to a dossier:\n\n")
 	sb.WriteString(m.linkTextInput.View())
-	sb.WriteString("\n\n")
-	sb.WriteString("press enter to analyze matches • esc to cancel")
 	return editorBoxStyle.Render(sb.String())
 }
 
 func (m Model) renderLinkSelector() string {
 	var sb strings.Builder
-	sb.WriteString("Ambiguous Link Targets:\n")
-	sb.WriteString("Multiple dossiers match. Select target to confirm link:\n\n")
+	sb.WriteString("Multiple dossiers match. Choose a target:\n\n")
 
 	for i, sug := range m.linkSuggestions {
 		cursor := "  "
@@ -2284,15 +2276,13 @@ func (m Model) renderLinkSelector() string {
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString("\n")
-	sb.WriteString("press enter to confirm • esc to cancel")
 	return editorBoxStyle.Render(sb.String())
 }
 
 func (m Model) renderMergeSelector() string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Merge Dossier: %s (Source)\n", m.mergeSourceName))
-	sb.WriteString("Choose the surviving TARGET dossier to merge into:\n\n")
+	sb.WriteString(fmt.Sprintf("Source: %s\n", m.mergeSourceName))
+	sb.WriteString("Choose the surviving target dossier:\n\n")
 
 	if len(m.mergeTargets) == 0 {
 		sb.WriteString(" No other dossiers available to merge into.\n")
@@ -2313,28 +2303,27 @@ func (m Model) renderMergeSelector() string {
 		}
 	}
 
-	sb.WriteString("\n")
-	sb.WriteString("press enter to perform merge • esc to cancel")
 	return editorBoxStyle.Render(sb.String())
 }
 
 func (m Model) renderMergeConflictResolver() string {
 	var sb strings.Builder
-	sb.WriteString(warningStyle.Render("⚡ MERGE CONFLICT DETECTED\n"))
-	sb.WriteString("Divergent distilled states or statuses cannot be merged automatically.\n")
-	sb.WriteString("Review the diff below representing incoming source changes against target:\n\n")
+	sb.WriteString(warningStyle.Render("Divergent changes require a choice\n"))
+	sb.WriteString("The incoming source and target cannot be merged automatically.\n")
+	sb.WriteString("Review the diff below before choosing an action:\n\n")
 
 	sb.WriteString(m.conflictViewport.View())
 	sb.WriteString("\n\n")
 
-	sb.WriteString(subtitleStyle.Render("ℹ Note: Source dossier files are retained and archived, never deleted.\n\n"))
+	sb.WriteString(renderModalTip("Source dossier files are retained and archived; nothing is deleted."))
+	sb.WriteString("\n\n")
 
-	resolveBtn := "[ Resolve Conflict & Force Merge ]"
+	resolveBtn := "[ Resolve and Merge ]"
 	if m.conflictResolverCursor == 0 {
 		resolveBtn = focusedItemStyle.Render(resolveBtn)
 	}
 
-	cancelBtn := "[ Cancel Merge ]"
+	cancelBtn := "[ Keep Separate ]"
 	if m.conflictResolverCursor == 1 {
 		cancelBtn = focusedItemStyle.Render(cancelBtn)
 	}
@@ -2426,12 +2415,21 @@ func (m Model) renderDetailMetadata() string {
 	return sb.String()
 }
 
+func (m Model) footerWarnings() string {
+	if len(m.warnings) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(m.warnings))
+	for _, w := range m.warnings {
+		parts = append(parts, warningStyle.Render(fmt.Sprintf("⚠ %s", w)))
+	}
+	return strings.Join(parts, "\n")
+}
+
 func (m Model) footerContent(v View) string {
 	var footerParts []string
-	if len(m.warnings) > 0 {
-		for _, w := range m.warnings {
-			footerParts = append(footerParts, warningStyle.Render(fmt.Sprintf("⚠ %s", w)))
-		}
+	if warnings := m.footerWarnings(); warnings != "" {
+		footerParts = append(footerParts, warnings)
 	}
 
 	w := m.width
@@ -2575,7 +2573,7 @@ func (m Model) renderNormalView() string {
 
 	switch m.currentView {
 	case ViewLeadSelector:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Select Lead", subheadline)))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — %s", subheadline, modalTitle(ViewLeadSelector))))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderLeadSelector())
 		sb.WriteString("\n")
@@ -2652,57 +2650,67 @@ func (m Model) renderNormalView() string {
 		sb.WriteString("\n")
 
 	case ViewArtifactIndex:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Evidence Index: %s", subheadline, m.recallResult.Frontmatter.Name)))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — %s: %s", subheadline, modalTitle(ViewArtifactIndex), m.recallResult.Frontmatter.Name)))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderArtifactIndexBody())
 		sb.WriteString("\n")
 
 	case ViewArtifactContent:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Artifact", subheadline)))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — %s", subheadline, modalTitle(ViewArtifactContent))))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.artifactViewport.View())
 		sb.WriteString("\n")
 
 	case ViewEdit:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Edit", subheadline)))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — %s", subheadline, modalTitle(ViewEdit))))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderEditor())
 		sb.WriteString("\n")
 
 	case ViewRenameSlug:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Rename", subheadline)))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — %s", subheadline, modalTitle(ViewRenameSlug))))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderSlugRename())
 		sb.WriteString("\n")
 
 	case ViewLinkInput:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Link Content", subheadline)))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — %s", subheadline, modalTitle(ViewLinkInput))))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderLinkInput())
 		sb.WriteString("\n")
 
 	case ViewLinkSelector:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Resolve Ambiguous Link", subheadline)))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — %s", subheadline, modalTitle(ViewLinkSelector))))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderLinkSelector())
 		sb.WriteString("\n")
 
 	case ViewMergeSelector:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Merge Dossier", subheadline)))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — %s", subheadline, modalTitle(ViewMergeSelector))))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderMergeSelector())
 		sb.WriteString("\n")
 
 	case ViewMergeConflictResolver:
-		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — Resolve Merge Conflict", subheadline)))
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — %s", subheadline, modalTitle(ViewMergeConflictResolver))))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderMergeConflictResolver())
 		sb.WriteString("\n")
 	}
 
-	// 3. Footer / Help area
-	sb.WriteString("\n")
-	sb.WriteString(m.footerContent(m.currentView))
+	// 3. Footer / Help area. A modal owns the command footer, but warnings still
+	// belong to the parent surface's bottom edge and must remain visible.
+	if !m.suppressFooter {
+		sb.WriteString("\n")
+		sb.WriteString(m.footerContent(m.currentView))
+	} else if warnings := m.footerWarnings(); warnings != "" {
+		w := m.width
+		if w <= 0 {
+			w = 80
+		}
+		sb.WriteString("\n")
+		sb.WriteString(footerStyle.Width(w).Render(warnings))
+	}
 
 	return sb.String()
 }

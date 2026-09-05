@@ -624,8 +624,6 @@ func (m Model) renderEditor() string {
 	sb.WriteString(renderEditTextRow("Next action", next, m.editFocus == editFieldNextAction))
 	sb.WriteString("\n\n")
 	sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, columns...))
-	sb.WriteString("\n\n")
-	sb.WriteString(mutedStyle.Render("↑/↓ field • ←/→ change • select Other to type a lead • space toggle interface • enter save • esc cancel"))
 	return strings.TrimRight(sb.String(), "\n")
 }
 

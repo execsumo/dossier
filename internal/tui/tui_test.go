@@ -2268,6 +2268,38 @@ func TestTUI_FooterSequenceConsistency(t *testing.T) {
 	assertAbsent("detail", detailView, []string{"f: filters", "b: board", "/: search", "a artifacts"})
 }
 
+func TestModalChromeUsesStandardTitlesAndMinimalFooters(t *testing.T) {
+	cases := []struct {
+		view  View
+		title string
+	}{
+		{ViewLeadSelector, "Filter Dossiers"},
+		{ViewEdit, "Edit Dossier"},
+		{ViewLinkInput, "Add Link"},
+		{ViewLinkSelector, "Choose Link Target"},
+		{ViewMergeSelector, "Merge Dossiers"},
+		{ViewMergeConflictResolver, "Resolve Merge Conflict"},
+		{ViewRenameSlug, "Rename Dossier"},
+		{ViewLinks, "View Links"},
+		{ViewArtifactIndex, "Browse Artifacts"},
+		{ViewArtifactContent, "View Artifact"},
+	}
+	for _, tc := range cases {
+		if got := modalTitle(tc.view); got != tc.title {
+			t.Errorf("modalTitle(%v) = %q, want %q", tc.view, got, tc.title)
+		}
+		footer := stripANSI(renderModalFooter(tc.view))
+		if strings.Contains(footer, "esc") {
+			t.Errorf("%s footer repeats obvious navigation: %q", tc.title, footer)
+		}
+		for _, key := range []string{"esc", "q", "?"} {
+			if helpHasKey((NewModel(setupTestService(newTestStore()))).helpKeyMap(tc.view), key) {
+				t.Errorf("%s help advertises %q", tc.title, key)
+			}
+		}
+	}
+}
+
 func TestTUI_FooterConvergenceAtTerminalBottom(t *testing.T) {
 	store := newTestStore()
 	store.dossiers["dos1"] = &core.Dossier{
