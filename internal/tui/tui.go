@@ -55,7 +55,7 @@ const (
 	// change may move the complete backing directory in one store operation. The
 	// view also supports an explicit title rename.
 	ViewRenameSlug
-	// ViewLinks is a contextual overlay over dossier detail. It presents active
+	// ViewLinks is a contextual overlay over a dossier surface. It presents active
 	// monitors before passive references while preserving their distinct meaning.
 	ViewLinks
 )
@@ -396,6 +396,8 @@ type Model struct {
 	artifactCursor     int
 	artifactContent    core.ArtifactContent
 	externalLinkCursor int
+	linksAfterRecall   bool
+	linksReturnView    View
 
 	// Cached markdown renderer, rebuilt only when the wrap width changes.
 	mdRenderer      *glamour.TermRenderer
@@ -996,6 +998,21 @@ func (m *Model) openSelectedDossier() tea.Cmd {
 	return m.recallDossierCmd(item.ID)
 }
 
+// openLinksFromList recalls the focused dossier before opening the contextual
+// links overlay. Recall is needed because list rows intentionally carry only
+// summary fields, not parsed references or active monitors.
+func (m *Model) openLinksFromList() tea.Cmd {
+	t, ok := m.getTargetDossier()
+	if !ok || t.id == "" {
+		return nil
+	}
+	m.linksAfterRecall = true
+	m.linksReturnView = m.currentView
+	m.loading = true
+	m.err = nil
+	return m.recallDossierCmd(t.id)
+}
+
 // isListView reports whether the current view is a home surface — the dashboard
 // table or the Kanban board. Both list the same filtered dossiers, so the
 // filter, link, merge and handoff keys behave identically on either.
@@ -1594,6 +1611,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pushOverlay(ViewLinks)
 				return m, nil
 			}
+			if m.isListView() {
+				return m, m.openLinksFromList()
+			}
 		case "m":
 			// Dashboard only, for the same reason as k, and because a merge is
 			// consequential enough to deserve the deliberate surface.
@@ -1724,10 +1744,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case recallDossierMsg:
 		m.loading = false
 		if msg.err != nil {
+			m.linksAfterRecall = false
 			m.err = msg.err
 		} else {
-			m.currentView = ViewDetail
 			m.recallResult = msg.result
+			if m.linksAfterRecall {
+				m.linksAfterRecall = false
+				m.currentView = m.linksReturnView
+				m.externalLinkCursor = 0
+				m.pushOverlay(ViewLinks)
+			} else {
+				m.currentView = ViewDetail
+			}
 			m.warnings = msg.warnings
 			m.viewport.SetContent(m.renderMarkdown(msg.result.DistilledState))
 			m.recalculateViewportLayout()

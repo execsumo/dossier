@@ -65,6 +65,53 @@ Pricing review is underway.`
 	}
 }
 
+func TestLinksOpenFromDashboardAndKanban(t *testing.T) {
+	for _, surface := range []View{ViewDashboard, ViewKanban} {
+		t.Run(surface.String(), func(t *testing.T) {
+			store := newTestStore()
+			seedDossier(store, "dos1", "Planning", core.StatusSpark, func(fm *core.Frontmatter) {})
+			store.dossiers["dos1"].DistilledState.Body = `# Planning
+
+## References
+- [ticket: PROJ-456](https://jira.example/PROJ-456) — Planning work.`
+
+			var m Model
+			if surface == ViewDashboard {
+				m = dashboardModel(t, store, 100, 30)
+			} else {
+				m = boardModel(t, store, 100, 30)
+			}
+			m, cmd := press(t, m, "l")
+			if cmd == nil || !m.loading {
+				t.Fatalf("links from %v did not start recall: cmd=%v loading=%v", surface, cmd != nil, m.loading)
+			}
+			newM, _ := m.Update(cmd())
+			m = newM.(Model)
+			if m.currentView != ViewLinks || m.overlayBase != surface || len(m.overlayStack) != 1 {
+				t.Fatalf("links overlay state = view %v base %v stack %d; want links over %v", m.currentView, m.overlayBase, len(m.overlayStack), surface)
+			}
+			if !strings.Contains(stripANSI(m.View()), "PROJ-456") {
+				t.Fatalf("links overlay from %v missing reference:\n%s", surface, stripANSI(m.View()))
+			}
+			m, _ = press(t, m, "esc")
+			if m.currentView != surface || len(m.overlayStack) != 0 {
+				t.Fatalf("closing links from %v = view %v stack %d", surface, m.currentView, len(m.overlayStack))
+			}
+		})
+	}
+}
+
+func (v View) String() string {
+	switch v {
+	case ViewDashboard:
+		return "dashboard"
+	case ViewKanban:
+		return "kanban"
+	default:
+		return "view"
+	}
+}
+
 func TestFilterOverlayUsesSharedModalNavigation(t *testing.T) {
 	store := newTestStore()
 	seedDossier(store, "dos1", "Pricing Model", core.StatusSpark, func(fm *core.Frontmatter) {
