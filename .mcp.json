@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agtx": {
+      "args": [
+        "mcp-serve",
+        "/home/dev/projects/dossier"
+      ],
+      "command": "/home/dev/.local/bin/agtx"
+    }
+  }
+}
