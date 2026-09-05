@@ -833,61 +833,48 @@ func TestTUI_InlineEditing(t *testing.T) {
 	// Move cursor down to select actual item
 	m.table.MoveDown(1)
 
-	// One key, one form, one save: stage, priority, due date, lead and next
-	// action all move together instead of through four separate screens.
+	// One key, one form, one save: text rows sit above the enum columns.
 	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
 	m = newM.(Model)
 	if m.currentView != ViewEdit {
 		t.Fatalf("expected view ViewEdit, got %v", m.currentView)
 	}
-	if m.editFocus != editFieldStage {
-		t.Errorf("editor opened focused on %v, want editFieldStage", m.editFocus)
+	if m.editFocus != editFieldDue {
+		t.Errorf("editor opened focused on %v, want editFieldDue", m.editFocus)
 	}
 
-	// Stage cycles in place; the form does not leave to change a value.
-	before := m.editStatus
-	newM, _ = m.Update(key("right"))
-	m = newM.(Model)
-	if m.editStatus == before {
-		t.Errorf("right on the stage row did not change the stage from %q", before)
-	}
-	if m.currentView != ViewEdit {
-		t.Fatalf("changing the stage left the editor for %v", m.currentView)
-	}
-
-	// Down moves to priority, which cycles the same way.
-	newM, _ = m.Update(key("down"))
-	m = newM.(Model)
-	if m.editFocus != editFieldPriority {
-		t.Fatalf("down gave focus %v, want editFieldPriority", m.editFocus)
-	}
-	beforePriority := m.editPriority
-	newM, _ = m.Update(key("right"))
-	m = newM.(Model)
-	if m.editPriority == beforePriority {
-		t.Errorf("right on the priority row did not change the priority from %q", beforePriority)
-	}
-
-	// The due date and next-action rows are text inputs; the lead row is a fixed
-	// enum and is changed with the arrow keys.
-	newM, _ = m.Update(key("down"))
-	m = newM.(Model)
 	m = typeString(t, m, "2026-12-01")
 	if got := m.dueDateInput.Value(); got != "2026-12-01" {
 		t.Errorf("due date input = %q, want the typed date", got)
 	}
 	newM, _ = m.Update(key("down"))
 	m = newM.(Model)
-	newM, _ = m.Update(key("right"))
-	m = newM.(Model)
-	if m.editLead != "Bea" {
-		t.Fatalf("lead enum = %q, want Bea", m.editLead)
+	if m.editFocus != editFieldNextAction {
+		t.Fatalf("first down gave focus %v, want editFieldNextAction", m.editFocus)
 	}
-	newM, _ = m.Update(key("down"))
-	m = newM.(Model)
 	m = typeString(t, m, "Draft the memo")
 	if got := m.nextActionInput.Value(); got != "Draft the memo" {
 		t.Errorf("next action input = %q, want the typed text", got)
+	}
+	newM, _ = m.Update(key("down"))
+	m = newM.(Model)
+	if m.editFocus != editFieldStage {
+		t.Fatalf("second down gave focus %v, want editFieldStage", m.editFocus)
+	}
+	newM, _ = m.Update(key("right"))
+	m = newM.(Model)
+	if m.editFocus != editFieldPriority {
+		t.Fatalf("right from stage gave focus %v, want editFieldPriority", m.editFocus)
+	}
+	newM, _ = m.Update(key("right"))
+	m = newM.(Model)
+	if m.editFocus != editFieldLead {
+		t.Fatalf("right from priority gave focus %v, want editFieldLead", m.editFocus)
+	}
+	newM, _ = m.Update(key("down"))
+	m = newM.(Model)
+	if m.editLead != "Bea" {
+		t.Fatalf("lead enum = %q, want Bea", m.editLead)
 	}
 
 	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -2534,7 +2521,15 @@ func TestEditorSavesOnlyChangedFields(t *testing.T) {
 	}
 
 	// Change one field; only that field may be written.
-	changed, _ := press(t, opened, "right")
+	changed, _ := press(t, opened, "down")
+	if changed.editFocus != editFieldNextAction {
+		t.Fatalf("first down gave focus %v, want next action", changed.editFocus)
+	}
+	changed, _ = press(t, changed, "down")
+	if changed.editFocus != editFieldStage {
+		t.Fatalf("second down gave focus %v, want stage", changed.editFocus)
+	}
+	changed, _ = press(t, changed, "down")
 	updates := changed.editUpdates()
 	if len(updates) != 1 {
 		t.Fatalf("changing the stage wants to write %v, want only status", updates)

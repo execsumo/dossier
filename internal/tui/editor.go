@@ -18,11 +18,11 @@ import (
 type editField int
 
 const (
-	editFieldStage editField = iota
-	editFieldPriority
-	editFieldDue
-	editFieldLead
+	editFieldDue editField = iota
 	editFieldNextAction
+	editFieldStage
+	editFieldPriority
+	editFieldLead
 	editFieldInterfaces
 	editFieldCount
 )
@@ -43,7 +43,7 @@ func (m *Model) startEdit(t targetDossier) {
 	// an untouched field must not appear in the audit log as a change.
 	m.editOriginal = t
 
-	m.editFocus = editFieldStage
+	m.editFocus = editFieldDue
 	m.editStatus = core.NormalizeStatus(t.status)
 	m.editPriority = t.priority
 	if !m.editPriority.IsValid() {
@@ -90,6 +90,81 @@ func (m *Model) moveEditFocus(delta int) {
 	m.syncEditFocus()
 }
 
+// moveEditVertical follows the modal's visual layout. The two text rows are
+// stacked above the enum columns; once an enum column is focused, vertical keys
+// move within that column's options.
+func (m *Model) moveEditVertical(forward bool) {
+	switch m.editFocus {
+	case editFieldDue:
+		if forward {
+			m.editFocus = editFieldNextAction
+		}
+	case editFieldNextAction:
+		if forward {
+			m.editFocus = editFieldStage
+		} else {
+			m.editFocus = editFieldDue
+		}
+	case editFieldStage:
+		m.editStatus = cycleStatus(m.editStatus, forward)
+	case editFieldPriority:
+		m.editPriority = cyclePriority(m.editPriority, forward)
+	case editFieldLead:
+		m.cycleLead(forward)
+	case editFieldInterfaces:
+		m.cycleInterfaceCursor(forward)
+	}
+	m.syncEditFocus()
+}
+
+func (m *Model) moveEditHorizontal(forward bool) {
+	order := []editField{editFieldStage, editFieldPriority, editFieldLead, editFieldInterfaces}
+	for i, field := range order {
+		if m.editFocus != field {
+			continue
+		}
+		if forward {
+			m.editFocus = order[(i+1)%len(order)]
+		} else {
+			m.editFocus = order[(i-1+len(order))%len(order)]
+		}
+		m.syncEditFocus()
+		return
+	}
+}
+
+func isEnumEditField(field editField) bool {
+	return field == editFieldStage || field == editFieldPriority || field == editFieldLead || field == editFieldInterfaces
+}
+
+func (m *Model) cycleLead(forward bool) {
+	opts := append([]string{""}, m.configuredLeads...)
+	idx := 0
+	for i, option := range opts {
+		if option == m.editLead {
+			idx = i
+			break
+		}
+	}
+	if forward {
+		idx = (idx + 1) % len(opts)
+	} else {
+		idx = (idx - 1 + len(opts)) % len(opts)
+	}
+	m.editLead = opts[idx]
+}
+
+func (m *Model) cycleInterfaceCursor(forward bool) {
+	if len(m.configuredInterfaces) == 0 {
+		return
+	}
+	if forward {
+		m.editInterfaceCursor = (m.editInterfaceCursor + 1) % len(m.configuredInterfaces)
+	} else {
+		m.editInterfaceCursor = (m.editInterfaceCursor - 1 + len(m.configuredInterfaces)) % len(m.configuredInterfaces)
+	}
+}
+
 // cycleEditValue changes the focused row's value, for the rows that hold a fixed
 // set rather than free text. The lead row is a fixed enum sourced from config.yaml.
 func (m *Model) cycleEditValue(forward bool) bool {
@@ -101,30 +176,10 @@ func (m *Model) cycleEditValue(forward bool) bool {
 		m.editPriority = cyclePriority(m.editPriority, forward)
 		return true
 	case editFieldLead:
-		opts := append([]string{""}, m.configuredLeads...)
-		idx := 0
-		for i, option := range opts {
-			if option == m.editLead {
-				idx = i
-				break
-			}
-		}
-		if forward {
-			idx = (idx + 1) % len(opts)
-		} else {
-			idx = (idx - 1 + len(opts)) % len(opts)
-		}
-		m.editLead = opts[idx]
+		m.cycleLead(forward)
 		return true
 	case editFieldInterfaces:
-		if len(m.configuredInterfaces) == 0 {
-			return false
-		}
-		if forward {
-			m.editInterfaceCursor = (m.editInterfaceCursor + 1) % len(m.configuredInterfaces)
-		} else {
-			m.editInterfaceCursor = (m.editInterfaceCursor - 1 + len(m.configuredInterfaces)) % len(m.configuredInterfaces)
-		}
+		m.cycleInterfaceCursor(forward)
 		return true
 	}
 	return false
@@ -198,20 +253,26 @@ func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.popOverlay()
 		return m, nil
 	case "up", "shift+tab":
-		m.moveEditFocus(-1)
+		if msg.String() == "shift+tab" {
+			m.moveEditFocus(-1)
+		} else {
+			m.moveEditVertical(false)
+		}
 		return m, nil
 	case "down":
-		m.moveEditFocus(1)
+		m.moveEditVertical(true)
 		return m, nil
 	case "tab":
 		m.moveEditFocus(1)
 		return m, nil
 	case "left":
-		if m.cycleEditValue(false) {
+		if isEnumEditField(m.editFocus) {
+			m.moveEditHorizontal(false)
 			return m, nil
 		}
 	case "right":
-		if m.cycleEditValue(true) {
+		if isEnumEditField(m.editFocus) {
+			m.moveEditHorizontal(true)
 			return m, nil
 		}
 	case " ":
@@ -259,6 +320,14 @@ func renderEditColumn(title, body string, focused bool, width int) string {
 		Padding(0, 1).
 		Width(width).
 		Render(metaLabelStyle.Render(title) + "\n\n" + body)
+}
+
+func renderEditTextRow(label, value string, focused bool) string {
+	prefix := "  "
+	if focused {
+		prefix = " ▸ "
+	}
+	return prefix + metaLabelStyle.Render(label+":") + " " + value
 }
 
 func renderEnumColumn[T ~string](title string, options []T, selected T, focused bool, width int) string {
@@ -320,7 +389,7 @@ func (m Model) renderEditor() string {
 	if width <= 0 {
 		width = 100
 	}
-	columnWidth := (width - 12) / 4
+	columnWidth := (width - 24) / 4
 	if columnWidth < 14 {
 		columnWidth = 14
 	}
@@ -331,20 +400,22 @@ func (m Model) renderEditor() string {
 	leadOptions := append([]string{""}, m.configuredLeads...)
 	due := m.editTextValue(editFieldDue, m.dueDateInput.View(), m.dueDateInput.Value())
 	next := m.editTextValue(editFieldNextAction, m.nextActionInput.View(), m.nextActionInput.Value())
-	rowsWidth := width - 8
-	if rowsWidth < 40 {
-		rowsWidth = 40
-	}
 	columns := []string{
 		renderEnumColumn("Stage", core.CanonicalStatuses(), m.editStatus, m.editFocus == editFieldStage, columnWidth),
 		renderEnumColumn("Priority", priorityOptions, m.editPriority, m.editFocus == editFieldPriority, columnWidth),
 		renderEnumColumn("Lead", leadOptions, m.editLead, m.editFocus == editFieldLead, columnWidth),
 		renderInterfacesColumn("Interfaces", m.configuredInterfaces, m.editInterfaces, m.editInterfaceCursor, m.editFocus == editFieldInterfaces, columnWidth),
 	}
-	return strings.TrimRight(
-		fmt.Sprintf("Edit %s\n\n%s\n\n%s\n\n%s\n\n%s", lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true).Render(m.targetName), renderEditColumn("Due date", due, m.editFocus == editFieldDue, rowsWidth), renderEditColumn("Next action", next, m.editFocus == editFieldNextAction, rowsWidth), lipgloss.JoinHorizontal(lipgloss.Top, columns...), mutedStyle.Render("↑/↓ field • ←/→ change • space toggle interface • enter save • esc cancel")),
-		"\n",
-	)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Edit %s\n\n", lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true).Render(m.targetName)))
+	sb.WriteString(renderEditTextRow("Due date", due, m.editFocus == editFieldDue))
+	sb.WriteString("\n")
+	sb.WriteString(renderEditTextRow("Next action", next, m.editFocus == editFieldNextAction))
+	sb.WriteString("\n\n")
+	sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, columns...))
+	sb.WriteString("\n\n")
+	sb.WriteString(mutedStyle.Render("↑/↓ field • ←/→ change • space toggle interface • enter save • esc cancel"))
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 // editTextValue shows a text row's live input when it holds the keyboard and its

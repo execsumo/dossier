@@ -125,8 +125,15 @@ func (m Model) renderOverlay(background string, v View) string {
 	title := fmt.Sprintf("%s · %s", context, m.overlayLabel(v))
 
 	panelWidth := m.width - 8
-	if panelWidth > 96 {
-		panelWidth = 96
+	if v == ViewEdit {
+		panelWidth = m.width - 2
+	}
+	maxPanelWidth := 96
+	if v == ViewEdit {
+		maxPanelWidth = 120
+	}
+	if panelWidth > maxPanelWidth {
+		panelWidth = maxPanelWidth
 	}
 	if panelWidth < 32 {
 		panelWidth = 32

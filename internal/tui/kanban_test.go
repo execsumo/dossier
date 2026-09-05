@@ -547,7 +547,7 @@ func TestKanbanToggleAndTextInputIsolation(t *testing.T) {
 	if m.currentView != ViewEdit {
 		t.Fatalf("typing 'b' left the editor for %v", m.currentView)
 	}
-	m, _ = press(t, m, "right")
+	m, _ = press(t, m, "down")
 
 	// Saving returns to the home surface where the editor was opened.
 	newM, cmd := m.Update(key("enter"))
