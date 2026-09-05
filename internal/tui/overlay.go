@@ -52,7 +52,7 @@ type externalLinkRow struct {
 
 func isOverlayView(v View) bool {
 	switch v {
-	case ViewLeadSelector, ViewEdit, ViewLinkInput, ViewLinkSelector, ViewMergeSelector, ViewMergeConflictResolver, ViewRenameSlug, ViewArtifactIndex, ViewArtifactContent, ViewLinks:
+	case ViewLeadSelector, ViewEdit, ViewLinkInput, ViewLinkSelector, ViewMergeSelector, ViewMergeConflictResolver, ViewRenameSlug, ViewArtifactIndex, ViewArtifactContent, ViewLinks, ViewContracts:
 		return true
 	default:
 		return false
@@ -76,7 +76,7 @@ func (m *Model) popOverlay() {
 		switch m.currentView {
 		case ViewLeadSelector:
 			m.currentView = m.previousView
-		case ViewArtifactIndex, ViewArtifactContent, ViewLinks:
+		case ViewArtifactIndex, ViewArtifactContent, ViewLinks, ViewContracts:
 			m.currentView = ViewDetail
 		case ViewEdit:
 			m.currentView = m.previousView
@@ -196,6 +196,8 @@ func modalTitle(v View) string {
 		return "Browse Artifacts"
 	case ViewArtifactContent:
 		return "View Artifact"
+	case ViewContracts:
+		return "Delegation Contracts"
 	default:
 		return "Details"
 	}
@@ -243,6 +245,8 @@ func (m Model) renderOverlayContent(v View) string {
 		return m.renderEditor()
 	case ViewLinks:
 		return m.renderExternalLinks()
+	case ViewContracts:
+		return m.contractsViewport.View()
 	case ViewArtifactIndex:
 		return m.renderArtifactIndexBody()
 	case ViewArtifactContent:
@@ -452,6 +456,73 @@ func (m Model) renderArtifactIndexBody() string {
 		sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↓ %d more below", len(m.artifactIndex)-end)))
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// renderContractsChecklist renders every Delegation Contract's mechanical
+// completeness checklist: one row per field, checked only when its guide.md
+// §4 tag is literally [decided] — never inferred from the presence of text,
+// so the checklist can't be gamed by writing a field without settling it.
+func renderContractsChecklist(contracts []core.DelegationContract) string {
+	if len(contracts) == 0 {
+		return overlayEmptyStyle.Render("No delegation contracts recorded for this dossier.")
+	}
+	var sb strings.Builder
+	for i, c := range contracts {
+		if i > 0 {
+			sb.WriteString("\n\n")
+		}
+		decided := 0
+		for _, f := range c.Fields {
+			if f.Status == core.ContractFieldDecided {
+				decided++
+			}
+		}
+		header := c.Label
+		if c.Owner != "" {
+			header += " — owner: " + c.Owner
+		}
+		if c.AgreedDate != "" {
+			header += ", agreed " + c.AgreedDate
+		}
+		sb.WriteString(overlaySectionStyle.Render(header))
+		sb.WriteString("  ")
+		sb.WriteString(overlayMutedStyle.Render(fmt.Sprintf("(%d/%d decided)", decided, len(c.Fields))))
+		sb.WriteString("\n")
+		for _, f := range c.Fields {
+			sb.WriteString(renderContractFieldRow(f))
+			sb.WriteString("\n")
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// renderContractFieldRow renders one checklist line. Status, not text length,
+// decides the box: [decided] checks it, [proposed] is an expected open item,
+// and missing/untagged are schema violations flagged distinctly from a
+// deliberate "not yet agreed" so an author's oversight doesn't read as if the
+// field were knowingly left open.
+func renderContractFieldRow(f core.ContractField) string {
+	label := lipgloss.NewStyle().Bold(true).Width(18).Render(f.Label + ":")
+
+	var box, text string
+	switch f.Status {
+	case core.ContractFieldDecided:
+		box = lipgloss.NewStyle().Foreground(vibrantGreen).Render("[x]")
+		text = f.Text
+	case core.ContractFieldProposed:
+		box = lipgloss.NewStyle().Foreground(warningGold).Render("[ ]")
+		text = f.Text
+		if text == "" {
+			text = overlayMutedStyle.Render("(proposed — not yet agreed)")
+		}
+	case core.ContractFieldUntagged:
+		box = lipgloss.NewStyle().Foreground(vibrantRed).Render("[ ]")
+		text = f.Text + "  " + overlayMutedStyle.Render("(untagged — fix the [decided]/[proposed] tag)")
+	default: // core.ContractFieldMissing
+		box = lipgloss.NewStyle().Foreground(vibrantRed).Render("[ ]")
+		text = overlayMutedStyle.Render("(not written)")
+	}
+	return "  " + box + " " + label + " " + text
 }
 
 func (m Model) openSelectedExternalLink() tea.Cmd {

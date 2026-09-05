@@ -85,15 +85,15 @@ Unresolved questions that materially affect the topic or next move.
 Immediate execution context. Active files, blockers, or configurations.
 
 ## Delegation Contracts
-*Conditional*—present only when a piece of this topic is delegated to someone. One `###` per contract; a Dossier can carry several over its life. Blocks appear in this fixed order, every time, so a reader (or a later session) finds them without searching. Tag each block: `[decided]` once settled and binding, `[proposed]` while still under discussion. An unsettled block stays in the contract as `[proposed]` and its resolution is mirrored as an entry in `## Open Questions`—that pairing is what makes a half-written contract legible on resumption.
+*Conditional*—present only when a piece of this topic is delegated to someone. One `###` per contract; a Dossier can carry several over its life. Blocks appear in this fixed order, every time, so a reader (or a later session) finds them without searching. Every one of the seven bullets is always present and always carries exactly one tag, `[decided]` once settled and binding or `[proposed]` while still under discussion—never omit a bullet and never leave one untagged, even when there is nothing to report yet (write `[proposed] Not yet discussed` rather than skip it). This per-field tag is a mechanical signal, not just phrasing: it is what a reader—human or tool—checks to see which parts of a contract are actually ready to hand off versus still open, without re-reading the prose. A `[proposed]` field's resolution is mirrored as an entry in `## Open Questions`—that pairing is what makes a half-written contract legible on resumption.
 ### <Task label> — owner: <Lead>, agreed <YYYY-MM-DD> [src:art_<id>#L<a>-L<b>]
-- Objective: <One sentence; the end state "done" produces, not a task list.>
-- Context: <Self-contained; assume the reader has no shared memory beyond this Dossier.>
-- Success Criteria: <The target state in testable terms, not adjectives.>
-- Validation: <How the criteria get checked—the same check whether the owner self-reports or you run it.>
-- Constraints: <What must not change, be touched, or be assumed.>
-- Decision Rights: <What the owner decides unilaterally vs. what needs sign-off.>
-- Escalation: <Conditions to stop and flag rather than guess, and what to do while waiting.>
+- Objective: [decided|proposed] <One sentence; the end state "done" produces, not a task list.>
+- Context: [decided|proposed] <Self-contained; assume the reader has no shared memory beyond this Dossier.>
+- Success Criteria: [decided|proposed] <The target state in testable terms, not adjectives.>
+- Validation: [decided|proposed] <How the criteria get checked—the same check whether the owner self-reports or you run it.>
+- Constraints: [decided|proposed] <What must not change, be touched, or be assumed.>
+- Decision Rights: [decided|proposed] <What the owner decides unilaterally vs. what needs sign-off.>
+- Escalation: [decided|proposed] <Conditions to stop and flag rather than guess, and what to do while waiting.>
 
 ## Next Steps
 Immediate required actions. Must align with `next_action` and the `## Open Questions` section in the Distilled State body.

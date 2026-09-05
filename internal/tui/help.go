@@ -50,6 +50,8 @@ func modalHelpBindings(v View) []bubbleskey.Binding {
 		return []bubbleskey.Binding{tuiHelpKey("enter", "view artifact")}
 	case ViewLinks:
 		return []bubbleskey.Binding{tuiHelpKey("enter", "open link")}
+	case ViewContracts:
+		return []bubbleskey.Binding{tuiHelpKey("↑/↓", "scroll")}
 	}
 	return nil
 }
@@ -95,7 +97,7 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 	case ViewDetail:
 		contextual = []bubbleskey.Binding{
 			tuiHelpKey("e", "edit"), tuiHelpKey("r", "rename"),
-			tuiHelpKey("a", "artifacts"), tuiHelpKey("l", "links"), tuiHelpKey("o", "open in editor"),
+			tuiHelpKey("a", "artifacts"), tuiHelpKey("d", "contracts"), tuiHelpKey("l", "links"), tuiHelpKey("o", "open in editor"),
 			tuiHelpKey("k", "add link"), tuiHelpKey("c", "open agent"), tuiHelpKey("v", "view"),
 		}
 		shortContextual = []bubbleskey.Binding{

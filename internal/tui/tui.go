@@ -58,6 +58,12 @@ const (
 	// ViewLinks is a contextual overlay over a dossier surface. It presents active
 	// monitors before passive references while preserving their distinct meaning.
 	ViewLinks
+	// ViewContracts is a contextual overlay over ViewDetail showing the mechanical
+	// completeness checklist for every `## Delegation Contracts` block in the
+	// Distilled State (guide.md §4): which of the seven fields per contract are
+	// [decided] versus still open, derived from core.ParseDelegationContracts —
+	// never self-reported by whatever wrote the dossier.
+	ViewContracts
 )
 
 // leadFilterKind enumerates the three ways the dashboard can be scoped by lead.
@@ -329,12 +335,13 @@ type Model struct {
 	// Viewport & Table. Detail and artifact content intentionally use separate
 	// viewports so following evidence cannot replace or reposition the rendered
 	// Distilled State.
-	table            table.Model
-	viewport         viewport.Model
-	artifactViewport viewport.Model
-	conflictViewport viewport.Model
-	width            int
-	height           int
+	table             table.Model
+	viewport          viewport.Model
+	artifactViewport  viewport.Model
+	conflictViewport  viewport.Model
+	contractsViewport viewport.Model
+	width             int
+	height            int
 
 	// Error / Warning tracking
 	err      error
@@ -399,6 +406,12 @@ type Model struct {
 	linksAfterRecall   bool
 	linksReturnView    View
 
+	// Delegation Contracts checklist state. contracts is re-parsed from
+	// recallResult.DistilledState.Body each time the view opens or the dossier is
+	// re-recalled, never cached across dossiers, so it can't show a stale
+	// checklist for the wrong dossier.
+	contracts []core.DelegationContract
+
 	// Cached markdown renderer, rebuilt only when the wrap width changes.
 	mdRenderer      *glamour.TermRenderer
 	mdRendererWidth int
@@ -462,6 +475,7 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 	vp := viewport.New(0, 0)
 	avp := viewport.New(0, 0)
 	cvp := viewport.New(0, 0)
+	dvp := viewport.New(0, 0)
 
 	searchInput := textinput.New()
 	searchInput.Prompt = ""
@@ -510,6 +524,7 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		viewport:             vp,
 		artifactViewport:     avp,
 		conflictViewport:     cvp,
+		contractsViewport:    dvp,
 		loading:              true,
 		searchInput:          searchInput,
 		help:                 helpView,
@@ -1487,6 +1502,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case ViewContracts:
+			switch msg.String() {
+			case "esc":
+				m.popOverlay()
+				return m, nil
+			}
+			m.contractsViewport, cmd = m.contractsViewport.Update(msg)
+			return m, cmd
+
 		case ViewEdit:
 			return m.updateEditor(msg)
 		case ViewRenameSlug:
@@ -1575,6 +1599,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = nil
 				return m, m.listArtifactsCmd(m.recallResult.Frontmatter.ID)
 			}
+		case "d":
+			// Contracts live in the Distilled State body already held by
+			// recallResult, so unlike artifacts this needs no round trip.
+			if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
+				m.openContracts()
+				return m, nil
+			}
 		case "l":
 			if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
 				m.externalLinkCursor = 0
@@ -1635,6 +1666,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.recalculateViewportLayout()
 		m.recalculateArtifactViewportLayout()
 		m.recalculateConflictViewportLayout()
+		m.recalculateContractsViewportLayout()
 
 		// Re-render cached content even when its view is hidden. A resize in the
 		// artifact browser must not leave the detail view wrapped to the old width
@@ -1651,6 +1683,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.currentView == ViewMergeConflictResolver && m.mergeConflict != nil {
 			diffMd := fmt.Sprintf("```diff\n%s\n```", m.mergeConflict.DiffAgainstCurrent)
 			m.conflictViewport.SetContent(m.renderMarkdown(diffMd))
+		}
+		if len(m.contracts) > 0 {
+			m.contractsViewport.SetContent(renderContractsChecklist(m.contracts))
+			m.contractsViewport.SetYOffset(m.contractsViewport.YOffset)
 		}
 
 	case listDossiersMsg:
@@ -2135,6 +2171,30 @@ func (m *Model) recalculateConflictViewportLayout() {
 	}
 }
 
+// recalculateContractsViewportLayout fits the Delegation Contracts checklist
+// to the same overlay-panel budget as the conflict viewport: both are
+// read-only scrollable text rendered inside a modal, not a full-screen surface.
+func (m *Model) recalculateContractsViewportLayout() {
+	m.contractsViewport.Width = m.width - 6
+	m.contractsViewport.Height = m.height - 17
+	if m.contractsViewport.Height < 3 {
+		m.contractsViewport.Height = 3
+	}
+}
+
+// openContracts re-parses the currently recalled dossier's Distilled State for
+// `## Delegation Contracts` blocks (guide.md §4) and opens the checklist
+// overlay. Parsing happens fresh on every open rather than being cached
+// alongside recallResult, so an edit made through the external editor ('o')
+// and then re-recalled is reflected the next time 'd' is pressed.
+func (m *Model) openContracts() {
+	m.contracts = core.ParseDelegationContracts(m.recallResult.DistilledState)
+	m.recalculateContractsViewportLayout()
+	m.contractsViewport.SetContent(renderContractsChecklist(m.contracts))
+	m.contractsViewport.GotoTop()
+	m.pushOverlay(ViewContracts)
+}
+
 func (m Model) renderLeadSelector() string {
 	var sb strings.Builder
 
@@ -2454,6 +2514,7 @@ func (m *Model) toggleHelp() {
 	m.recalculateViewportLayout()
 	m.recalculateArtifactViewportLayout()
 	m.recalculateConflictViewportLayout()
+	m.recalculateContractsViewportLayout()
 }
 
 func (m Model) footerHeight(v View) int {

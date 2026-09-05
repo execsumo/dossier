@@ -765,6 +765,119 @@ func TestTUI_ArtifactFlowRestoresDistilledStateAndScroll(t *testing.T) {
 	}
 }
 
+func TestTUI_ContractsChecklistFromDetail(t *testing.T) {
+	store := newTestStore()
+	store.dossiers["dos1"] = &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:        "dos1",
+			Name:      "Project Alpha",
+			Slug:      "project-alpha",
+			Status:    core.StatusActive,
+			Priority:  core.PriorityHigh,
+			UpdatedAt: testClock{}.Now(),
+		},
+		DistilledState: core.DistilledState{
+			Body: "" +
+				"## Delegation Contracts\n" +
+				"### Pricing copy review — owner: Priya, agreed 2026-06-30\n" +
+				"- Objective: [decided] Copy is factually correct.\n" +
+				"- Context: [decided] Follows the pricing decision.\n" +
+				"- Success Criteria: [decided] Every figure matches the sheet.\n" +
+				"- Validation: [decided] Priya diffs against the sheet.\n" +
+				"- Constraints: [decided] Copy only, no layout changes.\n" +
+				"- Decision Rights: [decided] Priya fixes typos unilaterally.\n" +
+				"- Escalation: [proposed] Not yet discussed.\n" +
+				"\n## Next Steps\nShip it.\n",
+		},
+	}
+	svc := setupTestService(store)
+	m := NewModel(svc)
+	m.width = 100
+	m.height = 30
+	m.recalculateTableLayout()
+
+	listMsg := m.listDossiersCmd()()
+	newM, _ := m.Update(listMsg)
+	m = newM.(Model)
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(Model)
+	newM, _ = m.Update(cmd())
+	m = newM.(Model)
+	if m.currentView != ViewDetail {
+		t.Fatalf("expected view to be ViewDetail, got %v", m.currentView)
+	}
+
+	m, cmd = press(t, m, "d")
+	if cmd != nil {
+		t.Fatal("expected 'd' to open the checklist synchronously, with no command")
+	}
+	if m.currentView != ViewContracts {
+		t.Fatalf("expected view to be ViewContracts, got %v", m.currentView)
+	}
+	if len(m.contracts) != 1 || !strings.HasPrefix(m.contracts[0].Label, "Pricing copy review") {
+		t.Fatalf("expected one parsed contract for Pricing copy review, got %+v", m.contracts)
+	}
+
+	got := stripANSI(m.View())
+	if !strings.Contains(got, "(6/7 decided)") {
+		t.Fatalf("expected checklist to report 6/7 decided, got:\n%s", got)
+	}
+	if !strings.Contains(got, "[x]") || !strings.Contains(got, "[ ]") {
+		t.Fatalf("expected both a checked and an open field row, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Not yet discussed") {
+		t.Fatalf("expected the proposed Escalation text to render, got:\n%s", got)
+	}
+
+	// Esc returns to Detail without leaving the checklist view stuck.
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = newM.(Model)
+	if m.currentView != ViewDetail {
+		t.Fatalf("expected esc from checklist to return to ViewDetail, got %v", m.currentView)
+	}
+}
+
+func TestTUI_ContractsChecklistEmptyState(t *testing.T) {
+	store := newTestStore()
+	store.dossiers["dos1"] = &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID:        "dos1",
+			Name:      "Project Alpha",
+			Slug:      "project-alpha",
+			Status:    core.StatusActive,
+			Priority:  core.PriorityHigh,
+			UpdatedAt: testClock{}.Now(),
+		},
+		DistilledState: core.DistilledState{Body: "## Situation\nNo delegation yet.\n"},
+	}
+	svc := setupTestService(store)
+	m := NewModel(svc)
+	m.width = 100
+	m.height = 24
+	m.recalculateTableLayout()
+
+	listMsg := m.listDossiersCmd()()
+	newM, _ := m.Update(listMsg)
+	m = newM.(Model)
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(Model)
+	newM, _ = m.Update(cmd())
+	m = newM.(Model)
+
+	m, _ = press(t, m, "d")
+	if m.currentView != ViewContracts {
+		t.Fatalf("expected view to be ViewContracts, got %v", m.currentView)
+	}
+	if len(m.contracts) != 0 {
+		t.Fatalf("expected no parsed contracts, got %+v", m.contracts)
+	}
+	got := stripANSI(m.View())
+	if !strings.Contains(got, "No delegation contracts recorded for this dossier.") {
+		t.Fatalf("expected empty-state message, got:\n%s", got)
+	}
+}
+
 func TestArtifactIndexWindowingScrollingAndResize(t *testing.T) {
 	m := NewModel(setupTestService(newTestStore()))
 	m.currentView = ViewArtifactIndex
