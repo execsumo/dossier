@@ -237,7 +237,7 @@ func renderFilterColumn(title string, options []string, cursor int, focused bool
 		}
 		line := marker + " " + truncateCell(option, width-7)
 		if i == cursor {
-			sb.WriteString(focusedItemStyle.Render(line))
+			sb.WriteString(focusedItemStyle.Copy().Padding(0).Render(line))
 		} else {
 			sb.WriteString(line)
 		}

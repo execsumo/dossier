@@ -23,6 +23,7 @@ const (
 	editFieldDue
 	editFieldLead
 	editFieldNextAction
+	editFieldInterfaces
 	editFieldCount
 )
 
@@ -55,6 +56,8 @@ func (m *Model) startEdit(t targetDossier) {
 	m.dueDateInput.Width = 40
 
 	m.editLead = t.lead
+	m.editInterfaces = append([]string{}, t.interfaces...)
+	m.editInterfaceCursor = 0
 
 	m.nextActionInput = textinput.New()
 	// Set the existing value before applying the limit so legacy overlong
@@ -113,6 +116,16 @@ func (m *Model) cycleEditValue(forward bool) bool {
 		}
 		m.editLead = opts[idx]
 		return true
+	case editFieldInterfaces:
+		if len(m.configuredInterfaces) == 0 {
+			return false
+		}
+		if forward {
+			m.editInterfaceCursor = (m.editInterfaceCursor + 1) % len(m.configuredInterfaces)
+		} else {
+			m.editInterfaceCursor = (m.editInterfaceCursor - 1 + len(m.configuredInterfaces)) % len(m.configuredInterfaces)
+		}
+		return true
 	}
 	return false
 }
@@ -153,6 +166,9 @@ func (m Model) editUpdates() map[string]any {
 	}
 	if m.editLead != m.editOriginal.lead {
 		updates["lead"] = m.editLead
+	}
+	if strings.Join(m.editInterfaces, "|||") != strings.Join(m.editOriginal.interfaces, "|||") {
+		updates["interfaces"] = append([]string{}, m.editInterfaces...)
 	}
 	if v := m.nextActionInput.Value(); v != m.editOriginal.nextAction {
 		updates["next_action"] = v
@@ -196,6 +212,18 @@ func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "right":
 		if m.cycleEditValue(true) {
+			return m, nil
+		}
+	case " ":
+		if m.editFocus == editFieldInterfaces && len(m.configuredInterfaces) > 0 {
+			name := m.configuredInterfaces[m.editInterfaceCursor]
+			for i, selected := range m.editInterfaces {
+				if selected == name {
+					m.editInterfaces = append(m.editInterfaces[:i], m.editInterfaces[i+1:]...)
+					return m, nil
+				}
+			}
+			m.editInterfaces = append(m.editInterfaces, name)
 			return m, nil
 		}
 	case "enter":
@@ -244,7 +272,42 @@ func renderEnumColumn[T ~string](title string, options []T, selected T, focused 
 		if option == selected {
 			marker = "(•)"
 		}
-		sb.WriteString(marker + " " + truncateCell(label, width-7) + "\n")
+		line := marker + " " + truncateCell(label, width-7)
+		if option == selected && focused {
+			sb.WriteString(focusedItemStyle.Copy().Padding(0).Render(line))
+		} else {
+			sb.WriteString(line)
+		}
+		sb.WriteString("\n")
+	}
+	return renderEditColumn(title, strings.TrimRight(sb.String(), "\n"), focused, width)
+}
+
+func renderInterfacesColumn(title string, options, selected []string, cursor int, focused bool, width int) string {
+	if len(options) == 0 {
+		options = []string{""}
+	}
+	selectedSet := make(map[string]bool, len(selected))
+	for _, value := range selected {
+		selectedSet[value] = true
+	}
+	var sb strings.Builder
+	for i, option := range options {
+		label := option
+		if label == "" {
+			label = "(none)"
+		}
+		marker := "[ ]"
+		if selectedSet[option] {
+			marker = "[x]"
+		}
+		line := marker + " " + truncateCell(label, width-7)
+		if i == cursor && focused {
+			sb.WriteString(focusedItemStyle.Copy().Padding(0).Render(line))
+		} else {
+			sb.WriteString(line)
+		}
+		sb.WriteString("\n")
 	}
 	return renderEditColumn(title, strings.TrimRight(sb.String(), "\n"), focused, width)
 }
@@ -257,7 +320,7 @@ func (m Model) renderEditor() string {
 	if width <= 0 {
 		width = 100
 	}
-	columnWidth := (width - 16) / 5
+	columnWidth := (width - 12) / 4
 	if columnWidth < 14 {
 		columnWidth = 14
 	}
@@ -268,15 +331,18 @@ func (m Model) renderEditor() string {
 	leadOptions := append([]string{""}, m.configuredLeads...)
 	due := m.editTextValue(editFieldDue, m.dueDateInput.View(), m.dueDateInput.Value())
 	next := m.editTextValue(editFieldNextAction, m.nextActionInput.View(), m.nextActionInput.Value())
+	rowsWidth := width - 8
+	if rowsWidth < 40 {
+		rowsWidth = 40
+	}
 	columns := []string{
 		renderEnumColumn("Stage", core.CanonicalStatuses(), m.editStatus, m.editFocus == editFieldStage, columnWidth),
 		renderEnumColumn("Priority", priorityOptions, m.editPriority, m.editFocus == editFieldPriority, columnWidth),
-		renderEditColumn("Due date", due, m.editFocus == editFieldDue, columnWidth),
 		renderEnumColumn("Lead", leadOptions, m.editLead, m.editFocus == editFieldLead, columnWidth),
-		renderEditColumn("Next action", next, m.editFocus == editFieldNextAction, columnWidth),
+		renderInterfacesColumn("Interfaces", m.configuredInterfaces, m.editInterfaces, m.editInterfaceCursor, m.editFocus == editFieldInterfaces, columnWidth),
 	}
 	return strings.TrimRight(
-		fmt.Sprintf("Edit %s\n\n%s\n\n%s", lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true).Render(m.targetName), lipgloss.JoinHorizontal(lipgloss.Top, columns...), mutedStyle.Render("↑/↓ field • ←/→ change • enter save • esc cancel")),
+		fmt.Sprintf("Edit %s\n\n%s\n\n%s\n\n%s\n\n%s", lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true).Render(m.targetName), renderEditColumn("Due date", due, m.editFocus == editFieldDue, rowsWidth), renderEditColumn("Next action", next, m.editFocus == editFieldNextAction, rowsWidth), lipgloss.JoinHorizontal(lipgloss.Top, columns...), mutedStyle.Render("↑/↓ field • ←/→ change • space toggle interface • enter save • esc cancel")),
 		"\n",
 	)
 }

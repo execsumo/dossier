@@ -277,6 +277,7 @@ type targetDossier struct {
 	dueDate      string
 	nextAction   string
 	lead         string
+	interfaces   []string
 	baseRevision core.Revision
 }
 
@@ -346,16 +347,18 @@ type Model struct {
 
 	// Combined editor view state. editOriginal is the dossier as it was when the
 	// form opened, so save can send only the fields that actually changed.
-	editOriginal    targetDossier
-	editFocus       editField
-	editStatus      core.Status
-	editPriority    core.Priority
-	editLead        string
-	dueDateInput    textinput.Model
-	nextActionInput textinput.Model
-	renameSlugInput textinput.Model
-	renameNameInput textinput.Model
-	renameField     renameField
+	editOriginal        targetDossier
+	editFocus           editField
+	editStatus          core.Status
+	editPriority        core.Priority
+	editLead            string
+	editInterfaces      []string
+	editInterfaceCursor int
+	dueDateInput        textinput.Model
+	nextActionInput     textinput.Model
+	renameSlugInput     textinput.Model
+	renameNameInput     textinput.Model
+	renameField         renameField
 
 	// Link view state
 	linkTextInput   textinput.Model
@@ -669,6 +672,7 @@ func (m Model) getTargetDossier() (targetDossier, bool) {
 			dueDate:      fm.DueDate,
 			nextAction:   fm.NextAction,
 			lead:         fm.Lead,
+			interfaces:   append([]string{}, fm.Interfaces...),
 			baseRevision: m.recallResult.Revision,
 		}, true
 	}
@@ -687,6 +691,7 @@ func (m Model) getTargetDossier() (targetDossier, bool) {
 			dueDate:      item.DueDate,
 			nextAction:   item.NextAction,
 			lead:         item.Lead,
+			interfaces:   append([]string{}, item.Interfaces...),
 			baseRevision: "", // Skip check from the board, as from the dashboard
 		}, true
 	}
@@ -704,6 +709,7 @@ func (m Model) getTargetDossier() (targetDossier, bool) {
 			dueDate:      item.DueDate,
 			nextAction:   item.NextAction,
 			lead:         item.Lead,
+			interfaces:   append([]string{}, item.Interfaces...),
 			baseRevision: "", // Skip check from dashboard
 		}, true
 	}
