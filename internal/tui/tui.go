@@ -1260,7 +1260,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.recalculateTableLayout()
 				return m, nil
 			case "enter":
-				return m, m.openSelectedDossier()
+				// Enter commits the live query and returns focus to the list. This
+				// avoids opening the selected dossier when Enter is used to submit
+				// the search text; opening remains available with a second Enter.
+				m.searchActive = false
+				m.searchInput.Blur()
+				m.table.Focus()
+				m.recalculateTableLayout()
+				return m, nil
 			case "up":
 				if m.currentView == ViewDashboard {
 					m.table.MoveUp(1)
@@ -2465,7 +2472,7 @@ func (m Model) footerContent(v View) string {
 	}
 
 	if m.searchActive && m.isListView() {
-		footerParts = append(footerParts, "type: filter • tab: keep filter • esc: clear")
+		footerParts = append(footerParts, "type: filter • enter/tab: keep filter • esc: clear")
 	} else {
 		w := m.width
 		if w <= 0 {

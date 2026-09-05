@@ -121,16 +121,29 @@ func TestLeadSelectorTypingNarrowsRadioOptions(t *testing.T) {
 	}
 }
 
-func TestOpeningDossierLeavesSearchMode(t *testing.T) {
+func TestSearchEnterCommitsWithoutOpeningDossier(t *testing.T) {
 	store := newTestStore()
 	seedDossier(store, "one", "One Topic", core.StatusSpark)
 	m := boardModel(t, store, 120, 40)
 	m.currentView = ViewDashboard
 	m.listView = ViewDashboard
 	m, _ = press(t, m, "/")
-	m, _ = press(t, m, "enter")
+	m, _ = press(t, m, "o")
+	m, cmd := press(t, m, "enter")
+	if cmd != nil {
+		t.Fatal("enter while searching should not open a dossier")
+	}
 	if m.searchActive {
-		t.Fatal("opening a dossier left search mode active")
+		t.Fatal("enter should leave search mode")
+	}
+	if m.searchQuery.IsEmpty() || m.searchInput.Value() != "o" {
+		t.Fatalf("enter should preserve the committed query: queryEmpty=%v value=%q", m.searchQuery.IsEmpty(), m.searchInput.Value())
+	}
+	if m.currentView != ViewDashboard {
+		t.Fatalf("enter while searching changed view to %v", m.currentView)
+	}
+	if _, cmd = press(t, m, "enter"); cmd == nil {
+		t.Fatal("enter after committing the search should still open the selected dossier")
 	}
 }
 
