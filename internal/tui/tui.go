@@ -317,7 +317,6 @@ type Model struct {
 	interfaceFilter      interfaceFilter
 	configuredLeads      []string
 	configuredInterfaces []string
-	leadSearchInput      textinput.Model
 	searchInput          textinput.Model
 	searchActive         bool
 	searchQuery          core.Query
@@ -463,10 +462,8 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 	avp := viewport.New(0, 0)
 	cvp := viewport.New(0, 0)
 
-	leadSearchInput := textinput.New()
-	leadSearchInput.Placeholder = "Search leads…"
-	leadSearchInput.Width = 32
 	searchInput := textinput.New()
+	searchInput.Prompt = ""
 	searchInput.Placeholder = "Search dossiers…"
 	searchInput.Width = 40
 	renameSlugInput := textinput.New()
@@ -513,7 +510,6 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		artifactViewport:     avp,
 		conflictViewport:     cvp,
 		loading:              true,
-		leadSearchInput:      leadSearchInput,
 		searchInput:          searchInput,
 		help:                 helpView,
 		renameSlugInput:      renameSlugInput,
@@ -902,22 +898,6 @@ func statusTier(status string) int {
 	return 0
 }
 
-// filterLeadOptions narrows opts to those whose label contains query
-// (case-insensitive). An empty query returns opts unchanged. Pure.
-func filterLeadOptions(opts []leadOption, query string) []leadOption {
-	query = strings.TrimSpace(strings.ToLower(query))
-	if query == "" {
-		return opts
-	}
-	out := make([]leadOption, 0, len(opts))
-	for _, o := range opts {
-		if strings.Contains(strings.ToLower(o.filter.label()), query) {
-			out = append(out, o)
-		}
-	}
-	return out
-}
-
 // applyFilters recomputes both home surfaces from the full set and
 // the active lead filter. It is the single choke point that keeps the table rows
 // in sync with the filter, so cursor lookups can index visibleItems directly.
@@ -1039,10 +1019,6 @@ func (m *Model) openLeadSelector() {
 	m.previousView = m.currentView
 	m.pushOverlay(ViewLeadSelector)
 
-	// Lead search is local to the selector. Do not carry a prior query into a
-	// newly opened radio list, where it would make options appear to vanish.
-	m.leadSearchInput.SetValue("")
-	m.leadSearchInput.Focus()
 	m.leadOptions = deriveLeadOptions(m.items, m.configuredLeads)
 	m.leadResults = m.leadOptions
 	m.leadCursor = 0
@@ -1074,7 +1050,6 @@ func (m Model) buildInterfaceOptions() []interfaceOption {
 
 // chooseLead applies the option under the cursor and drops into the dashboard.
 func (m *Model) chooseLead() {
-	m.leadSearchInput.Blur()
 	if m.leadCursor >= 0 && m.leadCursor < len(m.leadResults) {
 		m.leadFilter = m.leadResults[m.leadCursor].filter
 	}
@@ -1087,6 +1062,7 @@ func (m *Model) chooseLead() {
 	if m.currentView != m.listView {
 		m.currentView = m.listView
 	}
+	m.recalculateTableLayout()
 	m.table.SetCursor(0)
 	m.table.Focus()
 }
@@ -1253,12 +1229,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.kanbanRow = 0
 				m.table.Focus()
 				return m, nil
-			case "tab":
-				m.searchActive = false
-				m.searchInput.Blur()
-				m.table.Focus()
-				m.recalculateTableLayout()
-				return m, nil
 			case "enter":
 				// Enter commits the live query and returns focus to the list. This
 				// avoids opening the selected dossier when Enter is used to submit
@@ -1355,7 +1325,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+c":
 				return m, tea.Quit
 			case "esc":
-				m.leadSearchInput.Blur()
 				// Skip selection: fall through to the dashboard with the current
 				// filter (All by default). On the startup landing this means
 				// "show everything"; reopened via 'f' it cancels the change.
@@ -1367,11 +1336,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "left":
 				m.filterColumn = 0
-				m.leadSearchInput.Focus()
 				return m, nil
 			case "right", "tab":
 				m.filterColumn = 1
-				m.leadSearchInput.Blur()
 				return m, nil
 			case "up", "ctrl+p":
 				if m.filterColumn == 0 && len(m.leadResults) > 0 {
@@ -1393,14 +1360,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			// The lead column remains a radio list: typing only narrows the
-			// available radio options; it never changes the selected filter.
-			if m.filterColumn == 0 {
-				m.leadSearchInput, cmd = m.leadSearchInput.Update(msg)
-				m.leadResults = filterLeadOptions(m.leadOptions, m.leadSearchInput.Value())
-				m.leadCursor = 0
-			}
-			return m, cmd
+			// Both columns are radio lists. Unhandled keys, including typed
+			// characters, are intentionally ignored rather than treated as search.
+			return m, nil
 
 		case ViewLinkInput:
 			switch msg.String() {
@@ -2068,11 +2030,12 @@ func (m *Model) populateTableRows() {
 // revealed progressively as the terminal widens.
 func (m *Model) recalculateTableLayout() {
 	footerH := m.footerHeight(ViewDashboard)
-	searchH := 0
-	if m.searchBarVisible() {
-		searchH = 1
+	headerRows := len(m.activeListRows())
+	if headerRows > 0 {
+		// Keep the active scope rows clustered, then separate them from the table.
+		headerRows++
 	}
-	tableHeight := m.height - 4 - footerH - searchH
+	tableHeight := m.height - 4 - footerH - headerRows
 	if tableHeight < 3 {
 		tableHeight = 3
 	}
@@ -2181,9 +2144,9 @@ func (m Model) renderLeadSelector() string {
 	}
 
 	if len(m.leadResults) == 0 {
-		sb.WriteString(subtitleStyle.Render(" No leads match your search.\n"))
+		sb.WriteString(subtitleStyle.Render(" No leads available.\n"))
 		sb.WriteString("\n")
-		sb.WriteString("type to refine • esc to show all • q to quit")
+		sb.WriteString("↑/↓ move • enter apply • esc cancel")
 		return editorBoxStyle.Render(sb.String())
 	}
 
@@ -2224,7 +2187,7 @@ func (m Model) renderLeadSelector() string {
 // leadVisibleRows is how many option rows the lead selector shows at once,
 // derived from the terminal height. Remaining rows scroll into view with the
 // cursor. The constant reserves space for the screen chrome (title, subtitle,
-// box padding, intro line, search box, the two "more" indicators, help, footer).
+// box padding, intro line, the two "more" indicators, help, footer).
 func (m Model) leadVisibleRows() int {
 	chrome := 14
 	if m.hasOverlay() {
@@ -2471,21 +2434,17 @@ func (m Model) footerContent(v View) string {
 		}
 	}
 
-	if m.searchActive && m.isListView() {
-		footerParts = append(footerParts, "type: filter • enter/tab: keep filter • esc: clear")
-	} else {
-		w := m.width
-		if w <= 0 {
-			w = 80
-		}
-		m.help.Width = w
-		footerParts = append(footerParts, m.help.View(m.helpKeyMap(v)))
-	}
-
 	w := m.width
 	if w <= 0 {
 		w = 80
 	}
+	m.help.Width = w
+	if m.searchActive && m.isListView() {
+		footerParts = append(footerParts, m.help.View(m.searchHelpKeyMap()))
+	} else {
+		footerParts = append(footerParts, m.help.View(m.helpKeyMap(v)))
+	}
+
 	return footerStyle.Width(w).Render(strings.Join(footerParts, "\n"))
 }
 
@@ -2515,15 +2474,49 @@ func (m Model) renderSearchBar() string {
 	return " Search: " + m.searchInput.View()
 }
 
+// renderFilterRow uses the same unstyled text treatment as the Search row while
+// still fitting a configured value to the terminal width.
+func (m Model) renderFilterRow(label, value string) string {
+	row := " " + label + ": " + value
+	if m.width > 0 {
+		return truncateCell(row, m.width)
+	}
+	return row
+}
+
+// activeFilterRows renders only filters that narrow the list. Keeping these
+// separate from the subtitle makes the current scope visible without leaving
+// an always-present "All" label on every screen.
+func (m Model) activeFilterRows() []string {
+	rows := make([]string, 0, 2)
+	if m.leadFilter.kind != filterAll {
+		rows = append(rows, m.renderFilterRow("Lead", m.leadFilter.label()))
+	}
+	if m.interfaceFilter != "" {
+		rows = append(rows, m.renderFilterRow("Interface", m.interfaceFilter.label()))
+	}
+	return rows
+}
+
+// activeListRows contains the visible scope rows in their display order. The
+// caller can use its length to reserve the matching number of screen lines.
+func (m Model) activeListRows() []string {
+	rows := m.activeFilterRows()
+	if m.searchBarVisible() {
+		rows = append(rows, m.renderSearchBar())
+	}
+	return rows
+}
+
 // renderListSubtitle fits a home surface's subtitle line to the terminal.
 //
 // Nothing else constrains it, and the dashboard and board subtitles are the two
-// that grow with state (filter labels, the extras note, the stage window). Past
-// the terminal width a real terminal soft-wraps them onto a second row and
-// pushes the footer off the bottom of the screen — a wrap lipgloss never emits
-// as a "\n", so line-count assertions cannot see it. Truncation happens on the
-// plain text so the ellipsis lands inside the styled span instead of cutting an
-// ANSI sequence in half.
+// that grow with state (the extras note and the stage window). Past the terminal
+// width a real terminal soft-wraps them onto a second row and pushes the footer
+// off the bottom of the screen — a wrap lipgloss never emits as a "\n", so
+// line-count assertions cannot see it. Truncation happens on the plain text so
+// the ellipsis lands inside the styled span instead of cutting an ANSI sequence
+// in half.
 func (m Model) renderListSubtitle(text string) string {
 	if m.width <= 0 {
 		return subtitleStyle.Render(text)
@@ -2592,14 +2585,14 @@ func (m Model) renderNormalView() string {
 		if m.extrasCount > 0 && !m.extrasExpanded {
 			archivedNote = " · resolved/archived hidden"
 		}
-		searchNote := ""
-		if !m.searchQuery.IsEmpty() {
-			searchNote = fmt.Sprintf(" · Search: %q", m.searchInput.Value())
-		}
-		sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" %s — Dashboard · Lead: %s · Interface: %s%s%s", subheadline, m.leadFilter.label(), m.interfaceFilter.label(), archivedNote, searchNote)))
+		sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" %s — Dashboard%s", subheadline, archivedNote)))
 		sb.WriteString("\n\n")
-		if m.searchBarVisible() {
-			sb.WriteString(m.renderSearchBar())
+		if rows := m.activeListRows(); len(rows) > 0 {
+			for _, row := range rows {
+				sb.WriteString(row)
+				sb.WriteString("\n")
+			}
+			// Separate the clustered scope rows from the table body.
 			sb.WriteString("\n")
 		}
 
@@ -2622,14 +2615,14 @@ func (m Model) renderNormalView() string {
 		if start, end := m.kanbanStageWindow(); end-start < len(stages) {
 			stageNote = fmt.Sprintf(" · stages %d–%d of %d", start+1, end, len(stages))
 		}
-		searchNote := ""
-		if !m.searchQuery.IsEmpty() {
-			searchNote = fmt.Sprintf(" · Search: %q", m.searchInput.Value())
-		}
-		sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" %s — Board · Lead: %s · Interface: %s%s%s", subheadline, m.leadFilter.label(), m.interfaceFilter.label(), stageNote, searchNote)))
+		sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" %s — Board%s", subheadline, stageNote)))
 		sb.WriteString("\n\n")
-		if m.searchBarVisible() {
-			sb.WriteString(m.renderSearchBar())
+		if rows := m.activeListRows(); len(rows) > 0 {
+			for _, row := range rows {
+				sb.WriteString(row)
+				sb.WriteString("\n")
+			}
+			// Separate the clustered scope rows from the board body.
 			sb.WriteString("\n")
 		}
 

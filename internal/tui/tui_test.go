@@ -78,6 +78,54 @@ func TestSearchIncludesCollapsedExtrasWithoutMutatingExpansion(t *testing.T) {
 	}
 }
 
+func TestActiveFiltersRenderAsSeparateRows(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "one", "One Topic", core.StatusSpark, func(fm *core.Frontmatter) {
+		fm.Lead = "Alice"
+		fm.Interfaces = []string{"Pricing WBR"}
+	})
+	m := boardModel(t, store, 120, 40)
+	m.currentView = ViewDashboard
+	m.listView = ViewDashboard
+	m.leadFilter = leadFilter{kind: filterByName, name: "Alice"}
+	m.interfaceFilter = interfaceFilter("Pricing WBR")
+	m.searchInput.SetValue("one")
+	m.searchInput.Blur()
+	m.searchQuery = core.NewQuery(m.searchInput.Value())
+	m.applyFilters()
+	m.populateTableRows()
+
+	lines := strings.Split(stripANSI(m.View()), "\n")
+	if strings.Contains(lines[1], "Lead:") || strings.Contains(lines[1], "Interface:") || strings.Contains(lines[1], "Search:") {
+		t.Fatalf("subtitle should not contain active filters: %q", lines[1])
+	}
+	for i, want := range []string{" Lead: Alice", " Interface: Pricing WBR"} {
+		if got := lines[3+i]; got != want {
+			t.Fatalf("header row %d = %q, want %q", i, got, want)
+		}
+	}
+	if got := lines[5]; !strings.HasPrefix(got, " Search:") || !strings.Contains(got, "one") || strings.Contains(got, "Search: >") {
+		t.Fatalf("search row = %q, want Search: one without a prompt", got)
+	}
+	if lines[6] != "" {
+		t.Fatalf("expected a blank row between scope rows and table, got %q", lines[6])
+	}
+	if strings.Count(stripANSI(m.View()), "Search:") != 1 {
+		t.Fatal("search term should be shown on exactly one row")
+	}
+
+	m.leadFilter = leadFilter{kind: filterAll}
+	m.interfaceFilter = ""
+	m.searchInput.SetValue("")
+	m.searchQuery = core.Query{}
+	m.applyFilters()
+	m.populateTableRows()
+	lines = strings.Split(stripANSI(m.View()), "\n")
+	if strings.Contains(lines[1], "Lead:") || strings.Contains(lines[1], "Interface:") || strings.Contains(lines[1], "Search:") {
+		t.Fatalf("unfiltered subtitle should not contain filter labels: %q", lines[1])
+	}
+}
+
 // Quit must stay reachable from inside the search box: ctrl+c is otherwise
 // swallowed by the text input, leaving no way to kill the TUI while filtering.
 func TestSearchModeCtrlCStillQuits(t *testing.T) {
@@ -90,6 +138,13 @@ func TestSearchModeCtrlCStillQuits(t *testing.T) {
 	if !m.searchActive {
 		t.Fatal("/ did not enter search mode")
 	}
+	footer := stripANSI(m.footerContent(ViewDashboard))
+	if strings.Contains(footer, "type: filter") || strings.Contains(footer, "ctrl+c") {
+		t.Fatalf("search footer contains a removed hint: %q", footer)
+	}
+	if !strings.Contains(footer, "enter keep filter") || !strings.Contains(footer, "esc clear") {
+		t.Fatalf("search footer does not use standard help formatting: %q", footer)
+	}
 	_, cmd := press(t, m, "ctrl+c")
 	if cmd == nil {
 		t.Fatal("ctrl+c returned no command while searching")
@@ -99,7 +154,7 @@ func TestSearchModeCtrlCStillQuits(t *testing.T) {
 	}
 }
 
-func TestLeadSelectorTypingNarrowsRadioOptions(t *testing.T) {
+func TestLeadSelectorTypingIsIgnored(t *testing.T) {
 	store := newTestStore()
 	seedDossier(store, "one", "One Topic", core.StatusSpark, func(fm *core.Frontmatter) { fm.Lead = "Alice" })
 	seedDossier(store, "two", "Second Topic", core.StatusSpark, func(fm *core.Frontmatter) { fm.Lead = "Bob" })
@@ -113,11 +168,11 @@ func TestLeadSelectorTypingNarrowsRadioOptions(t *testing.T) {
 	for _, key := range []string{"a", "l", "i"} {
 		m, _ = press(t, m, key)
 	}
-	if len(m.leadResults) != 1 || m.leadResults[0].filter.label() != "Alice" {
-		t.Fatalf("lead search results = %+v, want Alice", m.leadResults)
+	if len(m.leadResults) != len(m.leadOptions) {
+		t.Fatalf("typing changed lead options: got %d, want %d", len(m.leadResults), len(m.leadOptions))
 	}
-	if m.leadFilter.kind != filterAll {
-		t.Fatalf("typing changed radio selection: %+v", m.leadFilter)
+	if m.leadCursor != 0 || m.leadFilter.kind != filterAll {
+		t.Fatalf("typing changed lead selection: cursor=%d filter=%+v", m.leadCursor, m.leadFilter)
 	}
 }
 
@@ -164,8 +219,12 @@ func TestSearchModeLifecycleAndKeyIsolation(t *testing.T) {
 		t.Fatalf("search key leaked to another handler: value=%q view=%v cursor=%d before=%d", m.searchInput.Value(), m.currentView, m.table.Cursor(), searchCursor)
 	}
 	m, _ = press(t, m, "tab")
+	if !m.searchActive || m.searchQuery.IsEmpty() {
+		t.Fatalf("tab should not commit the query: active=%v queryEmpty=%v", m.searchActive, m.searchQuery.IsEmpty())
+	}
+	m, _ = press(t, m, "enter")
 	if m.searchActive || m.searchQuery.IsEmpty() {
-		t.Fatalf("tab should commit the query: active=%v queryEmpty=%v", m.searchActive, m.searchQuery.IsEmpty())
+		t.Fatalf("enter should commit the query: active=%v queryEmpty=%v", m.searchActive, m.searchQuery.IsEmpty())
 	}
 	m, _ = press(t, m, "/")
 	m, _ = press(t, m, "esc")
@@ -1296,41 +1355,6 @@ func TestDeriveLeadOptionsEmpty(t *testing.T) {
 	configured := deriveLeadOptions(nil, []string{"Alice", "Bob"})
 	if len(configured) != 4 || configured[2].filter.name != "Alice" || configured[2].count != 0 || configured[3].filter.name != "Bob" {
 		t.Fatalf("configured zero-count leads = %+v", configured)
-	}
-}
-
-func TestFilterLeadOptions(t *testing.T) {
-	opts := []leadOption{
-		{filter: leadFilter{kind: filterAll}},
-		{filter: leadFilter{kind: filterUnassigned}},
-		{filter: leadFilter{kind: filterByName, name: "Alice"}},
-		{filter: leadFilter{kind: filterByName, name: "Bob"}},
-	}
-
-	tests := []struct {
-		name  string
-		query string
-		want  []string // expected labels in order
-	}{
-		{"empty returns all", "", []string{"All", "Unassigned", "Alice", "Bob"}},
-		{"case-insensitive substring", "ali", []string{"Alice"}},
-		{"matches pinned labels too", "una", []string{"Unassigned"}},
-		{"whitespace trimmed", "  bob ", []string{"Bob"}},
-		{"no match", "zzz", nil},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := filterLeadOptions(opts, tc.query)
-			if len(got) != len(tc.want) {
-				t.Fatalf("got %d results, want %d: %+v", len(got), len(tc.want), got)
-			}
-			for i, label := range tc.want {
-				if got[i].filter.label() != label {
-					t.Errorf("result %d = %q, want %q", i, got[i].filter.label(), label)
-				}
-			}
-		})
 	}
 }
 

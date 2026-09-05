@@ -596,11 +596,9 @@ func TestKanbanNarrowTerminalWindowsStages(t *testing.T) {
 		clean := stripANSI(view)
 
 		// The subtitle is composed with the stage note and then fitted to the
-		// width, so at 80 columns the note is cut off (see the note-visibility
-		// gap flagged alongside this test). Assert the composition instead: the
-		// rendered subtitle must be a prefix of the full text including the note.
-		full := fmt.Sprintf(" %s — Board · Lead: %s · Interface: %s · stages %d–%d of 6",
-			subheadline, m.leadFilter.label(), m.interfaceFilter.label(), start+1, end)
+		// width. Assert the composition directly; active filters are rendered on
+		// their own rows rather than being part of the subtitle.
+		full := fmt.Sprintf(" %s — Board · stages %d–%d of 6", subheadline, start+1, end)
 		subtitle := strings.TrimSuffix(stripANSI(strings.Split(view, "\n")[1]), "…")
 		if !strings.HasPrefix(full, subtitle) {
 			t.Errorf("col %d: subtitle %q is not a width-fitted prefix of %q", col, subtitle, full)
@@ -752,10 +750,6 @@ func TestListSubtitlesFitTerminalWidth(t *testing.T) {
 			}
 			if !strings.Contains(subtitle, want) {
 				t.Errorf("%s %dx%d: subtitle %q lost its surface name", surface.name, dim.w, dim.h, subtitle)
-			}
-			if !strings.HasSuffix(subtitle, "…") {
-				t.Errorf("%s %dx%d: expected the truncated subtitle to end in an ellipsis, got %q",
-					surface.name, dim.w, dim.h, subtitle)
 			}
 		}
 	}

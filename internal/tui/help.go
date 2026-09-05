@@ -19,6 +19,14 @@ func tuiHelpKey(keys, description string) bubbleskey.Binding {
 	return bubbleskey.NewBinding(bubbleskey.WithKeys(keys), bubbleskey.WithHelp(keys, description))
 }
 
+func (m Model) searchHelpKeyMap() help.KeyMap {
+	bindings := []bubbleskey.Binding{
+		tuiHelpKey("enter", "keep filter"),
+		tuiHelpKey("esc", "clear"),
+	}
+	return tuiKeyMap{short: bindings, full: [][]bubbleskey.Binding{bindings}}
+}
+
 func (m Model) helpKeyMap(v View) help.KeyMap {
 	common := []bubbleskey.Binding{
 		tuiHelpKey("q", "quit"),
