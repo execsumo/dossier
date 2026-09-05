@@ -2101,7 +2101,7 @@ func TestTUI_FooterSequenceConsistency(t *testing.T) {
 	m.currentView = ViewKanban
 	m.listView = ViewKanban
 	boardView := stripANSI(m.View())
-	assertOrdered("board", boardView, []string{"/ search", "f filters", "v dashboard", "q quit", "? more help"})
+	assertOrdered("board", boardView, []string{"/ search", "f filters", "v view", "q quit", "? more help"})
 	// Link and merge want a list to pick a target from; the board is not one.
 	assertAbsent("board", boardView, []string{"k: link", "m: merge", "n: next action"})
 
@@ -2117,9 +2117,10 @@ func TestTUI_FooterSequenceConsistency(t *testing.T) {
 	}
 
 	detailView := stripANSI(m.View())
-	assertOrdered("detail", detailView, []string{"a artifacts", "v view", "q quit", "? more help"})
-	// Filtering and the board toggle are list-surface verbs.
-	assertAbsent("detail", detailView, []string{"f: filters", "b: board", "/: search"})
+	assertOrdered("detail", detailView, []string{"v view", "q quit", "? more help"})
+	// Filtering and the board toggle are list-surface verbs; artifacts is
+	// dropped from the compact footer but remains in the expanded (?) help.
+	assertAbsent("detail", detailView, []string{"f: filters", "b: board", "/: search", "a artifacts"})
 }
 
 func TestTUI_FooterConvergenceAtTerminalBottom(t *testing.T) {
