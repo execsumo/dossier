@@ -22,14 +22,14 @@ var ErrNoSessionID = errors.New("no session id available: the harness did not pr
 //  2. CLAUDE_CODE_SESSION_ID — set by Claude Code in each session's process env;
 //     verified identical to the transcript UUID and the hook stdin session_id, so a
 //     binding written here lines up with what the session-start/end hooks read.
-//  3. PI_SESSION_ID — set by Pi, but only in the bash tool's spawn environment,
-//     so it is present for `dossier ...` run by the agent and absent everywhere
-//     else (see 4).
-//  4. Pi session pointer — the file the bundled Dossier Pi extension publishes
+//  3. Pi session pointer — the file the bundled Dossier Pi extension publishes
 //     for the owning Pi process, found by walking this process's ancestry. This
 //     is the path an MCP server (or any process Pi did not spawn through the
-//     bash tool) resolves by, and it stays correct across /new, /resume and
-//     /fork, which a spawn-time environment snapshot cannot.
+//     bash tool) resolves by. It takes precedence over the inherited environment
+//     because it is refreshed on every session start, whereas Pi's spawn env is
+//     frozen and shadows live state after a /new or /resume.
+//  4. PI_SESSION_ID — set by Pi, but only in the bash tool's spawn environment.
+//     Only consulted if no pointer resolves.
 //  5. DOSSIER_SESSION — manual / power-user override.
 //  6. DefaultSessionID — only when allowDefault is true (CLI manual use).
 //
@@ -54,11 +54,11 @@ func ResolveSession(explicit string, allowDefault bool) (id string, harnessName 
 	if v := os.Getenv("CLAUDE_CODE_SESSION_ID"); v != "" {
 		return v, "claude-code", nil
 	}
-	if v := os.Getenv("PI_SESSION_ID"); v != "" {
-		return v, "pi", nil
-	}
 	if p, ok := LookupPiSessionPointer(); ok {
 		return p.SessionID, "pi", nil
+	}
+	if v := os.Getenv("PI_SESSION_ID"); v != "" {
+		return v, "pi", nil
 	}
 	if v := os.Getenv("DOSSIER_SESSION"); v != "" {
 		return v, "", nil

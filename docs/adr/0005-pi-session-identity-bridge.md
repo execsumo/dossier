@@ -45,8 +45,8 @@ Dossier resolves the pointer by walking its own **process ancestry** (procfs,
 `ps` fallback, depth-bounded) until it finds the pointer belonging to the Pi
 process that owns it. The session-id ladder becomes:
 
-1. explicit → 2. `CLAUDE_CODE_SESSION_ID` → 3. `PI_SESSION_ID` →
-**4. Pi session pointer** → 5. `DOSSIER_SESSION` → 6. `sess_default`
+1. explicit → 2. `CLAUDE_CODE_SESSION_ID` → **3. Pi session pointer** →
+4. `PI_SESSION_ID` → 5. `DOSSIER_SESSION` → 6. `sess_default`
 (CLI/TUI only; never MCP).
 
 Resolution also **names its source**, and `Service.Switch` records that harness
@@ -85,3 +85,9 @@ doctor` surface "Pi is installed but cannot give Dossier a session id yet; run
   unavailable rather than implied, and is the next piece of Pi work.
 - macOS/Linux only, as elsewhere in v1: ancestry uses procfs with a `ps`
   fallback.
+
+## Amended 2026-09-05
+The resolution ladder was inverted to `3. Pi session pointer → 4. PI_SESSION_ID`
+because the extension's environment mirroring creates frozen snapshotted variables
+that survive `/new`, `/resume`, and `/fork`. The pointer is rewritten on every
+session start and is therefore never less fresh than the environment.

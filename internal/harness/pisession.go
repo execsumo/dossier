@@ -29,6 +29,7 @@ type PiSessionPointer struct {
 	SessionID   string `json:"session_id"`
 	SessionFile string `json:"session_file,omitempty"`
 	CWD         string `json:"cwd,omitempty"`
+	Hostname    string `json:"hostname,omitempty"`
 	Reason      string `json:"reason,omitempty"`
 	UpdatedAt   string `json:"updated_at,omitempty"`
 }
@@ -98,6 +99,12 @@ func readPiSessionPointer(dir string, pid int) (*PiSessionPointer, bool) {
 	}
 	if p.SessionID == "" || p.Schema > PiPointerSchema {
 		return nil, false
+	}
+	if p.Hostname != "" {
+		host, err := os.Hostname()
+		if err == nil && p.Hostname != host {
+			return nil, false
+		}
 	}
 	return &p, true
 }

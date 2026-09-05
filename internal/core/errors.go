@@ -1,6 +1,9 @@
 package core
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // ErrorCode represents a domain error code mapped to SPEC §8.2.
 type ErrorCode string
@@ -53,3 +56,6 @@ func WrapError(code ErrorCode, message string, err error) *DomainError {
 		Err:     err,
 	}
 }
+
+// ErrInstallSkipped means the adapter deliberately wrote nothing.
+var ErrInstallSkipped = errors.New("install skipped")

@@ -224,6 +224,11 @@ func NewRootCmd() *cobra.Command {
 			for _, warning := range res.Warnings {
 				fmt.Printf("Warning: %s\n", warning)
 			}
+			// A skipped install wrote nothing. Exiting 0 would let a pipeline read
+			// "no terminal to confirm on" as a successful install.
+			if !res.OK {
+				os.Exit(1)
+			}
 		},
 	}
 	harnessInstallCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Skip confirmation prompts")
@@ -1410,13 +1415,20 @@ func NewRootCmd() *cobra.Command {
 				return err
 			}
 
-			_, err = svc.Switch(ctx, core.SwitchReq{
-				ID:          args[0],
-				SessionID:   sessionID,
-				HarnessName: openWith,
-			})
-			if err != nil {
-				return err
+			if openWith != "pi" {
+				_, err = svc.Switch(ctx, core.SwitchReq{
+					ID:          args[0],
+					SessionID:   sessionID,
+					HarnessName: openWith,
+				})
+				if err != nil {
+					return err
+				}
+			} else {
+				// Pi mints its own session id and ignores an inherited one, so there is
+				// nothing to pre-bind to. Name the CLI first: Pi ships no MCP client, so
+				// `dossier_session` only exists if the user runs an MCP adapter extension.
+				fmt.Fprintln(cmd.ErrOrStderr(), "Notice: Pi mints its own session id, so this dossier was not pre-bound. The agent binds it on its first `dossier switch` call (or `dossier_session`, if an MCP adapter extension is installed).")
 			}
 
 			agent := plan.Command()

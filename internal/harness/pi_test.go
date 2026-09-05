@@ -3,9 +3,11 @@ package harness
 import (
 	"dossier/assets"
 	"dossier/internal/core"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -225,8 +227,9 @@ func TestPiHarnessInstallBacksUpModifiedExtension(t *testing.T) {
 func TestPiHarnessInstallSkipsWithoutConfirmation(t *testing.T) {
 	agentDir := piTestEnv(t)
 
-	if err := NewPiHarness("/tmp/dossier").Install(core.InstallOpts{}); err != nil {
-		t.Fatalf("install failed: %v", err)
+	err := NewPiHarness("/tmp/dossier").Install(core.InstallOpts{})
+	if err == nil || !errors.Is(err, core.ErrInstallSkipped) {
+		t.Fatalf("expected ErrInstallSkipped, got %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(agentDir, "extensions", "dossier", "index.ts")); !os.IsNotExist(err) {
 		t.Error("extension should not be written without confirmation")
@@ -244,10 +247,53 @@ func TestPiHarnessInstallNoOpWithoutPi(t *testing.T) {
 	t.Setenv("PI_CODING_AGENT", "")
 	t.Setenv("PI_SESSION_ID", "")
 
-	if err := NewPiHarness("/tmp/dossier").Install(core.InstallOpts{YesToAll: true}); err != nil {
-		t.Fatalf("expected a no-op, got %v", err)
+	err := NewPiHarness("/tmp/dossier").Install(core.InstallOpts{YesToAll: true})
+	if err == nil || !errors.Is(err, core.ErrInstallSkipped) {
+		t.Fatalf("expected ErrInstallSkipped, got %v", err)
 	}
 	if _, err := os.Stat(missing); !os.IsNotExist(err) {
 		t.Error("Install must not create a Pi agent directory")
+	}
+}
+
+func TestPiHarnessPostInstallNotesOnFirstInstall(t *testing.T) {
+	piTestEnv(t)
+	h := NewPiHarness("/tmp/dossier")
+
+	if err := h.Install(core.InstallOpts{YesToAll: true}); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+
+	notes := h.PostInstallNotes()
+	if len(notes) == 0 {
+		t.Fatal("expected post-install notes on first install, got none")
+	}
+	found := false
+	for _, n := range notes {
+		if strings.Contains(n, "restart Pi") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected restart advice, got notes: %v", notes)
+	}
+}
+
+func TestPiHarnessPostInstallNotesEmptyOnIdempotentInstall(t *testing.T) {
+	piTestEnv(t)
+	h := NewPiHarness("/tmp/dossier")
+
+	if err := h.Install(core.InstallOpts{YesToAll: true}); err != nil {
+		t.Fatalf("first install failed: %v", err)
+	}
+
+	if err := h.Install(core.InstallOpts{YesToAll: true}); err != nil {
+		t.Fatalf("second install failed: %v", err)
+	}
+
+	notes := h.PostInstallNotes()
+	if len(notes) != 0 {
+		t.Errorf("expected no post-install notes on idempotent install, got: %v", notes)
 	}
 }

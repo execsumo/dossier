@@ -38,10 +38,13 @@ type transcriptRecord struct {
 	Type    string `json:"type"`
 	Subtype string `json:"subtype"`
 	Message *struct {
-		Role    string          `json:"role"`
-		Content json.RawMessage `json:"content"`
+		Role       string          `json:"role"`
+		Content    json.RawMessage `json:"content"`
+		ToolCallID string          `json:"toolCallId"`
+		ToolName   string          `json:"toolName"`
 	} `json:"message"`
 	Content   json.RawMessage `json:"content"`
+	Summary   string          `json:"summary"`
 	Timestamp string          `json:"timestamp"`
 }
 
@@ -55,6 +58,7 @@ type transcriptBlock struct {
 	Input     json.RawMessage `json:"input"`
 	ToolUseID string          `json:"tool_use_id"`
 	Content   json.RawMessage `json:"content"`
+	Arguments json.RawMessage `json:"arguments"`
 }
 
 // nonContentRecordTypes are harness bookkeeping records that carry no
@@ -124,9 +128,13 @@ func CompileTranscript(raw string) (string, ContentFormat, []Warning) {
 			continue
 		}
 		recNodes, recUnknown := recordNodes(rec)
-		nodes = append(nodes, recNodes...)
-		for t, n := range recUnknown {
-			unknownBlock[t] += n
+		if len(recNodes) == 0 {
+			nonContent[rec.Type]++
+		} else {
+			nodes = append(nodes, recNodes...)
+			for t, n := range recUnknown {
+				unknownBlock[t] += n
+			}
 		}
 	}
 
@@ -181,6 +189,10 @@ func CompileTranscript(raw string) (string, ContentFormat, []Warning) {
 // recordNodes lowers one JSONL record into zero or more IR nodes, plus a
 // tally of block types that required a raw-JSON representation.
 func recordNodes(rec transcriptRecord) ([]TranscriptNode, map[string]int) {
+	if rec.Type == "compaction" && rec.Summary != "" {
+		return []TranscriptNode{{Role: TranscriptRoleSystem, Lines: splitLines(rec.Summary)}}, nil
+	}
+
 	content := rec.Content
 	role := rec.Type
 	if rec.Message != nil {
@@ -201,7 +213,16 @@ func recordNodes(rec transcriptRecord) ([]TranscriptNode, map[string]int) {
 		if strings.TrimSpace(text) == "" {
 			return nil, nil
 		}
-		return []TranscriptNode{{Role: normalizeRole(role), Lines: splitLines(text)}}, nil
+		node := TranscriptNode{Role: normalizeRole(role), Lines: splitLines(text)}
+		if node.Role == TranscriptRoleToolResult && rec.Message != nil {
+			if rec.Message.ToolCallID != "" {
+				node.Ref = rec.Message.ToolCallID
+			}
+			if rec.Message.ToolName != "" {
+				node.Label = rec.Message.ToolName
+			}
+		}
+		return []TranscriptNode{node}, nil
 	}
 
 	var rawBlocks []json.RawMessage
@@ -220,6 +241,14 @@ func recordNodes(rec transcriptRecord) ([]TranscriptNode, map[string]int) {
 		}
 		n, blockUnknown, ok := blockNode(b, role, rawBlock)
 		if ok {
+			if n.Role == TranscriptRoleToolResult && rec.Message != nil {
+				if n.Ref == "" && rec.Message.ToolCallID != "" {
+					n.Ref = rec.Message.ToolCallID
+				}
+				if n.Label == "" && rec.Message.ToolName != "" {
+					n.Label = rec.Message.ToolName
+				}
+			}
 			nodes = append(nodes, n)
 		}
 		addTranscriptCounts(unknown, blockUnknown)
@@ -249,6 +278,14 @@ func blockNode(b transcriptBlock, parentRole string, raw json.RawMessage) (Trans
 			Label: b.Name,
 			Ref:   b.ID,
 			Lines: renderToolInput(b.Input),
+		}, nil, true
+
+	case "toolCall":
+		return TranscriptNode{
+			Role:  TranscriptRoleToolCall,
+			Label: b.Name,
+			Ref:   b.ID,
+			Lines: renderToolInput(b.Arguments),
 		}, nil, true
 
 	case "tool_result":
@@ -358,6 +395,8 @@ func normalizeRole(role string) string {
 	switch role {
 	case TranscriptRoleUser, TranscriptRoleAssistant, TranscriptRoleSystem:
 		return role
+	case "toolResult":
+		return TranscriptRoleToolResult
 	case "":
 		return TranscriptRoleSystem
 	default:

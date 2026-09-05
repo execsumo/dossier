@@ -100,6 +100,48 @@ func TestPlanCursorHandoff(t *testing.T) {
 	}
 }
 
+func TestPlanPiHandoff(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "pi")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Prepend dir to PATH so pathBin finds it
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	plan, err := PlanOpenWith("pi", LaunchRequest{
+		SessionID:  "pi-session",
+		DossierDir: "/tmp/dossier/project",
+		Name:       "Project",
+		Slug:       "project",
+	})
+	if err != nil {
+		t.Fatalf("PlanOpenWith(pi): %v", err)
+	}
+
+	if len(plan.Env) != 3 {
+		t.Fatalf("Env = %v, want exactly 3 clears", plan.Env)
+	}
+
+	want := map[string]bool{
+		"PI_SESSION_ID=":          false,
+		"PI_SESSION_FILE=":        false,
+		"CLAUDE_CODE_SESSION_ID=": false,
+	}
+	for _, env := range plan.Env {
+		if _, ok := want[env]; ok {
+			want[env] = true
+		} else {
+			t.Errorf("Unexpected env item %q", env)
+		}
+	}
+	for k, v := range want {
+		if !v {
+			t.Errorf("Missing expected env clear %q", k)
+		}
+	}
+}
+
 func TestPlanOpenWithCursorResolvesConfiguredBinary(t *testing.T) {
 	dir := t.TempDir()
 	fake := filepath.Join(dir, "cursor-agent")
