@@ -47,6 +47,64 @@ func TestFSStoreInit(t *testing.T) {
 	}
 }
 
+// TestFSStoreListReportsOpenDelegationContract guards that List derives the
+// open-ask signal from the same file read it already does to get frontmatter,
+// rather than requiring (or silently skipping) a second read over the body.
+func TestFSStoreListReportsOpenDelegationContract(t *testing.T) {
+	home := t.TempDir()
+	store := NewFSStore(home)
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	now := time.Now().Truncate(time.Second)
+
+	open := &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID: "dos_open", Name: "Has Open Ask", Slug: "has-open-ask",
+			CreatedAt: now, UpdatedAt: now, Status: core.StatusDelegated, Priority: core.PriorityHigh,
+		},
+		DistilledState: core.DistilledState{Body: "" +
+			"## Delegation Contracts\n" +
+			"### Task — owner: A, agreed 2026-01-01\n" +
+			"- Objective: [decided] Do it.\n" +
+			"- Context: [decided] Context.\n" +
+			"- Success Criteria: [decided] Criteria.\n" +
+			"- Validation: [decided] Validation.\n" +
+			"- Constraints: [decided] Constraint.\n" +
+			"- Decision Rights: [decided] Rights.\n" +
+			"- Escalation: [proposed] Not yet discussed.\n",
+		},
+	}
+	closed := &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID: "dos_closed", Name: "No Open Ask", Slug: "no-open-ask",
+			CreatedAt: now, UpdatedAt: now, Status: core.StatusDelegated, Priority: core.PriorityHigh,
+		},
+		DistilledState: core.DistilledState{Body: "## Situation\nNothing delegated.\n"},
+	}
+	if _, err := store.Write(open, ""); err != nil {
+		t.Fatalf("Write(open) error = %v", err)
+	}
+	if _, err := store.Write(closed, ""); err != nil {
+		t.Fatalf("Write(closed) error = %v", err)
+	}
+
+	list, err := store.List("all")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	got := map[string]bool{}
+	for _, fm := range list {
+		got[fm.ID] = fm.HasOpenDelegationContract
+	}
+	if !got["dos_open"] {
+		t.Error("expected dos_open to report HasOpenDelegationContract = true")
+	}
+	if got["dos_closed"] {
+		t.Error("expected dos_closed to report HasOpenDelegationContract = false")
+	}
+}
+
 func TestParseDossierFileRejectsHistoricalAliases(t *testing.T) {
 	content := `---
 id: dos_alias

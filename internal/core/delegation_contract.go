@@ -163,6 +163,20 @@ func ParseDelegationContracts(body string) []DelegationContract {
 	return contracts
 }
 
+// HasOpenDelegationContract reports whether body's Delegation Contracts
+// section (if any) contains at least one contract with a field that isn't yet
+// [decided] — the cheap per-dossier attention signal a list surface (TUI
+// dashboard/board) can show without opening the dossier, computed from a body
+// the caller already had in hand rather than a second read.
+func HasOpenDelegationContract(body string) bool {
+	for _, c := range ParseDelegationContracts(body) {
+		if !c.Complete() {
+			return true
+		}
+	}
+	return false
+}
+
 // orderContractFields returns fields reordered (and gap-filled) to match
 // contractFieldLabels exactly, so a caller can always render or index the
 // same seven positions regardless of how the source text was written.

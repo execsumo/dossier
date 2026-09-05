@@ -8,12 +8,24 @@ import (
 // Revision represents a content revision hash.
 type Revision string
 
+// ListedFrontmatter pairs a dossier's frontmatter with signals a Store already
+// has in hand from the same file read it did to get the frontmatter, so a
+// caller needing them doesn't force a second read over the Archive. Today
+// that's just the open-delegation-ask marker, derived from a body a List
+// implementation already had to read and parse to extract Frontmatter.
+type ListedFrontmatter struct {
+	Frontmatter
+	// HasOpenDelegationContract reports whether any `## Delegation Contracts`
+	// block in the body has a field that isn't yet [decided] (guide.md §4).
+	HasOpenDelegationContract bool
+}
+
 // Store defines the CRUD contract for persistence.
 type Store interface {
 	Init() error
 	Read(slugOrID string) (*Dossier, Revision, error)
 	ReadRevision(slugOrID string, rev Revision) (*Dossier, error)
-	List(statusFilter string) ([]Frontmatter, error)
+	List(statusFilter string) ([]ListedFrontmatter, error)
 	Write(d *Dossier, base Revision) (Revision, error)
 	// RenameSlug is the legacy slug-only store operation. Service.Rename uses
 	// Renamer when a title and/or slug change must be committed atomically.

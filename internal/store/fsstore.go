@@ -88,7 +88,7 @@ func (s *FSStore) Init() error {
 }
 
 // List scans the store for Dossier frontmatters.
-func (s *FSStore) List(statusFilter string) ([]core.Frontmatter, error) {
+func (s *FSStore) List(statusFilter string) ([]core.ListedFrontmatter, error) {
 	entries, err := os.ReadDir(s.dossierHome)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -97,7 +97,7 @@ func (s *FSStore) List(statusFilter string) ([]core.Frontmatter, error) {
 		return nil, err
 	}
 
-	var list []core.Frontmatter
+	var list []core.ListedFrontmatter
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -114,13 +114,19 @@ func (s *FSStore) List(statusFilter string) ([]core.Frontmatter, error) {
 			continue
 		}
 
-		fm, _, err := ParseDossierFile(string(data))
+		// The full file (frontmatter and body) is already read and parsed here
+		// just to extract fm, so deriving the open-delegation-ask signal from
+		// the same body costs no extra I/O over a second pass.
+		fm, body, err := ParseDossierFile(string(data))
 		if err != nil {
 			continue
 		}
 
 		if statusFilter == "all" || string(fm.Status) == statusFilter || fm.Status == core.NormalizeStatus(core.Status(statusFilter)) {
-			list = append(list, *fm)
+			list = append(list, core.ListedFrontmatter{
+				Frontmatter:               *fm,
+				HasOpenDelegationContract: core.HasOpenDelegationContract(body),
+			})
 		}
 	}
 	return list, nil

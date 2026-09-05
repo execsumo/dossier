@@ -122,6 +122,43 @@ func TestParseDelegationContracts_UntaggedField(t *testing.T) {
 	}
 }
 
+func TestHasOpenDelegationContract(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"no section", "## Situation\nNothing here.\n", false},
+		{"fully decided", "" +
+			"## Delegation Contracts\n" +
+			"### Task — owner: A, agreed 2026-01-01\n" +
+			"- Objective: [decided] X.\n" +
+			"- Context: [decided] X.\n" +
+			"- Success Criteria: [decided] X.\n" +
+			"- Validation: [decided] X.\n" +
+			"- Constraints: [decided] X.\n" +
+			"- Decision Rights: [decided] X.\n" +
+			"- Escalation: [decided] X.\n", false},
+		{"one proposed field", "" +
+			"## Delegation Contracts\n" +
+			"### Task — owner: A, agreed 2026-01-01\n" +
+			"- Objective: [decided] X.\n" +
+			"- Context: [decided] X.\n" +
+			"- Success Criteria: [decided] X.\n" +
+			"- Validation: [decided] X.\n" +
+			"- Constraints: [decided] X.\n" +
+			"- Decision Rights: [decided] X.\n" +
+			"- Escalation: [proposed] Not yet discussed.\n", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := HasOpenDelegationContract(tc.body); got != tc.want {
+				t.Errorf("HasOpenDelegationContract() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestParseDelegationContracts_MultipleContractsAndSectionBoundary(t *testing.T) {
 	body := "" +
 		"## Situation\nBackground.\n" +

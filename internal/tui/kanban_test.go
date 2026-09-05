@@ -506,6 +506,26 @@ func TestKanbanCardsShowAssignedLeadAsLastRow(t *testing.T) {
 	}
 }
 
+// TestRenderCardMarksOpenDelegationAsk checks the marker's text and position;
+// its color (lipgloss.Foreground(vibrantRed) in renderCard) isn't asserted
+// here since go test runs without a TTY and lipgloss's color profile
+// detection strips it, same as every other stripANSI-based test in this file.
+func TestRenderCardMarksOpenDelegationAsk(t *testing.T) {
+	item := core.ListItem{ID: "d1", Name: "Pricing Topic"}
+
+	plain := stripANSI(renderCard(item, 30, false, false))
+	if strings.Contains(plain, "!") {
+		t.Fatalf("unmarked card should not show the open-ask marker, got:\n%s", plain)
+	}
+
+	flagged := item
+	flagged.HasOpenDelegationContract = true
+	marked := stripANSI(renderCard(flagged, 30, false, false))
+	if !strings.Contains(marked, "! Pricing Topic") {
+		t.Fatalf("expected marked card to show '! Pricing Topic', got:\n%s", marked)
+	}
+}
+
 func TestKanbanToggleAndTextInputIsolation(t *testing.T) {
 	store := newTestStore()
 	seedDossier(store, "s1", "Spark One", core.StatusSpark)

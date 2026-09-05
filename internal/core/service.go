@@ -80,6 +80,10 @@ type ListItem struct {
 	Priority    string   `json:"priority"`
 	DueDate     string   `json:"due_date,omitempty"`
 	Path        string   `json:"path"`
+	// HasOpenDelegationContract reports whether any Delegation Contract block
+	// (guide.md §4) has a field that isn't yet [decided] — an attention signal
+	// a list surface can show without opening the dossier.
+	HasOpenDelegationContract bool `json:"has_open_delegation_contract"`
 }
 
 type SyncStatusData struct {
@@ -1944,22 +1948,31 @@ func priorityBefore(a, b Priority) bool {
 	}
 }
 
+// frontmatterLess is the shared dashboard/library ordering: priority, then due
+// date (undated last), then most-recently-updated last within a tie.
+func frontmatterLess(a, b Frontmatter) bool {
+	if a.Priority != b.Priority {
+		return priorityBefore(a.Priority, b.Priority)
+	}
+	if a.DueDate != b.DueDate {
+		if a.DueDate == "" {
+			return false
+		}
+		if b.DueDate == "" {
+			return true
+		}
+		return a.DueDate < b.DueDate
+	}
+	return a.UpdatedAt.Before(b.UpdatedAt)
+}
+
 func sortFrontmatters(items []Frontmatter) {
+	sort.SliceStable(items, func(i, j int) bool { return frontmatterLess(items[i], items[j]) })
+}
+
+func sortListedFrontmatters(items []ListedFrontmatter) {
 	sort.SliceStable(items, func(i, j int) bool {
-		a, b := items[i], items[j]
-		if a.Priority != b.Priority {
-			return priorityBefore(a.Priority, b.Priority)
-		}
-		if a.DueDate != b.DueDate {
-			if a.DueDate == "" {
-				return false
-			}
-			if b.DueDate == "" {
-				return true
-			}
-			return a.DueDate < b.DueDate
-		}
-		return a.UpdatedAt.Before(b.UpdatedAt)
+		return frontmatterLess(items[i].Frontmatter, items[j].Frontmatter)
 	})
 }
 
@@ -1969,7 +1982,7 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 		return Result{OK: false}, WrapError(ErrInternal, "failed to list dossiers", err)
 	}
 
-	var filtered []Frontmatter
+	var filtered []ListedFrontmatter
 	query := NewQuery(req.Query)
 	for _, fm := range fms {
 		if !matchesInterfaces(fm.Interfaces, req.Interfaces) {
@@ -1993,23 +2006,24 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 		}
 	}
 
-	sortFrontmatters(filtered)
+	sortListedFrontmatters(filtered)
 
 	var items []ListItem
 	for _, fm := range filtered {
 		dossierPath := filepath.Join(s.cfg.DossierHome, fm.Slug)
 		items = append(items, ListItem{
-			ID:          fm.ID,
-			Name:        fm.Name,
-			Slug:        fm.Slug,
-			Status:      string(fm.Status),
-			Description: fm.Description,
-			Lead:        fm.Lead,
-			Interfaces:  append([]string(nil), fm.Interfaces...),
-			NextAction:  fm.NextAction,
-			Priority:    string(fm.Priority),
-			DueDate:     fm.DueDate,
-			Path:        dossierPath,
+			ID:                        fm.ID,
+			Name:                      fm.Name,
+			Slug:                      fm.Slug,
+			Status:                    string(fm.Status),
+			Description:               fm.Description,
+			Lead:                      fm.Lead,
+			Interfaces:                append([]string(nil), fm.Interfaces...),
+			NextAction:                fm.NextAction,
+			Priority:                  string(fm.Priority),
+			DueDate:                   fm.DueDate,
+			Path:                      dossierPath,
+			HasOpenDelegationContract: fm.HasOpenDelegationContract,
 		})
 	}
 
@@ -2051,13 +2065,13 @@ func (s *Service) ContextRefresh(ctx context.Context) (Result, error) {
 	}
 
 	// Filter and sort open dossiers (non-archived) by canonical priority.
-	var openDossierFrontmatter []Frontmatter
+	var openDossierFrontmatter []ListedFrontmatter
 	for _, fm := range fms {
 		if fm.Status != StatusArchived {
 			openDossierFrontmatter = append(openDossierFrontmatter, fm)
 		}
 	}
-	sortFrontmatters(openDossierFrontmatter)
+	sortListedFrontmatters(openDossierFrontmatter)
 
 	var openDossiers []LibraryDossier
 	for _, fm := range openDossierFrontmatter {
@@ -2276,7 +2290,7 @@ func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, e
 		return "", err
 	}
 
-	sortFrontmatters(fms)
+	sortListedFrontmatters(fms)
 	var names []string
 	for _, fm := range fms {
 		if fm.Status != StatusArchived {

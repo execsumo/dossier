@@ -2011,7 +2011,16 @@ func itemTableRow(item core.ListItem, showPriority, showDue bool) table.Row {
 		}
 	}
 
-	row := table.Row{item.Name}
+	// Plain text, deliberately not colored: bubbles/table truncates cell values
+	// with go-runewidth before applying its own (selected-row) styling, and a
+	// raw ANSI escape baked into the value here risks being cut mid-sequence or
+	// bleeding past its reset into the rest of that row's styling. Shape and
+	// position carry the signal instead of color.
+	name := item.Name
+	if item.HasOpenDelegationContract {
+		name = "! " + name
+	}
+	row := table.Row{name}
 	if showPriority {
 		row = append(row, priorityStr)
 	}

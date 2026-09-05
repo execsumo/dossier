@@ -222,10 +222,13 @@ func (f *localFakeStore) ReadRevision(id string, rev Revision) (*Dossier, error)
 	cp := *d
 	return &cp, nil
 }
-func (f *localFakeStore) List(filter string) ([]Frontmatter, error) {
-	var list []Frontmatter
+func (f *localFakeStore) List(filter string) ([]ListedFrontmatter, error) {
+	var list []ListedFrontmatter
 	for _, d := range f.dossiers {
-		list = append(list, d.Frontmatter)
+		list = append(list, ListedFrontmatter{
+			Frontmatter:               d.Frontmatter,
+			HasOpenDelegationContract: HasOpenDelegationContract(d.DistilledState.Body),
+		})
 	}
 	return list, nil
 }

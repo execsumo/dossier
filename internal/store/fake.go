@@ -77,11 +77,14 @@ func (f *FakeStore) ReadRevision(slugOrID string, rev core.Revision) (*core.Doss
 	return nil, core.NewError(core.ErrNotFound, fmt.Sprintf("revision %s not found in fake store", rev))
 }
 
-func (f *FakeStore) List(statusFilter string) ([]core.Frontmatter, error) {
-	list := []core.Frontmatter{}
+func (f *FakeStore) List(statusFilter string) ([]core.ListedFrontmatter, error) {
+	list := []core.ListedFrontmatter{}
 	for _, d := range f.Dossiers {
 		if statusFilter == "all" || string(d.Frontmatter.Status) == statusFilter {
-			list = append(list, d.Frontmatter)
+			list = append(list, core.ListedFrontmatter{
+				Frontmatter:               d.Frontmatter,
+				HasOpenDelegationContract: core.HasOpenDelegationContract(d.DistilledState.Body),
+			})
 		}
 	}
 	return list, nil

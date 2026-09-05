@@ -311,10 +311,13 @@ func (s *testStore) ReadRevision(id string, rev core.Revision) (*core.Dossier, e
 	return d, err
 }
 
-func (s *testStore) List(filter string) ([]core.Frontmatter, error) {
-	var list []core.Frontmatter
+func (s *testStore) List(filter string) ([]core.ListedFrontmatter, error) {
+	var list []core.ListedFrontmatter
 	for _, d := range s.dossiers {
-		list = append(list, d.Frontmatter)
+		list = append(list, core.ListedFrontmatter{
+			Frontmatter:               d.Frontmatter,
+			HasOpenDelegationContract: core.HasOpenDelegationContract(d.DistilledState.Body),
+		})
 	}
 	return list, nil
 }
@@ -2589,6 +2592,22 @@ func TestTUI_TableColumnSequence(t *testing.T) {
 		if row[i] != expected {
 			t.Errorf("cell %d: expected %q, got %q", i, expected, row[i])
 		}
+	}
+}
+
+func TestItemTableRowMarksOpenDelegationAsk(t *testing.T) {
+	base := core.ListItem{ID: "dos1", Name: "Alpha", Priority: "high", Status: "active", Lead: "Alice"}
+
+	plain := itemTableRow(base, true, false)
+	if plain[0] != "Alpha" {
+		t.Errorf("expected unmarked name %q, got %q", "Alpha", plain[0])
+	}
+
+	flagged := base
+	flagged.HasOpenDelegationContract = true
+	marked := itemTableRow(flagged, true, false)
+	if marked[0] != "! Alpha" {
+		t.Errorf("expected open-ask marker prefix, got %q", marked[0])
 	}
 }
 

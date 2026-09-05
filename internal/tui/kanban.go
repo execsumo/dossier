@@ -327,7 +327,21 @@ func renderCard(item core.ListItem, colWidth int, selected, showDescription bool
 		inner = 1
 	}
 
-	lines := []string{kanbanCardTitleStyle.Render(truncateCell(item.Name, inner))}
+	// The open-ask marker reserves its own two cells ("! ") out of the title's
+	// budget rather than being appended to item.Name before truncation: the
+	// marker is a separately-closed styled span, so it composes safely with
+	// the border style's width padding, while a colored substring baked into
+	// the name itself would risk being cut mid-escape-sequence by truncation.
+	titleWidth := inner
+	marker := ""
+	if item.HasOpenDelegationContract {
+		marker = lipgloss.NewStyle().Foreground(vibrantRed).Bold(true).Render("!") + " "
+		titleWidth = inner - 2
+		if titleWidth < 1 {
+			titleWidth = 1
+		}
+	}
+	lines := []string{marker + kanbanCardTitleStyle.Render(truncateCell(item.Name, titleWidth))}
 	if showDescription && item.Description != "" {
 		desc := wrapCell(item.Description, inner)
 		if len(desc) > kanbanMaxDescLines {
