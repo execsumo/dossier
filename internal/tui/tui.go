@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"dossier/internal/config"
 	"dossier/internal/core"
 	"dossier/internal/harness"
 
@@ -224,9 +225,10 @@ type recallDossierMsg struct {
 	warnings []core.Warning
 }
 type mutationResultMsg struct {
-	err      error
-	prevView View
-	targetID string
+	err       error
+	prevView  View
+	targetID  string
+	addedLead string
 }
 type renameSlugResultMsg struct {
 	err      error
@@ -314,6 +316,7 @@ type Model struct {
 	interfaceFilter      interfaceFilter
 	configuredLeads      []string
 	configuredInterfaces []string
+	leadSearchInput      textinput.Model
 	searchInput          textinput.Model
 	searchActive         bool
 	searchQuery          core.Query
@@ -353,6 +356,8 @@ type Model struct {
 	editStatus          core.Status
 	editPriority        core.Priority
 	editLead            string
+	editLeadCustom      bool
+	editLeadCustomInput textinput.Model
 	editInterfaces      []string
 	editInterfaceCursor int
 	dueDateInput        textinput.Model
@@ -397,10 +402,11 @@ type Model struct {
 	// Seams for the configured agent handoff, defaulted in NewModel. They exist
 	// so tests can press 'c' without an agent binary on PATH and without ever
 	// spawning a process.
-	openWith     string
-	planOpenWith func(string, harness.LaunchRequest) (harness.HandoffPlan, error)
-	execProcess  func(*exec.Cmd, tea.ExecCallback) tea.Cmd
-	openURL      func(string) tea.Cmd
+	persistConfiguredLead func(string) error
+	openWith              string
+	planOpenWith          func(string, harness.LaunchRequest) (harness.HandoffPlan, error)
+	execProcess           func(*exec.Cmd, tea.ExecCallback) tea.Cmd
+	openURL               func(string) tea.Cmd
 
 	watcher      *fsnotify.Watcher
 	updateChan   chan string
@@ -451,6 +457,9 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 	avp := viewport.New(0, 0)
 	cvp := viewport.New(0, 0)
 
+	leadSearchInput := textinput.New()
+	leadSearchInput.Placeholder = "Search leads…"
+	leadSearchInput.Width = 32
 	searchInput := textinput.New()
 	searchInput.Placeholder = "Search dossiers…"
 	searchInput.Width = 40
@@ -498,6 +507,7 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		artifactViewport:     avp,
 		conflictViewport:     cvp,
 		loading:              true,
+		leadSearchInput:      leadSearchInput,
 		searchInput:          searchInput,
 		help:                 helpView,
 		renameSlugInput:      renameSlugInput,
@@ -509,9 +519,36 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		watchedPaths:         map[string]bool{},
 		openWith:             openWith,
 		planOpenWith:         harness.PlanOpenWith,
-		execProcess:          tea.ExecProcess,
-		openURL:              launchExternalURL,
+		persistConfiguredLead: func(name string) error {
+			return persistLeadToConfig(filepath.Join(svc.DossierHome(), "config.yaml"), name)
+		},
+		execProcess: tea.ExecProcess,
+		openURL:     launchExternalURL,
 	}
+}
+
+// persistLeadToConfig expands the machine-local vocabulary only after a user
+// explicitly enters a lead in the editor. Configured vocabularies remain
+// ordered, so the new value is appended rather than unexpectedly resorted.
+func persistLeadToConfig(path, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	for _, existing := range cfg.Leads {
+		if existing == name {
+			return nil
+		}
+	}
+	cfg.Leads = append(cfg.Leads, name)
+	if err := cfg.Save(path); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
+	return nil
 }
 
 // syncWatches makes the fsnotify watch set exactly match paths, adding new ones
@@ -935,6 +972,10 @@ func (m *Model) openSelectedDossier() tea.Cmd {
 	if !ok || item.ID == "" {
 		return nil
 	}
+	// Search is an input mode, not a view. Leave it before entering detail so
+	// keys such as q are handled by the normal global bindings on return.
+	m.searchActive = false
+	m.searchInput.Blur()
 	m.loading = true
 	m.err = nil
 	return m.recallDossierCmd(item.ID)
@@ -966,6 +1007,10 @@ func (m *Model) openLeadSelector() {
 	m.previousView = m.currentView
 	m.pushOverlay(ViewLeadSelector)
 
+	// Lead search is local to the selector. Do not carry a prior query into a
+	// newly opened radio list, where it would make options appear to vanish.
+	m.leadSearchInput.SetValue("")
+	m.leadSearchInput.Focus()
 	m.leadOptions = deriveLeadOptions(m.items, m.configuredLeads)
 	m.leadResults = m.leadOptions
 	m.leadCursor = 0
@@ -997,6 +1042,7 @@ func (m Model) buildInterfaceOptions() []interfaceOption {
 
 // chooseLead applies the option under the cursor and drops into the dashboard.
 func (m *Model) chooseLead() {
+	m.leadSearchInput.Blur()
 	if m.leadCursor >= 0 && m.leadCursor < len(m.leadResults) {
 		m.leadFilter = m.leadResults[m.leadCursor].filter
 	}
@@ -1270,6 +1316,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+c":
 				return m, tea.Quit
 			case "esc":
+				m.leadSearchInput.Blur()
 				// Skip selection: fall through to the dashboard with the current
 				// filter (All by default). On the startup landing this means
 				// "show everything"; reopened via 'f' it cancels the change.
@@ -1279,11 +1326,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.table.SetCursor(0)
 				m.table.Focus()
 				return m, nil
-			case "left", "h":
+			case "left":
 				m.filterColumn = 0
+				m.leadSearchInput.Focus()
 				return m, nil
-			case "right", "l", "tab":
+			case "right", "tab":
 				m.filterColumn = 1
+				m.leadSearchInput.Blur()
 				return m, nil
 			case "up", "ctrl+p":
 				if m.filterColumn == 0 && len(m.leadResults) > 0 {
@@ -1305,7 +1354,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			return m, nil
+			// The lead column remains a radio list: typing only narrows the
+			// available radio options; it never changes the selected filter.
+			if m.filterColumn == 0 {
+				m.leadSearchInput, cmd = m.leadSearchInput.Update(msg)
+				m.leadResults = filterLeadOptions(m.leadOptions, m.leadSearchInput.Value())
+				m.leadCursor = 0
+			}
+			return m, cmd
 
 		case ViewLinkInput:
 			switch msg.String() {
@@ -1783,6 +1839,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.currentView = msg.prevView
 			m.err = nil
+			if msg.addedLead != "" && !m.isConfiguredLead(msg.addedLead) {
+				m.configuredLeads = append(m.configuredLeads, msg.addedLead)
+			}
 			if m.currentView == ViewDetail {
 				return m, m.recallDossierCmd(msg.targetID)
 			} else {

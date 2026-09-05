@@ -3,12 +3,15 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"dossier/internal/config"
 	"dossier/internal/core"
 	"dossier/internal/harness"
 
@@ -93,6 +96,41 @@ func TestSearchModeCtrlCStillQuits(t *testing.T) {
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Fatalf("ctrl+c while searching = %T, want tea.QuitMsg", cmd())
+	}
+}
+
+func TestLeadSelectorTypingNarrowsRadioOptions(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "one", "One Topic", core.StatusSpark, func(fm *core.Frontmatter) { fm.Lead = "Alice" })
+	seedDossier(store, "two", "Second Topic", core.StatusSpark, func(fm *core.Frontmatter) { fm.Lead = "Bob" })
+	m := boardModel(t, store, 120, 40)
+	m.currentView = ViewDashboard
+	m.listView = ViewDashboard
+	m, _ = press(t, m, "f")
+	if m.currentView != ViewLeadSelector {
+		t.Fatalf("f did not open lead selector: %v", m.currentView)
+	}
+	for _, key := range []string{"a", "l", "i"} {
+		m, _ = press(t, m, key)
+	}
+	if len(m.leadResults) != 1 || m.leadResults[0].filter.label() != "Alice" {
+		t.Fatalf("lead search results = %+v, want Alice", m.leadResults)
+	}
+	if m.leadFilter.kind != filterAll {
+		t.Fatalf("typing changed radio selection: %+v", m.leadFilter)
+	}
+}
+
+func TestOpeningDossierLeavesSearchMode(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "one", "One Topic", core.StatusSpark)
+	m := boardModel(t, store, 120, 40)
+	m.currentView = ViewDashboard
+	m.listView = ViewDashboard
+	m, _ = press(t, m, "/")
+	m, _ = press(t, m, "enter")
+	if m.searchActive {
+		t.Fatal("opening a dossier left search mode active")
 	}
 }
 
@@ -1099,6 +1137,32 @@ func TestLeadEditorUsesConfiguredEnum(t *testing.T) {
 	m.cycleEditValue(true)
 	if m.editLead != "" {
 		t.Fatalf("lead cycle did not wrap to unassigned: %q", m.editLead)
+	}
+}
+
+func TestPersistLeadToConfigAppendsWithoutDuplicates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := config.Default()
+	cfg.DossierHome = filepath.Dir(path)
+	cfg.Leads = []string{"Alice"}
+	if err := cfg.SaveDefault(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := persistLeadToConfig(path, "New Person"); err != nil {
+		t.Fatal(err)
+	}
+	if err := persistLeadToConfig(path, "New Person"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Leads) != 2 || got.Leads[1] != "New Person" {
+		t.Fatalf("configured leads = %v, want [Alice New Person]", got.Leads)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("config disappeared: %v", err)
 	}
 }
 

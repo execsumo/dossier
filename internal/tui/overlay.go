@@ -246,8 +246,9 @@ func (m Model) renderFilterOverlay() string {
 		renderFilterColumn("Lead", leadLabels, m.leadCursor, m.filterColumn == 0, columnWidth),
 		renderFilterColumn("Interface", interfaceLabels, m.interfaceCursor, m.filterColumn == 1, columnWidth),
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, columns...) + "\n\n" +
-		overlayHintStyle.Render("←/→ column · ↑/↓ move · enter apply · esc cancel")
+	search := m.leadSearchInput.View()
+	return search + "\n\n" + lipgloss.JoinHorizontal(lipgloss.Top, columns...) + "\n\n" +
+		overlayHintStyle.Render("type to search leads · ←/→ column · ↑/↓ move · enter apply · esc cancel")
 }
 
 func renderFilterColumn(title string, options []string, cursor int, focused bool, width int) string {

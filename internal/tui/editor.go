@@ -56,6 +56,11 @@ func (m *Model) startEdit(t targetDossier) {
 	m.dueDateInput.Width = 40
 
 	m.editLead = t.lead
+	m.editLeadCustom = !m.isConfiguredLead(t.lead) && t.lead != ""
+	m.editLeadCustomInput = textinput.New()
+	m.editLeadCustomInput.Placeholder = "new lead"
+	m.editLeadCustomInput.SetValue(t.lead)
+	m.editLeadCustomInput.Width = 16
 	m.editInterfaces = append([]string{}, t.interfaces...)
 	m.editInterfaceCursor = 0
 
@@ -75,11 +80,16 @@ func (m *Model) startEdit(t targetDossier) {
 func (m *Model) syncEditFocus() {
 	m.dueDateInput.Blur()
 	m.nextActionInput.Blur()
+	m.editLeadCustomInput.Blur()
 	switch m.editFocus {
 	case editFieldDue:
 		m.dueDateInput.Focus()
 	case editFieldNextAction:
 		m.nextActionInput.Focus()
+	case editFieldLead:
+		if m.editLeadCustom {
+			m.editLeadCustomInput.Focus()
+		}
 	}
 }
 
@@ -147,19 +157,52 @@ func isEnumEditField(field editField) bool {
 
 func (m *Model) cycleLead(forward bool) {
 	opts := append([]string{""}, m.configuredLeads...)
+	// The final radio option is the free-form input. It is present even when
+	// configured leads exist, so a controlled vocabulary never becomes a dead
+	// end during an exceptional assignment.
+	optionCount := len(opts) + 1
 	idx := 0
-	for i, option := range opts {
-		if option == m.editLead {
-			idx = i
-			break
+	if m.editLeadCustom {
+		idx = len(opts)
+	} else {
+		for i, option := range opts {
+			if option == m.editLead {
+				idx = i
+				break
+			}
 		}
 	}
 	if forward {
-		idx = (idx + 1) % len(opts)
+		idx = (idx + 1) % optionCount
 	} else {
-		idx = (idx - 1 + len(opts)) % len(opts)
+		idx = (idx - 1 + optionCount) % optionCount
 	}
-	m.editLead = opts[idx]
+	if idx == len(opts) {
+		if !m.editLeadCustom {
+			m.editLeadCustomInput.SetValue("")
+		}
+		m.editLeadCustom = true
+		m.editLead = m.editLeadCustomInput.Value()
+	} else {
+		m.editLeadCustom = false
+		m.editLead = opts[idx]
+	}
+}
+
+func (m Model) isConfiguredLead(name string) bool {
+	for _, configured := range m.configuredLeads {
+		if configured == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) selectedEditLead() string {
+	if m.editLeadCustom {
+		return strings.TrimSpace(m.editLeadCustomInput.Value())
+	}
+	return m.editLead
 }
 
 func (m *Model) cycleInterfaceCursor(forward bool) {
@@ -174,7 +217,8 @@ func (m *Model) cycleInterfaceCursor(forward bool) {
 }
 
 // cycleEditValue changes the focused row's value, for the rows that hold a fixed
-// set rather than free text. The lead row is a fixed enum sourced from config.yaml.
+// set rather than free text. The lead row cycles through configured values and
+// the final free-form option.
 func (m *Model) cycleEditValue(forward bool) bool {
 	switch m.editFocus {
 	case editFieldStage:
@@ -218,6 +262,7 @@ func cycleStatus(curr core.Status, forward bool) core.Status {
 // the decision that was made instead of every field the form happened to show.
 func (m Model) editUpdates() map[string]any {
 	updates := map[string]any{}
+	selectedLead := m.selectedEditLead()
 	if m.editStatus != core.NormalizeStatus(m.editOriginal.status) {
 		updates["status"] = string(m.editStatus)
 	}
@@ -227,8 +272,8 @@ func (m Model) editUpdates() map[string]any {
 	if v := m.dueDateInput.Value(); v != m.editOriginal.dueDate {
 		updates["due_date"] = v
 	}
-	if m.editLead != m.editOriginal.lead {
-		updates["lead"] = m.editLead
+	if selectedLead != m.editOriginal.lead {
+		updates["lead"] = selectedLead
 	}
 	if strings.Join(m.editInterfaces, "|||") != strings.Join(m.editOriginal.interfaces, "|||") {
 		updates["interfaces"] = append([]string{}, m.editInterfaces...)
@@ -244,12 +289,23 @@ func (m Model) editUpdates() map[string]any {
 // audit entries is now one of each.
 func (m Model) saveEditCmd(id string, baseRev core.Revision, updates map[string]any) tea.Cmd {
 	return func() tea.Msg {
+		addedLead := ""
+		if lead, changed := updates["lead"].(string); changed && lead != "" && !m.isConfiguredLead(lead) {
+			if m.persistConfiguredLead == nil {
+				return mutationResultMsg{err: fmt.Errorf("cannot persist new lead %q: config persistence is unavailable", lead), prevView: m.previousView, targetID: id}
+			}
+			if err := m.persistConfiguredLead(lead); err != nil {
+				return mutationResultMsg{err: fmt.Errorf("add lead %q to config: %w", lead, err), prevView: m.previousView, targetID: id}
+			}
+			m.svc.AddLead(lead)
+			addedLead = lead
+		}
 		_, err := m.svc.Save(context.Background(), core.SaveReq{
 			ID:                 id,
 			BaseRevision:       baseRev,
 			FrontmatterUpdates: updates,
 		})
-		return mutationResultMsg{err: err, prevView: m.previousView, targetID: id}
+		return mutationResultMsg{err: err, prevView: m.previousView, targetID: id, addedLead: addedLead}
 	}
 }
 
@@ -274,12 +330,12 @@ func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveEditFocus(1)
 		return m, nil
 	case "left":
-		if isEnumEditField(m.editFocus) {
+		if isEnumEditField(m.editFocus) && !(m.editFocus == editFieldLead && m.editLeadCustom) {
 			m.moveEditHorizontal(false)
 			return m, nil
 		}
 	case "right":
-		if isEnumEditField(m.editFocus) {
+		if isEnumEditField(m.editFocus) && !(m.editFocus == editFieldLead && m.editLeadCustom) {
 			m.moveEditHorizontal(true)
 			return m, nil
 		}
@@ -313,6 +369,11 @@ func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.dueDateInput, cmd = m.dueDateInput.Update(msg)
 	case editFieldNextAction:
 		m.nextActionInput, cmd = m.nextActionInput.Update(msg)
+	case editFieldLead:
+		if m.editLeadCustom {
+			m.editLeadCustomInput, cmd = m.editLeadCustomInput.Update(msg)
+			m.editLead = m.editLeadCustomInput.Value()
+		}
 	}
 	return m, cmd
 }
@@ -361,6 +422,44 @@ func renderEnumColumn[T ~string](title string, options []T, selected T, focused 
 	return renderEditColumn(title, strings.TrimRight(sb.String(), "\n"), focused, width)
 }
 
+func renderLeadColumn(title string, options []string, selected string, custom bool, customInput textinput.Model, focused bool, width int) string {
+	var sb strings.Builder
+	allOptions := append([]string{""}, options...)
+	for _, option := range allOptions {
+		label := option
+		if label == "" {
+			label = "(unassigned)"
+		}
+		marker := "( )"
+		if !custom && option == selected {
+			marker = "(•)"
+		}
+		line := marker + " " + truncateCell(label, width-7)
+		if !custom && option == selected && focused {
+			line = focusedItemStyle.Copy().Background(modalBackground).Padding(0).Render(line)
+		}
+		sb.WriteString(line)
+		sb.WriteString("\n")
+	}
+	marker := "( )"
+	if custom {
+		marker = "(•)"
+	}
+	customValue := customInput.Value()
+	if custom && focused {
+		customValue = customInput.View()
+	}
+	if customValue == "" && !custom {
+		customValue = mutedStyle.Render("(enter lead name)")
+	}
+	line := marker + " Other: " + customValue
+	if custom && focused {
+		line = focusedItemStyle.Copy().Background(modalBackground).Padding(0).Render(line)
+	}
+	sb.WriteString(line)
+	return renderEditColumn(title, sb.String(), focused, width)
+}
+
 func renderInterfacesColumn(title string, options, selected []string, cursor int, focused bool, width int) string {
 	if len(options) == 0 {
 		options = []string{""}
@@ -406,13 +505,12 @@ func (m Model) renderEditor() string {
 		columnWidth = 22
 	}
 
-	leadOptions := append([]string{""}, m.configuredLeads...)
 	due := m.editTextValue(editFieldDue, m.dueDateInput.View(), m.dueDateInput.Value())
 	next := m.editTextValue(editFieldNextAction, m.nextActionInput.View(), m.nextActionInput.Value())
 	columns := []string{
 		renderEnumColumn("Stage", core.CanonicalStatuses(), m.editStatus, m.editFocus == editFieldStage, columnWidth),
 		renderEnumColumn("Priority", priorityOptions, m.editPriority, m.editFocus == editFieldPriority, columnWidth),
-		renderEnumColumn("Lead", leadOptions, m.editLead, m.editFocus == editFieldLead, columnWidth),
+		renderLeadColumn("Lead", m.configuredLeads, m.editLead, m.editLeadCustom, m.editLeadCustomInput, m.editFocus == editFieldLead, columnWidth),
 		renderInterfacesColumn("Interfaces", m.configuredInterfaces, m.editInterfaces, m.editInterfaceCursor, m.editFocus == editFieldInterfaces, columnWidth),
 	}
 	var sb strings.Builder
@@ -422,7 +520,7 @@ func (m Model) renderEditor() string {
 	sb.WriteString("\n\n")
 	sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, columns...))
 	sb.WriteString("\n\n")
-	sb.WriteString(mutedStyle.Render("↑/↓ field • ←/→ change • space toggle interface • enter save • esc cancel"))
+	sb.WriteString(mutedStyle.Render("↑/↓ field • ←/→ change • select Other to type a lead • space toggle interface • enter save • esc cancel"))
 	return strings.TrimRight(sb.String(), "\n")
 }
 

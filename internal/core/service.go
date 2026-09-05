@@ -128,6 +128,28 @@ func (s *Service) Interfaces() []string {
 	return append([]string{}, s.cfg.Interfaces...)
 }
 
+// DossierHome returns the machine-local store root. Adapters use it to locate
+// configuration-owned files without reaching into Service's private state.
+func (s *Service) DossierHome() string {
+	return s.cfg.DossierHome
+}
+
+// AddLead updates the in-memory lead vocabulary after an adapter persists the
+// same change to config.yaml. This keeps subsequent Saves in this process
+// consistent with the newly expanded vocabulary.
+func (s *Service) AddLead(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	for _, existing := range s.cfg.Leads {
+		if existing == name {
+			return
+		}
+	}
+	s.cfg.Leads = append(s.cfg.Leads, name)
+}
+
 // Leads returns the configured lead vocabulary in display order. An empty list
 // preserves free-form lead assignment for backwards compatibility.
 func (s *Service) Leads() []string {
