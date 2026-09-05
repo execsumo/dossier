@@ -57,6 +57,9 @@ const (
 	// ViewLinks is a contextual overlay over dossier detail. It presents active
 	// monitors before passive references while preserving their distinct meaning.
 	ViewLinks
+	// ViewInterfaceSelector chooses the dashboard/board interface filter. It is
+	// appended to preserve the numeric values of existing views.
+	ViewInterfaceSelector
 )
 
 // leadFilterKind enumerates the three ways the dashboard can be scoped by lead.
@@ -243,6 +246,11 @@ type artifactIndexMsg struct {
 	index     []core.ArtifactSummary
 	err       error
 }
+
+type interfaceOption struct {
+	label string
+	value interfaceFilter
+}
 type artifactContentMsg struct {
 	content  core.ArtifactContent
 	warnings []core.Warning
@@ -294,11 +302,13 @@ type Model struct {
 	recallResult core.RecallResult
 
 	// Lead selector state
-	leadFilter           leadFilter      // active dashboard scope (defaults to All)
-	leadSearch           textinput.Model // search-as-you-type box
-	leadOptions          []leadOption    // every selectable lead, counts included
-	leadResults          []leadOption    // leadOptions narrowed by the search box
+	leadFilter           leadFilter   // active dashboard scope (defaults to All)
+	leadOptions          []leadOption // every selectable lead, counts included
+	leadResults          []leadOption // selectable lead options in the filter modal
 	leadCursor           int
+	filterColumn         int // 0 = Lead, 1 = Interface
+	interfaceOptions     []interfaceOption
+	interfaceCursor      int
 	interfaceFilter      interfaceFilter
 	configuredLeads      []string
 	configuredInterfaces []string
@@ -336,18 +346,16 @@ type Model struct {
 
 	// Combined editor view state. editOriginal is the dossier as it was when the
 	// form opened, so save can send only the fields that actually changed.
-	editOriginal       targetDossier
-	editFocus          editField
-	editStatus         core.Status
-	editPriority       core.Priority
-	dueDateInput       textinput.Model
-	leadInput          textinput.Model
-	leadSuggestions    []string
-	leadSuggestionText string
-	nextActionInput    textinput.Model
-	renameSlugInput    textinput.Model
-	renameNameInput    textinput.Model
-	renameField        renameField
+	editOriginal    targetDossier
+	editFocus       editField
+	editStatus      core.Status
+	editPriority    core.Priority
+	editLead        string
+	dueDateInput    textinput.Model
+	nextActionInput textinput.Model
+	renameSlugInput textinput.Model
+	renameNameInput textinput.Model
+	renameField     renameField
 
 	// Link view state
 	linkTextInput   textinput.Model
@@ -439,10 +447,6 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 	avp := viewport.New(0, 0)
 	cvp := viewport.New(0, 0)
 
-	leadSearch := textinput.New()
-	leadSearch.Placeholder = "Type a lead's name to search…"
-	leadSearch.Focus()
-	leadSearch.Width = 40
 	searchInput := textinput.New()
 	searchInput.Placeholder = "Search dossiers…"
 	searchInput.Width = 40
@@ -490,7 +494,6 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		artifactViewport:     avp,
 		conflictViewport:     cvp,
 		loading:              true,
-		leadSearch:           leadSearch,
 		searchInput:          searchInput,
 		help:                 helpView,
 		renameSlugInput:      renameSlugInput,
@@ -950,16 +953,11 @@ func (m *Model) rowToItemIndex(idx int) (itemIdx int, isToggle bool) {
 	return idx - 1, false
 }
 
-// openLeadSelector enters the lead selector with a fresh search, the option list
-// rebuilt from current data, and the cursor parked on the active filter.
+// openLeadSelector enters the two-column filter selector with both cursors
+// parked on the currently active filters.
 func (m *Model) openLeadSelector() {
 	m.previousView = m.currentView
 	m.pushOverlay(ViewLeadSelector)
-
-	m.leadSearch = textinput.New()
-	m.leadSearch.Placeholder = "Type a lead's name to search…"
-	m.leadSearch.Focus()
-	m.leadSearch.Width = 40
 
 	m.leadOptions = deriveLeadOptions(m.items, m.configuredLeads)
 	m.leadResults = m.leadOptions
@@ -970,12 +968,58 @@ func (m *Model) openLeadSelector() {
 			break
 		}
 	}
+	m.interfaceOptions = m.buildInterfaceOptions()
+	m.interfaceCursor = 0
+	for i, option := range m.interfaceOptions {
+		if option.value == m.interfaceFilter {
+			m.interfaceCursor = i
+			break
+		}
+	}
+	m.filterColumn = 0
+}
+
+func (m Model) buildInterfaceOptions() []interfaceOption {
+	options := make([]interfaceOption, 0, len(m.configuredInterfaces)+1)
+	options = append(options, interfaceOption{label: "All"})
+	for _, value := range m.configuredInterfaces {
+		options = append(options, interfaceOption{label: value, value: interfaceFilter(value)})
+	}
+	return options
+}
+
+func (m *Model) openInterfaceSelector() {
+	m.previousView = m.currentView
+	m.pushOverlay(ViewInterfaceSelector)
+
+	m.interfaceOptions = m.buildInterfaceOptions()
+	m.interfaceCursor = 0
+	for i, option := range m.interfaceOptions {
+		if option.value == m.interfaceFilter {
+			m.interfaceCursor = i
+			break
+		}
+	}
+}
+
+func (m *Model) chooseInterface() {
+	if m.interfaceCursor >= 0 && m.interfaceCursor < len(m.interfaceOptions) {
+		m.interfaceFilter = m.interfaceOptions[m.interfaceCursor].value
+	}
+	m.applyFilters()
+	m.populateTableRows()
+	m.popOverlay()
+	m.table.SetCursor(0)
+	m.table.Focus()
 }
 
 // chooseLead applies the option under the cursor and drops into the dashboard.
 func (m *Model) chooseLead() {
 	if m.leadCursor >= 0 && m.leadCursor < len(m.leadResults) {
 		m.leadFilter = m.leadResults[m.leadCursor].filter
+	}
+	if m.interfaceCursor >= 0 && m.interfaceCursor < len(m.interfaceOptions) {
+		m.interfaceFilter = m.interfaceOptions[m.interfaceCursor].value
 	}
 	m.applyFilters()
 	m.populateTableRows()
@@ -985,59 +1029,6 @@ func (m *Model) chooseLead() {
 	}
 	m.table.SetCursor(0)
 	m.table.Focus()
-}
-
-// leadAutocomplete returns unique previously used lead names that begin with query,
-// sorted case-insensitively. It is intentionally prefix-only: Tab/Enter can accept
-// the first suggestion without surprising the user with fuzzy replacements.
-func leadAutocomplete(items []core.ListItem, query string, configured ...[]string) []string {
-	query = strings.TrimSpace(query)
-	if query == "" {
-		return nil
-	}
-	lowerQuery := strings.ToLower(query)
-	seen := make(map[string]bool)
-	var names []string
-	if len(configured) > 0 && len(configured[0]) > 0 {
-		for _, configuredLead := range configured[0] {
-			name := strings.TrimSpace(configuredLead)
-			if name == "" || seen[name] || !strings.HasPrefix(strings.ToLower(name), lowerQuery) {
-				continue
-			}
-			seen[name] = true
-			names = append(names, name)
-		}
-	} else {
-		for _, item := range items {
-			name := strings.TrimSpace(item.Lead)
-			if name == "" || seen[name] || !strings.HasPrefix(strings.ToLower(name), lowerQuery) {
-				continue
-			}
-			seen[name] = true
-			names = append(names, name)
-		}
-	}
-	sort.SliceStable(names, func(i, j int) bool {
-		return strings.ToLower(names[i]) < strings.ToLower(names[j])
-	})
-	return names
-}
-
-func (m *Model) updateLeadSuggestions() {
-	m.leadSuggestions = leadAutocomplete(m.items, m.leadInput.Value(), m.configuredLeads)
-	m.leadSuggestionText = ""
-	if len(m.leadSuggestions) > 0 && !strings.EqualFold(m.leadSuggestions[0], m.leadInput.Value()) {
-		m.leadSuggestionText = m.leadSuggestions[0]
-	}
-}
-
-func (m *Model) acceptLeadSuggestion() bool {
-	if m.leadSuggestionText == "" {
-		return false
-	}
-	m.leadInput.SetValue(m.leadSuggestionText)
-	m.updateLeadSuggestions()
-	return true
 }
 
 func (m *Model) startLinkInput() {
@@ -1306,37 +1297,60 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.table.SetCursor(0)
 				m.table.Focus()
 				return m, nil
-			case "tab":
-				m.interfaceFilter = nextInterfaceFilter(m.interfaceFilter, m.configuredInterfaces)
-				m.applyFilters()
-				m.populateTableRows()
+			case "left", "h":
+				m.filterColumn = 0
+				return m, nil
+			case "right", "l", "tab":
+				m.filterColumn = 1
 				return m, nil
 			case "up", "ctrl+p":
-				if len(m.leadResults) > 0 {
-					m.leadCursor = (m.leadCursor - 1 + len(m.leadResults)) % len(m.leadResults)
+				if m.filterColumn == 0 {
+					if len(m.leadResults) > 0 {
+						m.leadCursor = (m.leadCursor - 1 + len(m.leadResults)) % len(m.leadResults)
+					}
+				} else if len(m.interfaceOptions) > 0 {
+					m.interfaceCursor = (m.interfaceCursor - 1 + len(m.interfaceOptions)) % len(m.interfaceOptions)
 				}
 				return m, nil
 			case "down", "ctrl+n":
-				if len(m.leadResults) > 0 {
-					m.leadCursor = (m.leadCursor + 1) % len(m.leadResults)
+				if m.filterColumn == 0 {
+					if len(m.leadResults) > 0 {
+						m.leadCursor = (m.leadCursor + 1) % len(m.leadResults)
+					}
+				} else if len(m.interfaceOptions) > 0 {
+					m.interfaceCursor = (m.interfaceCursor + 1) % len(m.interfaceOptions)
 				}
 				return m, nil
 			case "enter":
-				if len(m.leadResults) > 0 {
+				if len(m.leadResults) > 0 && len(m.interfaceOptions) > 0 {
 					m.chooseLead()
 				}
 				return m, nil
 			}
-			// Any other key edits the search box; re-filter and keep the cursor valid.
-			m.leadSearch, cmd = m.leadSearch.Update(msg)
-			m.leadResults = filterLeadOptions(m.leadOptions, m.leadSearch.Value())
-			if m.leadCursor >= len(m.leadResults) {
-				m.leadCursor = len(m.leadResults) - 1
+			return m, nil
+
+		case ViewInterfaceSelector:
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.popOverlay()
+				return m, nil
+			case "up", "k":
+				if len(m.interfaceOptions) > 0 {
+					m.interfaceCursor = (m.interfaceCursor - 1 + len(m.interfaceOptions)) % len(m.interfaceOptions)
+				}
+				return m, nil
+			case "down", "j":
+				if len(m.interfaceOptions) > 0 {
+					m.interfaceCursor = (m.interfaceCursor + 1) % len(m.interfaceOptions)
+				}
+				return m, nil
+			case "enter":
+				m.chooseInterface()
+				return m, nil
 			}
-			if m.leadCursor < 0 {
-				m.leadCursor = 0
-			}
-			return m, cmd
+			return m, nil
 
 		case ViewLinkInput:
 			switch msg.String() {
@@ -1577,10 +1591,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "i":
 			if m.isListView() {
-				m.interfaceFilter = nextInterfaceFilter(m.interfaceFilter, m.configuredInterfaces)
-				m.applyFilters()
-				m.populateTableRows()
-				m.table.SetCursor(0)
+				m.openInterfaceSelector()
 				return m, nil
 			}
 		case "k":
@@ -1666,7 +1677,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Re-derive lead options on every refresh so newly-assigned leads appear,
 		// while preserving the active filter (and the search box) across hot-reloads.
 		m.leadOptions = deriveLeadOptions(m.items, m.configuredLeads)
-		m.leadResults = filterLeadOptions(m.leadOptions, m.leadSearch.Value())
+		m.leadResults = m.leadOptions
 		if m.leadCursor >= len(m.leadResults) {
 			m.leadCursor = len(m.leadResults) - 1
 		}
@@ -1812,6 +1823,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case mutationResultMsg:
 		m.loading = false
+		if m.currentView == ViewEdit && m.hasOverlay() {
+			m.popOverlay()
+		}
 		if msg.err != nil {
 			m.err = msg.err
 			m.currentView = msg.prevView
@@ -2113,8 +2127,6 @@ func nextInterfaceFilter(current interfaceFilter, configured ...[]string) interf
 func (m Model) renderLeadSelector() string {
 	var sb strings.Builder
 	sb.WriteString("Filters — scope the dashboard before a meeting.\n\n")
-	sb.WriteString(m.leadSearch.View())
-	sb.WriteString("\n\n")
 
 	if m.loading && len(m.items) == 0 {
 		sb.WriteString(" Loading leads…\n")
@@ -2158,7 +2170,7 @@ func (m Model) renderLeadSelector() string {
 	}
 
 	sb.WriteString("\n")
-	sb.WriteString("type to search • ↑/↓ to move • enter to open • esc to show all")
+	sb.WriteString("↑/↓ move • ←/→ column • enter apply • esc cancel")
 	return editorBoxStyle.Render(sb.String())
 }
 

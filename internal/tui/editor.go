@@ -26,9 +26,6 @@ const (
 	editFieldCount
 )
 
-// editLabelWidth is the gutter the field labels sit in.
-const editLabelWidth = 13
-
 // priorityOptions is the cycle order shared by the editor row and cyclePriority.
 var priorityOptions = []core.Priority{core.PriorityLow, core.PriorityMedium, core.PriorityHigh, core.PriorityMax}
 
@@ -37,7 +34,7 @@ var priorityOptions = []core.Priority{core.PriorityLow, core.PriorityMedium, cor
 // four screens and four separate revisions.
 func (m *Model) startEdit(t targetDossier) {
 	m.previousView = m.currentView
-	m.currentView = ViewEdit
+	m.pushOverlay(ViewEdit)
 	m.targetID = t.id
 	m.targetName = t.name
 	m.targetBaseRevision = t.baseRevision
@@ -57,12 +54,7 @@ func (m *Model) startEdit(t targetDossier) {
 	m.dueDateInput.SetValue(t.dueDate)
 	m.dueDateInput.Width = 40
 
-	m.leadInput = textinput.New()
-	m.leadInput.Placeholder = "e.g. Alice"
-	m.leadInput.SetValue(t.lead)
-	m.leadInput.Width = 40
-	m.leadSuggestions = nil
-	m.leadSuggestionText = ""
+	m.editLead = t.lead
 
 	m.nextActionInput = textinput.New()
 	// Set the existing value before applying the limit so legacy overlong
@@ -79,13 +71,10 @@ func (m *Model) startEdit(t targetDossier) {
 // blink at once.
 func (m *Model) syncEditFocus() {
 	m.dueDateInput.Blur()
-	m.leadInput.Blur()
 	m.nextActionInput.Blur()
 	switch m.editFocus {
 	case editFieldDue:
 		m.dueDateInput.Focus()
-	case editFieldLead:
-		m.leadInput.Focus()
 	case editFieldNextAction:
 		m.nextActionInput.Focus()
 	}
@@ -99,8 +88,7 @@ func (m *Model) moveEditFocus(delta int) {
 }
 
 // cycleEditValue changes the focused row's value, for the rows that hold a fixed
-// set rather than free text. Text rows return false so the keypress falls
-// through to the input, where left/right must still move the cursor.
+// set rather than free text. The lead row is a fixed enum sourced from config.yaml.
 func (m *Model) cycleEditValue(forward bool) bool {
 	switch m.editFocus {
 	case editFieldStage:
@@ -108,6 +96,22 @@ func (m *Model) cycleEditValue(forward bool) bool {
 		return true
 	case editFieldPriority:
 		m.editPriority = cyclePriority(m.editPriority, forward)
+		return true
+	case editFieldLead:
+		opts := append([]string{""}, m.configuredLeads...)
+		idx := 0
+		for i, option := range opts {
+			if option == m.editLead {
+				idx = i
+				break
+			}
+		}
+		if forward {
+			idx = (idx + 1) % len(opts)
+		} else {
+			idx = (idx - 1 + len(opts)) % len(opts)
+		}
+		m.editLead = opts[idx]
 		return true
 	}
 	return false
@@ -147,8 +151,8 @@ func (m Model) editUpdates() map[string]any {
 	if v := m.dueDateInput.Value(); v != m.editOriginal.dueDate {
 		updates["due_date"] = v
 	}
-	if v := m.leadInput.Value(); v != m.editOriginal.lead {
-		updates["lead"] = v
+	if m.editLead != m.editOriginal.lead {
+		updates["lead"] = m.editLead
 	}
 	if v := m.nextActionInput.Value(); v != m.editOriginal.nextAction {
 		updates["next_action"] = v
@@ -175,7 +179,7 @@ func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg.String() {
 	case "esc":
-		m.currentView = m.previousView
+		m.popOverlay()
 		return m, nil
 	case "up", "shift+tab":
 		m.moveEditFocus(-1)
@@ -184,11 +188,6 @@ func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveEditFocus(1)
 		return m, nil
 	case "tab":
-		// On the lead row tab has a better job than moving on: taking the
-		// completion. It only advances once there is nothing left to accept.
-		if m.editFocus == editFieldLead && m.acceptLeadSuggestion() {
-			return m, nil
-		}
 		m.moveEditFocus(1)
 		return m, nil
 	case "left":
@@ -200,14 +199,11 @@ func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case "enter":
-		if m.editFocus == editFieldLead && m.acceptLeadSuggestion() {
-			return m, nil
-		}
 		updates := m.editUpdates()
 		if len(updates) == 0 {
 			// Nothing changed, so there is nothing to write. Saving anyway would
 			// mint a revision that records no decision.
-			m.currentView = m.previousView
+			m.popOverlay()
 			return m, nil
 		}
 		m.loading = true
@@ -218,66 +214,71 @@ func (m Model) updateEditor(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.editFocus {
 	case editFieldDue:
 		m.dueDateInput, cmd = m.dueDateInput.Update(msg)
-	case editFieldLead:
-		m.leadInput, cmd = m.leadInput.Update(msg)
-		m.updateLeadSuggestions()
 	case editFieldNextAction:
 		m.nextActionInput, cmd = m.nextActionInput.Update(msg)
 	}
 	return m, cmd
 }
 
-// renderEditRow lays out one label + value line. The focused row is marked in
-// the gutter and its label highlighted, so which field the arrows will act on is
-// readable without a cursor to look for.
-func renderEditRow(label, value string, focused bool) string {
-	// focusedItemStyle carries its own horizontal padding, so the label is styled
-	// alone and the gutter stays plain — otherwise the focused row's value column
-	// slides one cell right of every other row's.
+func renderEditColumn(title, body string, focused bool, width int) string {
+	border := darkGray
 	if focused {
-		return " ▸" + focusedItemStyle.Render(padCell(label, editLabelWidth-2)) + value
+		border = purple
 	}
-	return "   " + padCell(label, editLabelWidth) + value
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(border).
+		Padding(0, 1).
+		Width(width).
+		Render(metaLabelStyle.Render(title) + "\n\n" + body)
 }
 
-// renderChoiceRow renders a fixed set of options with the selected one bracketed.
-func renderChoiceRow[T ~string](options []T, selected T) string {
-	parts := make([]string, 0, len(options))
-	for _, o := range options {
-		if o == selected {
-			parts = append(parts, activeOptionStyle.Render("["+string(o)+"]"))
-			continue
+func renderEnumColumn[T ~string](title string, options []T, selected T, focused bool, width int) string {
+	var sb strings.Builder
+	for _, option := range options {
+		label := string(option)
+		if label == "" {
+			label = "(unassigned)"
 		}
-		parts = append(parts, " "+mutedStyle.Render(string(o))+" ")
+		marker := "( )"
+		if option == selected {
+			marker = "(•)"
+		}
+		sb.WriteString(marker + " " + truncateCell(label, width-7) + "\n")
 	}
-	return strings.Join(parts, " ")
+	return renderEditColumn(title, strings.TrimRight(sb.String(), "\n"), focused, width)
 }
 
 // renderEditor draws the combined editor. Every field a dossier is triaged by is
 // on screen at once, which is the whole reason the four single-field screens are
 // gone: the decisions are made together, so they should be visible together.
 func (m Model) renderEditor() string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Edit %s\n\n", lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true).Render(m.targetName)))
-
-	sb.WriteString(renderEditRow("Stage", renderChoiceRow(core.CanonicalStatuses(), m.editStatus), m.editFocus == editFieldStage))
-	sb.WriteString("\n")
-	sb.WriteString(renderEditRow("Priority", renderChoiceRow(priorityOptions, m.editPriority), m.editFocus == editFieldPriority))
-	sb.WriteString("\n")
-	sb.WriteString(renderEditRow("Due date", m.editTextValue(editFieldDue, m.dueDateInput.View(), m.dueDateInput.Value()), m.editFocus == editFieldDue))
-	sb.WriteString("\n")
-
-	lead := m.editTextValue(editFieldLead, m.leadInput.View(), m.leadInput.Value())
-	if m.editFocus == editFieldLead && m.leadSuggestionText != "" {
-		lead += mutedStyle.Render(fmt.Sprintf("  suggestion: %s (tab)", m.leadSuggestionText))
+	width := m.width
+	if width <= 0 {
+		width = 100
 	}
-	sb.WriteString(renderEditRow("Lead", lead, m.editFocus == editFieldLead))
-	sb.WriteString("\n")
-	sb.WriteString(renderEditRow("Next action", m.editTextValue(editFieldNextAction, m.nextActionInput.View(), m.nextActionInput.Value()), m.editFocus == editFieldNextAction))
-	sb.WriteString("\n\n")
+	columnWidth := (width - 16) / 5
+	if columnWidth < 14 {
+		columnWidth = 14
+	}
+	if columnWidth > 22 {
+		columnWidth = 22
+	}
 
-	sb.WriteString(mutedStyle.Render("↑/↓ field • ←/→ change • enter save • esc cancel"))
-	return editorBoxStyle.Render(sb.String())
+	leadOptions := append([]string{""}, m.configuredLeads...)
+	due := m.editTextValue(editFieldDue, m.dueDateInput.View(), m.dueDateInput.Value())
+	next := m.editTextValue(editFieldNextAction, m.nextActionInput.View(), m.nextActionInput.Value())
+	columns := []string{
+		renderEnumColumn("Stage", core.CanonicalStatuses(), m.editStatus, m.editFocus == editFieldStage, columnWidth),
+		renderEnumColumn("Priority", priorityOptions, m.editPriority, m.editFocus == editFieldPriority, columnWidth),
+		renderEditColumn("Due date", due, m.editFocus == editFieldDue, columnWidth),
+		renderEnumColumn("Lead", leadOptions, m.editLead, m.editFocus == editFieldLead, columnWidth),
+		renderEditColumn("Next action", next, m.editFocus == editFieldNextAction, columnWidth),
+	}
+	return strings.TrimRight(
+		fmt.Sprintf("Edit %s\n\n%s\n\n%s", lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true).Render(m.targetName), lipgloss.JoinHorizontal(lipgloss.Top, columns...), mutedStyle.Render("↑/↓ field • ←/→ change • enter save • esc cancel")),
+		"\n",
+	)
 }
 
 // editTextValue shows a text row's live input when it holds the keyboard and its

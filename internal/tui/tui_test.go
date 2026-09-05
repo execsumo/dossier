@@ -342,6 +342,34 @@ func TestInterfaceFilter(t *testing.T) {
 	}
 }
 
+func TestInterfaceFilterOpensModalWithAllOption(t *testing.T) {
+	m := NewModel(setupTestService(newTestStore()))
+	m.currentView = ViewDashboard
+	m.listView = ViewDashboard
+	m.configuredInterfaces = []string{"Planning", "Customer Review"}
+
+	newM, cmd := m.Update(key("i"))
+	m = newM.(Model)
+	if cmd != nil || m.currentView != ViewInterfaceSelector || len(m.overlayStack) != 1 {
+		t.Fatalf("interface selector state = view %v, stack %d, cmd %v", m.currentView, len(m.overlayStack), cmd != nil)
+	}
+	if len(m.interfaceOptions) != 3 || m.interfaceOptions[0].label != "All" || m.interfaceOptions[0].value != "" {
+		t.Fatalf("interface options = %+v, want All plus configured values", m.interfaceOptions)
+	}
+	view := stripANSI(m.View())
+	for _, want := range []string{"(•) All", "( ) Planning", "( ) Customer Review"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("interface selector missing %q:\n%s", want, view)
+		}
+	}
+
+	m, _ = press(t, m, "down")
+	m, _ = press(t, m, "enter")
+	if m.currentView != ViewDashboard || len(m.overlayStack) != 0 || m.interfaceFilter != "Planning" {
+		t.Fatalf("interface selection state = view %v, stack %d, filter %q", m.currentView, len(m.overlayStack), m.interfaceFilter)
+	}
+}
+
 func TestNextInterfaceFilterCyclesCanonicalOrder(t *testing.T) {
 	current := interfaceFilter("")
 	for _, want := range core.DefaultDiscussionInterfaces() {
@@ -791,6 +819,7 @@ func TestTUI_InlineEditing(t *testing.T) {
 	}
 	svc := setupTestService(store)
 	m := NewModel(svc)
+	m.configuredLeads = []string{"Bea", "Alice"}
 	m.width = 100
 	m.height = 40
 	m.recalculateTableLayout()
@@ -839,7 +868,8 @@ func TestTUI_InlineEditing(t *testing.T) {
 		t.Errorf("right on the priority row did not change the priority from %q", beforePriority)
 	}
 
-	// The three text rows take typed characters rather than acting as keys.
+	// The due date and next-action rows are text inputs; the lead row is a fixed
+	// enum and is changed with the arrow keys.
 	newM, _ = m.Update(key("down"))
 	m = newM.(Model)
 	m = typeString(t, m, "2026-12-01")
@@ -848,7 +878,11 @@ func TestTUI_InlineEditing(t *testing.T) {
 	}
 	newM, _ = m.Update(key("down"))
 	m = newM.(Model)
-	m = typeString(t, m, "Bea")
+	newM, _ = m.Update(key("right"))
+	m = newM.(Model)
+	if m.editLead != "Bea" {
+		t.Fatalf("lead enum = %q, want Bea", m.editLead)
+	}
 	newM, _ = m.Update(key("down"))
 	m = newM.(Model)
 	m = typeString(t, m, "Draft the memo")
@@ -1111,23 +1145,27 @@ func TestHeaderHasNoSession(t *testing.T) {
 		}
 	}
 }
-func TestLeadAutocomplete(t *testing.T) {
-	items := []core.ListItem{
-		{ID: "1", Lead: "Ryan"},
-		{ID: "2", Lead: "Riley"},
-		{ID: "3", Lead: "Ryan"},
-		{ID: "4", Lead: "Alice"},
+func TestLeadEditorUsesConfiguredEnum(t *testing.T) {
+	m := NewModel(setupTestService(newTestStore()))
+	m.configuredLeads = []string{"Alice", "Bob"}
+	m.startEdit(targetDossier{id: "dos_test", name: "Enum Test"})
+	m.editFocus = editFieldLead
+	m.syncEditFocus()
+
+	if got := m.renderEditor(); !strings.Contains(got, "(•)") || !strings.Contains(got, "Alice") || !strings.Contains(got, "Bob") {
+		t.Fatalf("lead enum missing from editor:\n%s", got)
 	}
-	got := leadAutocomplete(items, "r")
-	want := []string{"Riley", "Ryan"}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("leadAutocomplete = %v, want %v", got, want)
+	m.cycleEditValue(true)
+	if m.editLead != "Alice" {
+		t.Fatalf("first lead option = %q, want Alice", m.editLead)
 	}
-	if got := leadAutocomplete(items, "Ryan"); fmt.Sprint(got) != "[Ryan]" {
-		t.Fatalf("exact lead autocomplete = %v, want [Ryan]", got)
+	m.cycleEditValue(true)
+	if m.editLead != "Bob" {
+		t.Fatalf("second lead option = %q, want Bob", m.editLead)
 	}
-	if got := leadAutocomplete(items, "r", []string{"Rosa", "Alice"}); fmt.Sprint(got) != "[Rosa]" {
-		t.Fatalf("configured lead autocomplete = %v, want [Rosa]", got)
+	m.cycleEditValue(true)
+	if m.editLead != "" {
+		t.Fatalf("lead cycle did not wrap to unassigned: %q", m.editLead)
 	}
 }
 
@@ -1527,11 +1565,10 @@ func TestEnterRecallsFilteredDossier(t *testing.T) {
 	newM, _ := m.Update(listMsg)
 	m = newM.(Model)
 
-	// Open the lead selector, search for "Bob", and select the lead.
+	// Open the structured filter selector and select Bob from the lead column.
 	m.openLeadSelector()
-	for _, r := range "Bob" {
-		newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-		m = newM.(Model)
+	for i := 0; i < 3; i++ {
+		m, _ = press(t, m, "down")
 	}
 	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = newM.(Model)
@@ -1852,9 +1889,9 @@ func TestArtifactAndClaudeKeysCoexistWithDashboardNavigation(t *testing.T) {
 	}
 }
 
-// 'c' is a top-level dashboard/detail key only — text inputs must still receive
-// it as an ordinary character.
-func TestClaudeKeyDoesNotHijackTextInput(t *testing.T) {
+// 'c' is a top-level dashboard/detail key only — the fixed lead enum must not
+// launch Claude or mutate the lead when it is focused.
+func TestClaudeKeyDoesNotHijackLeadEnum(t *testing.T) {
 	store := newTestStore()
 	m := claudeTestModel(t, store)
 	spy := &claudeSpy{bin: "/usr/bin/claude"}
@@ -1867,12 +1904,13 @@ func TestClaudeKeyDoesNotHijackTextInput(t *testing.T) {
 	}
 	m.editFocus = editFieldLead
 	m.syncEditFocus()
-	m.leadInput.SetValue("")
+	m.configuredLeads = []string{"Alice", "Bob"}
+	m.editLead = ""
 
 	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
 	m = newM.(Model)
-	if got := m.leadInput.Value(); got != "c" {
-		t.Errorf("lead input = %q, want the typed character %q", got, "c")
+	if m.editLead != "" {
+		t.Errorf("lead enum changed to %q, want unchanged", m.editLead)
 	}
 	if spy.calls != 0 {
 		t.Errorf("typing in an editor must not launch claude, got %d execs", spy.calls)

@@ -80,10 +80,13 @@ func TestFilterOverlayUsesSharedModalNavigation(t *testing.T) {
 		t.Fatalf("filter overlay did not retain parent context:\n%s", stripANSI(m.View()))
 	}
 	before := m.interfaceFilter
-	m, _ = press(t, m, "tab")
+	m, _ = press(t, m, "right")
+	m, _ = press(t, m, "down")
+	m, _ = press(t, m, "enter")
 	if m.interfaceFilter == before {
-		t.Fatal("tab in filter overlay did not advance the interface filter")
+		t.Fatal("interface column selection did not apply a filter")
 	}
+	m, _ = press(t, m, "f")
 	m, _ = press(t, m, "esc")
 	if m.currentView != ViewDashboard || len(m.overlayStack) != 0 {
 		t.Fatalf("closing filter overlay = view %v, stack %d; want ViewDashboard, 0", m.currentView, len(m.overlayStack))

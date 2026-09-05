@@ -530,8 +530,7 @@ func TestKanbanToggleAndTextInputIsolation(t *testing.T) {
 		t.Fatalf("esc from the board gave %v", m.currentView)
 	}
 
-	// 'b' inside a text field must type, not toggle. The editor's lead row is
-	// the board's reachable text input.
+	// 'b' inside the editor's fixed lead enum must not toggle the board.
 	m, _ = press(t, m, "b")
 	m, _ = press(t, m, "e")
 	if m.currentView != ViewEdit {
@@ -539,14 +538,16 @@ func TestKanbanToggleAndTextInputIsolation(t *testing.T) {
 	}
 	m.editFocus = editFieldLead
 	m.syncEditFocus()
-	m.leadInput.SetValue("")
+	m.configuredLeads = []string{"Alice", "Bob"}
+	m.editLead = ""
 	m, _ = press(t, m, "b")
-	if got := m.leadInput.Value(); got != "b" {
-		t.Errorf("lead input = %q, want the typed character %q", got, "b")
+	if m.editLead != "" {
+		t.Errorf("lead enum changed to %q, want unchanged", m.editLead)
 	}
 	if m.currentView != ViewEdit {
 		t.Fatalf("typing 'b' left the editor for %v", m.currentView)
 	}
+	m, _ = press(t, m, "right")
 
 	// Saving returns to the home surface where the editor was opened.
 	newM, cmd := m.Update(key("enter"))

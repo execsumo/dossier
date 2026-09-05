@@ -52,7 +52,7 @@ type externalLinkRow struct {
 
 func isOverlayView(v View) bool {
 	switch v {
-	case ViewLeadSelector, ViewArtifactIndex, ViewArtifactContent, ViewLinks:
+	case ViewLeadSelector, ViewInterfaceSelector, ViewEdit, ViewArtifactIndex, ViewArtifactContent, ViewLinks:
 		return true
 	default:
 		return false
@@ -78,6 +78,8 @@ func (m *Model) popOverlay() {
 			m.currentView = m.previousView
 		case ViewArtifactIndex, ViewArtifactContent, ViewLinks:
 			m.currentView = ViewDetail
+		case ViewEdit:
+			m.currentView = m.previousView
 		}
 		return
 	}
@@ -162,6 +164,10 @@ func (m Model) overlayLabel(v View) string {
 	switch v {
 	case ViewLeadSelector:
 		return "Filters"
+	case ViewInterfaceSelector:
+		return "Interface Filter"
+	case ViewEdit:
+		return "Edit"
 	case ViewLinks:
 		return "Links"
 	case ViewArtifactIndex:
@@ -177,6 +183,10 @@ func (m Model) renderOverlayContent(v View) string {
 	switch v {
 	case ViewLeadSelector:
 		return m.renderFilterOverlay()
+	case ViewInterfaceSelector:
+		return m.renderInterfaceFilterOverlay()
+	case ViewEdit:
+		return m.renderEditor()
 	case ViewLinks:
 		return m.renderExternalLinks()
 	case ViewArtifactIndex:
@@ -189,48 +199,84 @@ func (m Model) renderOverlayContent(v View) string {
 }
 
 func (m Model) renderFilterOverlay() string {
-	var sb strings.Builder
-	sb.WriteString("Lead\n")
-	sb.WriteString(m.leadSearch.View())
-	sb.WriteString("\n\n")
-
-	if len(m.leadResults) == 0 {
-		sb.WriteString(overlayEmptyStyle.Render("No leads match your search."))
-	} else {
-		start, end := m.leadWindow()
-		if start > 0 {
-			sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↑ %d more above", start)))
-			sb.WriteString("\n")
-		}
-		for i := start; i < end; i++ {
-			opt := m.leadResults[i]
-			cursor := "  "
-			if i == m.leadCursor {
-				cursor = "> "
-			}
-			noun := "dossiers"
-			if opt.count == 1 {
-				noun = "dossier"
-			}
-			line := fmt.Sprintf("%-24s %d %s", opt.filter.label(), opt.count, noun)
-			if i == m.leadCursor {
-				sb.WriteString(focusedItemStyle.Render(cursor + line))
-			} else {
-				sb.WriteString(cursor + line)
-			}
-			sb.WriteString("\n")
-		}
-		if end < len(m.leadResults) {
-			sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↓ %d more below", len(m.leadResults)-end)))
-			sb.WriteString("\n")
-		}
+	width := m.width
+	if width <= 0 {
+		width = 100
+	}
+	columnWidth := (width - 12) / 2
+	if columnWidth < 18 {
+		columnWidth = 18
+	}
+	if columnWidth > 34 {
+		columnWidth = 34
 	}
 
+	leadLabels := make([]string, len(m.leadResults))
+	for i, option := range m.leadResults {
+		leadLabels[i] = option.filter.label()
+	}
+	interfaceLabels := make([]string, len(m.interfaceOptions))
+	for i, option := range m.interfaceOptions {
+		interfaceLabels[i] = option.label
+	}
+
+	columns := []string{
+		renderFilterColumn("Lead", leadLabels, m.leadCursor, m.filterColumn == 0, columnWidth),
+		renderFilterColumn("Interface", interfaceLabels, m.interfaceCursor, m.filterColumn == 1, columnWidth),
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, columns...) + "\n\n" +
+		overlayHintStyle.Render("←/→ column · ↑/↓ move · enter apply · esc cancel")
+}
+
+func renderFilterColumn(title string, options []string, cursor int, focused bool, width int) string {
+	var sb strings.Builder
+	for i, option := range options {
+		marker := "( )"
+		if i == cursor {
+			marker = "(•)"
+		}
+		line := marker + " " + truncateCell(option, width-7)
+		if i == cursor {
+			sb.WriteString(focusedItemStyle.Render(line))
+		} else {
+			sb.WriteString(line)
+		}
+		sb.WriteString("\n")
+	}
+	if len(options) == 0 {
+		sb.WriteString(overlayEmptyStyle.Render("No options"))
+	}
+	border := darkGray
+	if focused {
+		border = purple
+	}
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(border).
+		Padding(0, 1).
+		Width(width).
+		Render(metaLabelStyle.Render(title) + "\n\n" + strings.TrimRight(sb.String(), "\n"))
+}
+
+func (m Model) renderInterfaceFilterOverlay() string {
+	var sb strings.Builder
+	sb.WriteString("Choose an interface filter\n\n")
+	for i, option := range m.interfaceOptions {
+		marker := "( )"
+		if i == m.interfaceCursor {
+			marker = "(•)"
+		}
+		line := marker + " " + option.label
+		if i == m.interfaceCursor {
+			sb.WriteString(focusedItemStyle.Render(line))
+		} else {
+			sb.WriteString(line)
+		}
+		sb.WriteString("\n")
+	}
 	sb.WriteString("\n")
-	sb.WriteString(fmt.Sprintf("Interface: %s", m.interfaceFilter.label()))
-	sb.WriteString("\n")
-	sb.WriteString(overlayHintStyle.Render("type to search leads · tab change interface · enter apply · esc cancel"))
-	return sb.String()
+	sb.WriteString(overlayHintStyle.Render("↑/↓ move · enter apply · esc cancel"))
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 func (m Model) externalLinkEntries() []externalLinkEntry {
