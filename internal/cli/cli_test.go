@@ -643,8 +643,8 @@ func TestCLIMilestone7(t *testing.T) {
 	}
 	recall := d.Data.(core.RecallResult)
 
-	if recall.Frontmatter.Status != core.StatusDelegated {
-		t.Errorf("expected status 'delegated', got %s", recall.Frontmatter.Status)
+	if recall.Frontmatter.Status != core.StatusExecute {
+		t.Errorf("expected legacy status 'waiting' to normalize to 'execute', got %s", recall.Frontmatter.Status)
 	}
 	if recall.Frontmatter.NextAction != "Do something next" {
 		t.Errorf("expected next_action 'Do something next', got %q", recall.Frontmatter.NextAction)
@@ -818,7 +818,7 @@ func TestCLIDoneAndStatuses(t *testing.T) {
 	}
 
 	// Transition through statuses via CLI
-	statuses := []string{"define", "delegated", "review", "blocked"}
+	statuses := []string{"define", "execute", "review", "blocked"}
 	for _, st := range statuses {
 		cmd := NewRootCmd()
 		cmd.SetArgs([]string{"status", "idea-spark", st, "--home", tempHome})

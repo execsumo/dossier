@@ -1,20 +1,21 @@
 # Dossier Distillation Guide
-*Principles for High-Density, Lossless Context Preservation*
+*Principles for High-Signal, Operationally Complete Context Preservation*
 
-This guide defines the methodology for maintaining the Distilled State of a Dossier. Its objective is to maximize the signal-to-noise ratio—applying lossless information compression to conversational and operational data. Adhere to these principles to produce context that is cognitively lightweight, analytically dense, and immediately resumable.
+This guide defines the methodology for maintaining the Distilled State of a Dossier. Its objective is not maximum brevity. It is minimum total effort to understand, resume, decide, and act: preserve the complete operational signal while removing conversational residue and redundant narration. A longer coherent Dossier is cheaper than several terse documents that force a reader to reconstruct context or reconcile competing versions.
 
 **The core contract:** the Distilled State is a *view*, not the record. The Archive holds the verbatim record; the Distilled State is the curated projection over it. Compression here is a rendering decision, never a destruction decision. Every compression you perform must leave behind a pointer that resolves back to the source—`dossier_artifact` fetches any cited artifact, and any cited line range within it. Compress hard; cite harder. Detail you elide without a resolvable citation is not compressed, it is lost.
 
-## 1. Information Theory & Linguistic Compression
+## 1. Signal Retention & Cognitive Efficiency
 
-A world-class dossier ruthlessly prunes linguistic fat while preserving all material facts, decisions, and reasoning vectors.
+A world-class Dossier is complete enough to act from, structured enough to scan, and free of conversational residue. Optimize for recoverable meaning and decision quality, not the fewest possible tokens.
 
-- **Maximize Lexical Density:** Upgrade vocabulary to eliminate phrasal verbs and colloquialisms. Substitute low-density phrases with precise, high-level terminology. (e.g., Use *"investigated and deprecated"* instead of *"looked into it and decided we shouldn't use it anymore"*).
-- **Telegraphic Phrasing:** Drop conversational transitions and filler. Rely on structural formatting (bullets, headers) to convey relationships rather than prose. Do not strip words to the point of ambiguity—an article or auxiliary verb that disambiguates *who did what to what* earns its tokens. Density is measured in recoverable meaning per token, not in tokens removed.
-- **Active Voice & Nominalization:** Convert wordy, passive descriptions into punchy, noun-heavy declarations. (e.g., Change *"The test script was run and it failed"* to *"Test suite execution failed"*).
-- **Semantic Abstraction (narration only):** Consolidate the *play-by-play of the work* into its net effect. Compress the narration, never the values. Abstract *"I opened the file, scrolled, found the handler, and edited it"* into *"Patched the handler"*—but the handler's name, path, and the change stay.
+- **Optimize Total Compute, Not Input Tokens Alone:** Count the reasoning needed to reconstruct omitted context, the extra reads needed to follow scattered documents, and the error cost of ambiguity. Preserve an explanation when it makes the next action or decision materially easier.
+- **Prefer Plain Precision:** Use direct, readable language. Dense jargon and noun-heavy shorthand are not improvements when the reader must unpack them. Structure carries relationships; prose preserves rationale where the relationship itself is material.
+- **Prune Mechanics, Preserve Meaning:** Consolidate the play-by-play into its net effect. Abstract *"I opened the file, scrolled, found the handler, and edited it"* into *"Patched the handler"*—but retain the handler's name, path, the change, and why it mattered.
+- **Retain Decision Context:** Keep the causal links a future reader needs: why a constraint exists, how one decision affects another, what completion means operationally, and which apparent contradiction is intentional.
 - **Never Compress These:** Reproduce verbatim, always. Identifiers and paths. Numbers, metrics, thresholds, versions, dates. Exact error text and status codes. Command lines and their flags. Config keys and values. API/function signatures. These are what a future reader needs to verify or re-run a decision, and they are precisely what paraphrase destroys. When unsure whether a value is material: keep it. Values are cheap; re-deriving them is not.
 - **Encode the Negative Space (Anti-Goals):** Explicitly preserve abandoned trajectories. The knowledge of a failed experiment or rejected alternative is high-value context. Compress dead-ends into dense warnings rather than discarding them as noise.
+- **Retain Constraints as First-Class Signal:** Constraints define the feasible solution space. Record technical, commercial, legal, timing, budget, dependency, and authority boundaries; distinguish observed or decided constraints from assumptions. If a leader could alleviate one, name the decision-maker or relief path. Never silently remove a constraint—record its alleviation or invalidation as a Decision.
 
 ## 2. Process & State Mechanics
 
@@ -48,13 +49,27 @@ Identical text means different things in different positions: an *intention* is 
 
 ## 4. Structure of the Distilled State
 
-Every `dossier.md` body must rigidly follow this schema. Sections marked *conditional* are omitted entirely when they do not apply—an empty header is not neutral, it asserts that the section was considered and came back empty. Every other section is unconditional and keeps its position even while thin.
+A `spark` may begin as raw, loosely structured thought; demanding a completed brief at capture time defeats zero-friction promotion. During `define`, shape it into the canonical structure below. Before work moves to `execute`—and always before delegation—the Objective, Done When, Validation, Constraints, and any deliverable-specific completion conditions must be clear enough that the person doing the work can proceed and know when they are finished. This is a judgment checkpoint, not a form or completeness score: name the specific missing fact or say the work is ready.
+
+Sections marked *conditional* are omitted when they do not apply. Once a Dossier has passed the definition checkpoint, every other section keeps its position; an explicitly empty section records that it was considered.
 
 ```markdown
 # <Dossier Name>
 
+## Objective
+The single primary outcome this Dossier exists to produce. Describe the end state, not a task list.
+
+## Done When
+Observable conditions that make the overall outcome complete. For a multi-deliverable Dossier, state the integrated result rather than repeating each deliverable's local criteria.
+
+## Validation
+How the overall Done When conditions will be checked. A contributor's submission is not completion until the relevant validation passes.
+
+## Constraints
+Boundaries that determine feasible solutions: what must not change, be touched, be exceeded, or be assumed. Preserve rationale and provenance. Mark assumptions as assumptions; when a leader can alleviate a constraint, name that relief path.
+
 ## Situation
-Core problem, goal, or topic. High-density summary of initial state and context.
+Relevant context needed to understand the work without shared conversational memory.
 
 ## Decisions
 Irreversible or material agreements. Require attribution, rationale, date, and provenance.
@@ -84,20 +99,36 @@ Unresolved questions that materially affect the topic or next move.
 ## Current State
 Immediate execution context. Active files, blockers, or configurations.
 
+## Deliverables
+*Conditional*—use only when two or more contributions combine into the Dossier's shared outcome. A single-deliverable Dossier uses the top-level Objective / Done When / Validation directly and does not wrap them in a redundant Deliverables section.
+### <Deliverable label>
+- Outcome: <The distinct contribution this piece produces.>
+- Owner: <Person, agent, user, or unassigned. The Dossier lead remains accountable for the overall outcome.>
+- Done When: <Observable local completion conditions.>
+- Validation: <How this deliverable gets checked.>
+- Completion: [open|done|dropped] <For done, cite validation evidence; for dropped, retain the reason.>
+
 ## Delegation Contracts
-*Conditional*—present only when a piece of this topic is delegated to someone. One `###` per contract; a Dossier can carry several over its life. Blocks appear in this fixed order, every time, so a reader (or a later session) finds them without searching. Every one of the seven bullets is always present and always carries exactly one tag, `[decided]` once settled and binding or `[proposed]` while still under discussion—never omit a bullet and never leave one untagged, even when there is nothing to report yet (write `[proposed] Not yet discussed` rather than skip it). This per-field tag is a mechanical signal, not just phrasing: it is what a reader—human or tool—checks to see which parts of a contract are actually ready to hand off versus still open, without re-reading the prose. A `[proposed]` field's resolution is mirrored as an entry in `## Open Questions`—that pairing is what makes a half-written contract legible on resumption.
-### <Task label> — owner: <Lead>, agreed <YYYY-MM-DD> [src:art_<id>#L<a>-L<b>]
-- Objective: [decided|proposed] <One sentence; the end state "done" produces, not a task list.>
-- Context: [decided|proposed] <Self-contained; assume the reader has no shared memory beyond this Dossier.>
-- Success Criteria: [decided|proposed] <The target state in testable terms, not adjectives.>
-- Validation: [decided|proposed] <How the criteria get checked—the same check whether the owner self-reports or you run it.>
-- Constraints: [decided|proposed] <What must not change, be touched, or be assumed.>
+*Conditional*—present only when the whole Dossier or a deliverable is delegated. The contract does not restate Objective, context, completion criteria, Validation, or Constraints: those are canonical Dossier content. It records only what becomes true because this person is doing this scope. Every bullet carries `[decided]` once settled or `[proposed]` while open. A proposed field is mirrored in `## Open Questions`. Readiness is expressed by naming open terms, never by a numeric completeness score.
+### <Assignment label> — owner: <Person>[, accepted <YYYY-MM-DD>] [src:art_<id>#L<a>-L<b>]
+- Scope: [decided|proposed] <"Entire Dossier" or the exact `## Deliverables` heading; do not duplicate its work definition.>
+- Acceptance: [decided|proposed] <Accepted, clarification requested, or changes proposed; when accepted, record date, commitment/timing, and the accepted Dossier revision.>
 - Decision Rights: [decided|proposed] <What the owner decides unilaterally vs. what needs sign-off.>
-- Escalation: [decided|proposed] <Conditions to stop and flag rather than guess, and what to do while waiting.>
+- Escalation: [decided|proposed] <Conditions to stop and flag rather than guess, who/where to escalate, and what to do while waiting.>
+- Return Expectations: [decided|proposed] <The status, validation result, output/evidence, and decisions the owner returns.>
 
 ## Next Steps
 Immediate required actions. Must align with `next_action` and the `## Open Questions` section in the Distilled State body.
 ```
+
+### Work-shape rules
+
+- **One deliverable is the default.** The Dossier's Objective / Done When / Validation define it directly. Do not create a redundant Deliverables section.
+- **Several contributions, one shared outcome:** keep one Dossier and give every deliverable its own Done When and Validation. Shared context and constraints stay at the Dossier level; put a narrower constraint under a deliverable only when its scope truly differs.
+- **Independent outcomes:** when pieces can finish independently and carry substantially different context, evidence, timelines, or decisions, prefer separate Dossiers. This boundary is intentionally judgment-based.
+- **Completion is validated, not reported.** A deliverable is `done` only when its local validation passes. The Dossier becomes `done` only when every required deliverable is done or explicitly dropped and the overall Done When conditions validate.
+- **Primary work closes the Dossier.** Follow-on work begins as a new spark rather than keeping a completed Dossier indefinitely alive. Until first-class Dossier linking exists, record the follow-on plainly in Decisions or Next Steps.
+- **Accepted baselines do not drift silently.** A delegation Acceptance names the revision agreed. If the canonical Objective, Done When, Validation, Constraints, or scoped deliverable changes materially, surface the drift and obtain renewed acceptance; do not copy the old work definition into the contract.
 
 ## 5. Choosing What to Archive
 

@@ -71,8 +71,8 @@ func TestOptimisticConcurrencyAutoMerge(t *testing.T) {
 	}
 	recall := recallRes.Data.(RecallResult)
 
-	if recall.Frontmatter.Status != StatusDelegated {
-		t.Errorf("expected merged status to be %q, got %q", StatusDelegated, recall.Frontmatter.Status)
+	if recall.Frontmatter.Status != StatusExecute {
+		t.Errorf("expected merged status to be %q, got %q", StatusExecute, recall.Frontmatter.Status)
 	}
 	if recall.Frontmatter.NextAction != "Updated by B" {
 		t.Errorf("expected merged next_action to be 'Updated by B', got %q", recall.Frontmatter.NextAction)

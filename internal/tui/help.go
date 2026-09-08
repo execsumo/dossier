@@ -97,7 +97,7 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 	case ViewDetail:
 		contextual = []bubbleskey.Binding{
 			tuiHelpKey("e", "edit"), tuiHelpKey("r", "rename"),
-			tuiHelpKey("a", "artifacts"), tuiHelpKey("d", "contracts"), tuiHelpKey("l", "links"), tuiHelpKey("o", "open in editor"),
+			tuiHelpKey("a", "artifacts"), tuiHelpKey("d", "delegation terms"), tuiHelpKey("l", "links"), tuiHelpKey("o", "open in editor"),
 			tuiHelpKey("k", "add link"), tuiHelpKey("c", "open agent"), tuiHelpKey("v", "view"),
 		}
 		shortContextual = []bubbleskey.Binding{

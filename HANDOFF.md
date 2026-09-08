@@ -18,11 +18,12 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 ## Current state
 
 > **Stage: All Milestones Completed (Project Fully Finished) + Lead/Interface Meeting Prep.** The entire Dossier durable memory layer (codename *chainlink*) is fully implemented, verified, and integrated across all surfaces (CLI, MCP, and the Bubble Tea TUI).
+> - **Dossier as canonical operational brief (2026-09-08, B16 / ADR 0008):** User dogfood exposed direct duplication in the common one-Dossier/one-deliverable case: the seven-field Delegation Contract repeated Objective, Context, Success Criteria, Validation, and Constraints that should describe the work regardless of who performs it. The shipped model now treats the Dossier body as the single work truth. A `spark` may stay loose; during `define` it gains Objective / Done When / Validation / first-class Constraints, then passes a qualitative health checkpoint before `execute` or delegation. One deliverable uses those top-level sections directly; several contributions toward one outcome use lightweight `## Deliverables` blocks with per-piece Outcome / Owner / Done When / Validation / Completion. The contract now stores only Scope / Acceptance / Decision Rights / Escalation / Return Expectations, and Acceptance names the agreed revision so goalpost drift remains visible without duplicating prose. Constraints explicitly retain technical, commercial, legal, timing, budget, dependency, interface, and authority boundaries; assumptions are marked and leader-removable constraints name the relief path. Distillation now optimizes signal retention and total comprehension cost, not minimum length. Canonical lifecycle is `spark → define → execute → review → blocked → done`; legacy `delegated` and `waiting` normalize to `execute`. The core parser/TUI read legacy seven-field contracts, project what is safe, and surface missing migration terms; the overlay says ready or names open fields, never a numeric score. See [ADR 0008](docs/adr/0008-dossier-as-canonical-operational-brief.md).
 > - **Milestone 1–5:** Core file store, CLI, recall, warnings, lexical search/suggestions, promote/link flow, and the MCP stdio server are implemented.
 > - **Milestone 6:** Active session binding, hook installation for Claude Code, confirmation prompts, capability detection, non-clobbering configurations, and the interactive **Rich TUI** (dashboard, detail recall view with native markdown rendering and fsnotify hot-refreshing, one combined editor for stage/priority/due/lead/next action, ambiguity link resolution, and syntax-highlighted merge conflict resolving) are fully completed.
 > - **Lead Tracking & Accountability:** A newly added `Lead` field allows assigning team members to specific dossiers. Supported end-to-end through `dossier promote --lead`, `dossier lead`, `dossier_update` MCP tool, and the TUI's inline `l` (lead) editor.
 > - **Milestone 7:** Optimistic concurrency control, non-overlapping frontmatter auto-merging, DP LCS unified diff body conflict generation (writing to `conflicts/`), and `dossier merge` CLI/Service commands are verified.
-> - **Milestone 8:** The final Distillation Guide is authored in `assets/guide.md` and embedded in the binary to be written to `~/.dossier/context/guide.md` upon initialization. It has been upgraded to employ rigorous linguistic compression (syntactic pruning, lexical density, and negative space framing). All dogfooding validations, test sweeps, and PRD success metrics have been fully met.
+> - **Milestone 8:** The Distillation Guide is authored in `assets/guide.md` and embedded in the binary to be written to `~/.dossier/context/guide.md` upon initialization. Its current standard is operational signal retention: complete enough to act from, structured enough to scan, with conversation mechanics and redundant narration removed. It explicitly rejects terseness when omitted context would increase reconstruction, retrieval, reconciliation, or error cost.
 > - **Stable Install & Auto-MCP Configuration:** Implemented stable binary self-install path command (`dossier install`, default `~/.local/bin/dossier`), volatile path detection on `init`, and auto-registration of both the MCP stdio server and lifecycle hooks in Claude Code's user/global configuration files (preserving existing third-party configs and backing up changed files).
 > - **v1 harness support (2026-08-03, revised 2026-08-04):** Claude Code remains fully integrated. Pi is supported through a `PiHarness` plus the Dossier Pi extension Dossier now installs itself (session identity today; lifecycle bridging still owed — see "Pi integration" below). Codex, Cursor, and Antigravity remain out of scope for native lifecycle integration. The `Harness` interface/registry remain extensible.
 > - **Configurable launch profiles (2026-09-04):** Machine-local `config.yaml` now accepts `open_with: claude-code|cursor|codex|pi|antigravity` (with `agy` as an alias). The TUI `c` key and `dossier open` share profile-specific launch planning; prompts remain embedded in the binary, and missing launch binaries fail before a session binding is written.
@@ -168,51 +169,45 @@ is embedded (`assets/dossier-delegate-skill.md`) and `ClaudeCodeHarness.Install`
 writes it to `~/.claude/skills/dossier-delegate/SKILL.md` (testable via
 `/dossier-delegate`) as part of `dossier init`'s Claude Code integration step,
 following the same idempotent/non-clobbering/single-confirmation contract
-(B7/B8) as the rest of `Install`. The design below is otherwise unchanged.
+(B7/B8) as the rest of `Install`.
 
-**Problem:** the user delegates work captured in Dossiers to an overseas team
-on an ~8-hour offset. An undefined success criterion or escalation path
-doesn't cost a Slack reply there — it costs a full lost day. The user wants
-best-practice delegation structure (clear output, validation criteria,
-escalation path, decision rights) *available* on a Dossier, but explicitly
-**not enforced** — it must never become required overhead on the
-zero-friction "dossiers start organically and quickly" flow that's working
-today.
+**Supersession (2026-09-08):** the original seven-field design below was
+replaced after users experienced it as duplication. The current decision is B16
+/ ADR 0008; the shipped behavior lives in
+`assets/dossier-delegate-skill.md`. This summary is the current model.
 
 **Design (see the skill file for full detail):**
-- **Pull-only, explicit invocation** — a slash command / trigger phrases
-  ("help me define this exercise," "let's clarify so we can delegate"),
-  never triggered by dossier state (no auto-fire off a thin `next_action` or
-  a `lead` being set).
-- **Method is a stall-simulation, not a fixed rubric:** "read this as the
-  teammate, waking up with no way to reach the sender for hours — where do
-  they stall?" Biases toward **Decision Rights** and **Escalation** first —
-  the two categories that actually cause a full-day loss on an offset team —
-  before Objective/Context/Constraints, which are usually already implicit.
-  Output is binary/qualitative (name the missing fact, or say "ready") —
-  **never a completeness score**, which would recreate the enforcement feel
-  the user is avoiding.
-- **Persisted contract vs. rendered note (resolves a real tension):** the
-  outbound note is verbose by design (frontloading is the point); the
-  Distilled State is terse by design (the Distillation Guide fights bloat).
-  Resolution: persist a *compressed* delegation contract (Objective /
-  Success Criteria / Validation / Constraints / Decision Rights / Escalation)
-  into the Dossier body via the existing `Save` path — so it's
-  optimistic-concurrency protected and every change lands in the audit log
-  with a field-level diff. That answers the user's "how do I check success
-  criteria was met without moving the goalpost on my team" concern: the
-  goalpost can still move, but never silently — a later re-render must flag
-  drift between the persisted contract and current dossier state rather than
-  silently rendering the new state as original. The paste-able Slack/Jira
-  note is then a pure rendering of that persisted contract, regenerated on
-  demand, never inventing new criteria at render time.
-- **Return contract:** the teammate has no MCP access (human, async, Slack/
-  Jira) — the note defines the exact shape of their expected reply so it can
-  be pasted back into the Dossier later, rather than assuming they can write
-  to the store themselves.
-- Reuses the existing `next_action` and `lead` frontmatter fields as the
-  pre-delegation gap-tracking home; open questions belong in the body under
-  `## Open Questions`.
+- **Progressive definition, not intake overhead.** A Dossier starts as a loose
+  spark. Define is where Objective / Done When / Validation / Constraints
+  become executable. The transition to execute—and every delegation—is the
+  checkpoint. The skill remains explicit-invocation-only.
+- **One canonical brief.** Work facts are saved into the Dossier itself. The
+  Distilled State is allowed to be rich; it optimizes signal retention and
+  total reasoning cost, not minimum tokens. The outbound note is a rendering,
+  never a separately persisted work specification.
+- **Constraints are never incidental.** Preserve every boundary that changes
+  the feasible solution space, distinguish assumptions, and name the relief
+  path when leadership can alleviate one. Constraint changes are Decisions,
+  not silent edits.
+- **One deliverable stays simple.** Its Objective / Done When / Validation are
+  the Dossier-level sections. Several contributions toward one shared outcome
+  use lightweight Deliverables blocks, each with local completion and
+  validation. Independent outcomes may become separate Dossiers by judgment.
+- **Delegation stores the relationship delta only.** Scope / Acceptance /
+  Decision Rights / Escalation / Return Expectations are the five fixed
+  contract fields. Acceptance records timing and the agreed Dossier revision.
+- **Stall simulation, not a rubric.** Read as the asynchronous recipient and
+  ask where they cannot proceed, choose, or know they are finished. Ask only
+  about concrete gaps; never show a completeness score.
+- **Honest completion.** Submission is not validation. A deliverable is done
+  after its local check passes; the Dossier is done after all required
+  deliverables are done or explicitly dropped and the overall Done When
+  validates. Follow-on work begins as a new spark.
+- **Backward-compatible reading.** Existing seven-field contracts are not
+  rewritten automatically. Core projects Objective to Scope and the agreed
+  date to Acceptance, retains Decision Rights and Escalation, and surfaces
+  Return Expectations as missing. The next requested delegation pass performs
+  the semantic migration into canonical Dossier sections.
 
 **Explicitly deferred (named, not forgotten):**
 - A new `delegation_note` artifact type — the existing SPEC §4.3 artifact
@@ -222,19 +217,18 @@ today.
   today's artifact model. Revisit only if rendered-note-only proves
   insufficient in practice.
 - Per-teammate formatting/escalation preferences.
-- Scoping a contract to a single Next Step vs. the whole Dossier (multiple
-  concurrent delegated threads on one topic).
+- First-class links between a completed Dossier and the new spark that follows
+  it. Record the relationship in Markdown until the product earns that model.
 
 **Grounded in:** Anthropic's agent-design/context-engineering writing,
-Karpathy's autoresearch loop, and this environment's own `delegate` skill's
-7-block Spec Contract (`~/.claude/skills/delegate/SKILL.md`) — adapted here
-for a human, async, offset delegate rather than a supervised agent.
+Karpathy's autoresearch loop, user dogfood of one-Dossier/one-deliverable
+duplication, and the practical cost of asynchronous clarification loops.
 
 ## Resolved decisions (the foundation)
 
 Product (from `PRD.md` §0):
 - v1 supports **Claude Code and Pi**; local, single-user, file-based, **no database**. Pi integration is carried by the Dossier Pi extension Dossier installs (see "Pi integration" above).
-- A Dossier is a **flat durable topic** (no graph/tree). Each has `dossier.md` (frontmatter + Distilled State), `artifacts/`, `audit.log`.
+- A Dossier is a **flat durable container for one primary outcome** (no graph/tree). Its Distilled State is the canonical operational brief, with Objective / Done When / Validation / Constraints at dossier level and optional lightweight per-contribution deliverables. Each has `dossier.md`, `artifacts/`, and `audit.log`.
 - **One active Dossier per session**, not global. Ordinary saves have **no human gate** (trust = non-destruction + the Distillation Guide). Ambiguous links and merge conflicts **do** ask the user.
 - **No native deletion** (archive only). Text-first artifacts; reject single artifacts > 1 GB. Every material claim carries provenance. 100k tokens is a **warning threshold**, not a hard limit. Missing harness capabilities are warned about, never silent.
 

@@ -61,24 +61,22 @@ func TestFSStoreListReportsOpenDelegationContract(t *testing.T) {
 	open := &core.Dossier{
 		Frontmatter: core.Frontmatter{
 			ID: "dos_open", Name: "Has Open Ask", Slug: "has-open-ask",
-			CreatedAt: now, UpdatedAt: now, Status: core.StatusDelegated, Priority: core.PriorityHigh,
+			CreatedAt: now, UpdatedAt: now, Status: core.StatusExecute, Priority: core.PriorityHigh,
 		},
 		DistilledState: core.DistilledState{Body: "" +
 			"## Delegation Contracts\n" +
 			"### Task — owner: A, agreed 2026-01-01\n" +
-			"- Objective: [decided] Do it.\n" +
-			"- Context: [decided] Context.\n" +
-			"- Success Criteria: [decided] Criteria.\n" +
-			"- Validation: [decided] Validation.\n" +
-			"- Constraints: [decided] Constraint.\n" +
+			"- Scope: [decided] Entire Dossier.\n" +
+			"- Acceptance: [decided] Accepted against rev_123.\n" +
 			"- Decision Rights: [decided] Rights.\n" +
-			"- Escalation: [proposed] Not yet discussed.\n",
+			"- Escalation: [proposed] Not yet discussed.\n" +
+			"- Return Expectations: [decided] Return validation and output.\n",
 		},
 	}
 	closed := &core.Dossier{
 		Frontmatter: core.Frontmatter{
 			ID: "dos_closed", Name: "No Open Ask", Slug: "no-open-ask",
-			CreatedAt: now, UpdatedAt: now, Status: core.StatusDelegated, Priority: core.PriorityHigh,
+			CreatedAt: now, UpdatedAt: now, Status: core.StatusExecute, Priority: core.PriorityHigh,
 		},
 		DistilledState: core.DistilledState{Body: "## Situation\nNothing delegated.\n"},
 	}

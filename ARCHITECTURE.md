@@ -342,9 +342,37 @@ The Distillation Guide, the Dossier Protocol skill, and the `library.md` templat
 
 `assets/dossier-delegate-skill.md` is also embedded, but is installed to a different destination: `ClaudeCodeHarness.Install` (`internal/harness/claudecode.go`) writes it to `~/.claude/skills/dossier-delegate/SKILL.md` — Claude Code's own skills directory, not `~/.dossier/context/` — because it must resolve as a real `/dossier-delegate` slash-command Skill rather than be pulled programmatically via MCP interception like the guide/instructions files. The write follows the same idempotent/backed-up/single-confirmation contract (B7/B8) as the rest of `Install`: byte-identical content is a no-op, differing content gets a timestamped `.bak` before being overwritten.
 
+**Canonical work brief and delegation checkpoint (B16 / ADR 0008).** The body
+itself owns Objective, Done When, Validation, Constraints, and optional
+Deliverables; there is no separate Work Definition type or file. This remains
+Markdown governed by `guide.md`, not Go-domain fields. The definition
+checkpoint is semantic and agent-led: core does not pretend it can validate the
+quality of natural-language criteria by checking headings. The
+`dossier-delegate` skill writes work gaps back to those canonical sections and
+stores only Scope / Acceptance / Decision Rights / Escalation / Return
+Expectations under `## Delegation Contracts`.
+
+`internal/core/delegation_contract.go` mechanically parses only the
+person-specific contract terms that drive the TUI's open-ask marker and detail
+overlay. It retains read compatibility with the former seven-field schema:
+Objective projects to Scope, an `agreed` header projects to Acceptance,
+Decision Rights and Escalation survive, and Return Expectations remains visibly
+missing. Context / Success Criteria / Validation / Constraints stay untouched
+in the source until an agent performs the semantic migration into the canonical
+Dossier. The TUI reports `ready` or names open fields; it never renders a
+numeric completeness score.
+
+**Lifecycle vocabulary.** `core.CanonicalStatuses` is
+`spark → define → execute → review → blocked → done`. The lifecycle describes
+the work, not who is performing it. `delegated` remains a legacy input and,
+like legacy `waiting`, normalizes to `execute`; `active` normalizes to
+`define`, while `resolved` and `archived` normalize to `done`. Stores
+therefore remain lazily compatible: read accepts old files and the next ordinary
+Save emits the canonical value.
+
 `assets/spark-skill.md` is the shared quick-capture workflow. Claude Code receives it at `~/.claude/skills/spark/SKILL.md`, where it is invoked as `/spark`; Pi receives it at `~/.pi/agent/skills/spark/SKILL.md`. Pi's installed extension registers a native `/spark` alias that forwards to Pi's `/skill:spark` expansion, keeping the user-facing command identical across harnesses. The skill uses the existing promote path, preserves the raw capture, and relies on the core default of `medium` priority for all new Dossiers. Both skill files follow the same confirmation, backup, and idempotent installation contract.
 
-**Programmatic Injection (Zero-Tax Architecture):** Instead of injecting the 1500-token `guide.md` into global prompts (`skill.md`) or passive lifecycle hooks where it wastes tokens on generic coding tasks, Dossier uses **active interception**. When an LLM invokes the `dossier_session` MCP tool to bind a topic, the MCP server dynamically wraps the `Service.Switch` or `Service.Active` state response in a payload that explicitly includes the full string contents of the Distillation Guide. This guarantees the LLM receives strict schema instructions *exactly* when it enters a dossier context, while maintaining zero overhead during non-dossier operations. Future iterations will apply this deterministic pattern to other operational instructions currently housed in `skill.md` to further compress global bloat.
+**Programmatic Injection (Zero-Tax Architecture):** Instead of injecting the full `guide.md` into global prompts (`skill.md`) or passive lifecycle hooks where it wastes tokens on generic coding tasks, Dossier uses **active interception**. When an LLM invokes the `dossier_session` MCP tool to bind a topic, the MCP server dynamically wraps the `Service.Switch` or `Service.Active` state response in a payload that explicitly includes the full string contents of the Distillation Guide. This guarantees the LLM receives strict schema instructions *exactly* when it enters a dossier context, while maintaining zero overhead during non-dossier operations. Future iterations will apply this deterministic pattern to other operational instructions currently housed in `skill.md` to further compress global bloat.
 
 The `session-start` hook is the one injection point that fires unconditionally on *every* session, whether or not it has anything to do with Dossier — so it deliberately does not follow the "inline the heavy payload" pattern above for a session with no active binding. `Service.SessionStart` (`internal/core/service.go`) reduces that case to a single-line nudge (open-dossier names + a pointer to the three MCP tools that would act on them); the Distillation Guide and a bound Dossier's full Distilled State are still inlined in full when a session *does* have an active binding, since that binding is the explicit signal that this session is about Dossier work.
 

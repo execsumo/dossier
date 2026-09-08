@@ -349,7 +349,7 @@ func NewRootCmd() *cobra.Command {
 			}
 		},
 	}
-	lsCmd.Flags().StringVar(&statusFlag, "status", "", "Filter by status (spark|define|delegated|review|blocked|done|all)")
+	lsCmd.Flags().StringVar(&statusFlag, "status", "", "Filter by status (spark|define|execute|review|blocked|done|all)")
 	lsCmd.Flags().StringSliceVar(&interfacesFlag, "interface", nil, "Filter by interface (repeat or comma-separate)")
 	lsCmd.Flags().StringVarP(&queryFlag, "query", "q", "", "Filter by name, description, lead, interface, or slug")
 	lsCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
@@ -1022,7 +1022,7 @@ func NewRootCmd() *cobra.Command {
 	renameCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
 	statusCmd := &cobra.Command{
-		Use:   "status <slug-or-id> <spark|define|delegated|review|blocked|done>",
+		Use:   "status <slug-or-id> <spark|define|execute|review|blocked|done>",
 		Short: "Update status of a dossier",
 		Args:  cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {

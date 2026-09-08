@@ -16,7 +16,7 @@ The product must optimize for agent-initiated use: when a supported agent sessio
 ## 2. Non-Negotiable Product Constraints
 
 1. **Flat topics:** no graph, tree, hierarchy, or persistent cross-Dossier links. Related Dossiers are merged.
-2. **Two layers:** Distilled State and Archive are separate. Distilled State carries critical state; Archive carries captured source.
+2. **Two layers:** Distilled State and Archive are separate. Distilled State is the complete, canonical operational brief with noise removed—not a terse summary; Archive carries captured source.
 3. **No database:** files are the source of truth. Indexes, if ever added, are derived caches only and not v1.
 4. **No human gate for ordinary saves:** distillation writes commit without confirmation, governed by the Distillation Guide and hook cadence.
 5. **Human disambiguation for ambiguous/destructive actions:** ambiguous link targets and merge conflicts must ask the user.
@@ -114,7 +114,7 @@ description: Pricing strategy and packaging decisions for the next planning cycl
 slug: pricing-model-refresh
 created_at: 2026-06-14T15:40:00-07:00
 updated_at: 2026-06-14T16:10:00-07:00
-status: active
+status: execute
 lead: "Alice"
 interfaces:
   - "Pricing WBR"
@@ -148,7 +148,7 @@ The read schema accepts the legacy `last_touched_at`, `open_questions`, `importa
 
 Valid enums:
 
-- `status`: `spark`, `define`, `delegated`, `review`, `blocked`, `done` (legacy statuses `active` → `define`, `waiting` → `delegated`, and `resolved`/`archived` → `done` are accepted on input and transparently normalized).
+- `status`: `spark`, `define`, `execute`, `review`, `blocked`, `done` (legacy statuses `active` → `define`, `delegated`/`waiting` → `execute`, and `resolved`/`archived` → `done` are accepted on input and transparently normalized).
 - `priority`: `low`, `medium`, `high`, `max`
 
 Interface and lead values are configured in machine-local `config.yaml`. Interface assignments must use configured values. When `leads` is nonempty, new lead assignments must use a configured value (or empty to clear); when it is empty, lead assignment remains free-form. Removing a configured value does not invalidate existing Dossiers or unrelated edits. TUI selectors and MCP schemas read these lists at process startup.
@@ -162,6 +162,16 @@ a hard limit. Dossier never truncates the state to satisfy it. The current token
 estimate is returned by recall but is not stored in the Dossier.
 
 ### 4.2 Distilled State Body
+
+The Distilled State is the one canonical operational brief for the work. It
+optimizes for total comprehension and execution cost, not minimum document
+length: preserve the context and rationale needed to act while removing
+conversation mechanics, repetition, and superseded narration. A `spark` may be
+raw and loosely structured. During `define`, shape it into the structure below;
+before `execute` or delegation, the Objective, Done When, Validation,
+Constraints, and any deliverable-specific completion conditions must be clear
+enough that the person doing the work can proceed and know when it is finished.
+The checkpoint is qualitative—name the missing fact or say ready—never a score.
 
 Open questions are ordinary Markdown, not frontmatter. When present, record
 them under `## Open Questions` in the Distilled State body.
@@ -185,6 +195,14 @@ Required section order:
 ```markdown
 # <Dossier Name>
 
+## Objective
+
+## Done When
+
+## Validation
+
+## Constraints
+
 ## Situation
 
 ## Decisions
@@ -199,13 +217,51 @@ Required section order:
 
 ## Current State
 
+## Deliverables (optional; two or more contributions only)
+
+### <Deliverable label>
+- Outcome: ...
+- Owner: ...
+- Done When: ...
+- Validation: ...
+- Completion: [open|done|dropped] ...
+
+## Delegation Contracts (optional)
+
+### <Assignment label> — owner: <Person>[, accepted <YYYY-MM-DD>]
+- Scope: [decided|proposed] ...
+- Acceptance: [decided|proposed] ...
+- Decision Rights: [decided|proposed] ...
+- Escalation: [decided|proposed] ...
+- Return Expectations: [decided|proposed] ...
+
 ## Next Steps
 ```
 
 Rules:
 
-- Preserve critical substance over brevity.
+- Preserve operational signal over brevity. Keep explanatory context when it
+  prevents reconstruction, extra reads, ambiguity, or a foreseeable error.
 - Strip greetings, small talk, dead-end reasoning, tool-call mechanics, and redundant restatement.
+- Retain constraints that shape feasible solutions: technical, commercial,
+  legal, timing, budget, dependency, interface, and authority boundaries.
+  Distinguish observed/decided constraints from assumptions. If a leader can
+  alleviate one, name the decision-maker or relief path. Never silently remove
+  a constraint; record its alleviation or invalidation as a Decision.
+- A single-deliverable Dossier uses the top-level Objective / Done When /
+  Validation directly and omits Deliverables. When several contributions form
+  one integrated outcome, every deliverable carries its own local Done When and
+  Validation. Independently completable outcomes with substantially different
+  context, evidence, timelines, or decisions are candidates for separate
+  Dossiers; this remains a judgment call.
+- A Delegation Contract contains only person-specific terms. It points Scope at
+  the whole Dossier or an exact Deliverables heading and never duplicates
+  Objective, context, completion criteria, Validation, or Constraints. Its
+  Acceptance records timing/commitment and the accepted Dossier revision;
+  material drift requires renewed acceptance.
+- A deliverable is done only when its Validation passes. A Dossier is done only
+  when every required deliverable is done or explicitly dropped and the overall
+  Done When conditions validate. Follow-on work starts as a new spark.
 - Every material claim must include provenance.
 - Decisions must include what was decided, rationale, attribution, date if known, and provenance.
 - Superseded claims should be replaced in the Distilled State; source remains in Archive/audit.
@@ -387,7 +443,7 @@ The first implementation milestone should produce a capability matrix in `docs/h
 
 ```text
 dossier init
-dossier ls [--status spark|define|delegated|review|blocked|done|all] [--interface <interface>] [-q|--query <text>] [--json]
+dossier ls [--status spark|define|execute|review|blocked|done|all] [--interface <interface>] [-q|--query <text>] [--json]
 dossier show <slug-or-id> [--json]
 dossier promote [--name <name>] [--from-file <path>] [--distilled-file <path>] [--json]
 dossier link [<slug-or-id>] [--from-file <path>] [--json]
@@ -399,7 +455,7 @@ dossier artifact <slug-or-id> [<artifact-id>] [-L <a-b>] [--json]
 dossier sync [--status] [--json]
 dossier team create <url> [--json]
 dossier team join <url> [--json]
-dossier status <slug-or-id> <spark|define|delegated|review|blocked|done>
+dossier status <slug-or-id> <spark|define|execute|review|blocked|done>
 dossier lead <slug-or-id> "<lead-name>"
 dossier description <slug-or-id> "<summary>"
 dossier interface <slug-or-id> "<interface>"...
@@ -431,7 +487,7 @@ dossier doctor
 `dossier ls`
 
 - Reads frontmatter across `*/dossier.md`.
-- Default status filter: open work (`spark`, `define`, `delegated`, `review`, `blocked`).
+- Default status filter: open work (`spark`, `define`, `execute`, `review`, `blocked`).
 - Sorts by priority (`max` first, then `high`, `medium`, `low`).
 - `--query` narrows the result to Dossiers whose `name`, `description`, `lead`, any `interface`, or `slug` contains every whitespace-separated term (case-insensitive substring; AND across terms, OR across fields). A term never matches across a field boundary. Filtering only — result ordering is unchanged.
 - Includes capability warning column if invoked inside a known harness/session.
@@ -587,7 +643,7 @@ Input:
 
 ```json
 {
-  "status": ["define", "delegated", "review", "blocked"],
+  "status": ["define", "execute", "review", "blocked"],
   "query": "billing",
   "limit": 50,
   "include_warnings": true

@@ -31,12 +31,13 @@ the moment they want to switch agents, the thread breaks entirely. The
 `handoff.md` pattern proved people *want* durable, portable context — but
 maintaining one file per topic, across twenty topics a day, doesn't scale.
 
-Dossier makes a topic a first-class, durable object. You promote any session
-into a **Dossier**: the critical information on the topic — the situation, the
-decisions made and by whom, what was ruled out and why, open questions, and the
-next action — with the noise stripped out, backed by an archive of the raw
-material that supports it. Its distilled state is plain Markdown you can open in
-any reader, with artifacts and audit history beside it. When you start an agent
+Dossier makes an outcome of work a first-class, durable object. You promote any
+session into a **Dossier**: one canonical operational brief carrying the
+objective, what done means and how it will be validated, the constraints that
+shape feasible solutions, the situation, decisions and rationale, open
+questions, and next action—with conversational noise stripped out and an
+archive of the raw material behind it. Its distilled state is plain Markdown
+you can open in any reader, with artifacts and audit history beside it. When you start an agent
 session, your open Dossiers are surfaced automatically, ordered by priority. You
 pick one up and the agent resumes with exactly the distilled context it needs —
 with a fixed 100k-token warning threshold if a topic is sprawling — with the full
@@ -47,11 +48,12 @@ accountable — and can be tagged with the recurring **meeting forums** where it
 belongs (1:1, steering committee, weekly business review, and so on). The
 terminal UI opens on a lead picker, so preparing for a meeting starts by
 choosing a person and narrowing to a forum, rather than by searching. A bundled
-**delegation skill** turns a Dossier into a handoff for a human colleague,
-tuned for teams working across an offset: it asks where the reader will stall
-rather than walking a checklist, prioritises decision rights and escalation
-above all else, and persists the agreed contract so completion can be checked
-later against what was actually agreed.
+**delegation skill** uses the handoff as a health checkpoint for the Dossier:
+could the recipient proceed and know when they are finished? Missing work
+clarity improves the canonical brief; the contract stores only the
+person-specific scope, acceptance, decision rights, escalation, and return
+expectations. The paste-able note is rendered from both without creating a
+second work specification.
 
 "The thing I kept losing wasn't the chat — it was the *state of the work*: what
 we decided, why, and what's left," said the first user. "Dossier is the
@@ -87,12 +89,13 @@ many topics through CLI coding agents and need durable, portable context. The
 tool lives in a terminal; the work it holds is business work, not code.
 
 **What exactly is a Dossier?**
-One distinct topic of work. Its **Distilled State** is a single Markdown file:
-the topic's critical information with noise removed — situation, decisions,
-findings, current state, next action — *not* a chat recap. Beside it is an
-**Archive** of supporting artifacts: transcripts where available, source
-snapshots, files, queries, and links. Multiple sources don't make multiple
-Dossiers; they are all artifacts under the one topic they support.
+One distinct primary outcome of work, which can begin as a loose idea. Its
+**Distilled State** is a single canonical Markdown brief: objective, Done When,
+validation, constraints, situation, decisions, findings, current state, and
+next action—not a chat recap and not a terse index. Beside it is an **Archive**
+of supporting artifacts: transcripts where available, source snapshots, files,
+queries, and links. Multiple sources do not make multiple Dossiers; they remain
+artifacts under the outcome they support.
 
 **How is this different from `/resume`?**
 `/resume` replays a whole session, mixing durable work with throwaway chatter
@@ -116,6 +119,29 @@ existing topic, the agent links it instead — and Dossier proposes likely match
 so you don't have to hunt. When the match is ambiguous, it asks which thread to
 use rather than silently guessing.
 
+**Do I have to define everything when I create it?**
+No. A `spark` is intentionally cheap: a title and loose thought can be enough.
+The Dossier becomes structured during `define`, when execution makes clarity
+valuable. Before it moves to `execute`, the agent checks whether the person
+doing the work can proceed and know when they are finished. It asks only about
+specific missing facts; there is no completeness score or intake form.
+
+**What if one Dossier has several deliverables and owners?**
+Keep them together when they are contributions to one integrated outcome.
+Shared context and constraints appear once; each deliverable names its owner,
+local Done When, validation, and completion. The Dossier lead remains
+accountable for the overall outcome. If the pieces can complete independently
+and need substantially different context, evidence, timelines, or decisions,
+separate Dossiers may be clearer—the boundary is intentionally practical rather
+than mechanical.
+
+**Why does the Dossier retain constraints explicitly?**
+Constraints determine which solutions are feasible. They include technical,
+commercial, legal, timing, budget, dependency, interface, and authority
+boundaries. Assumptions are marked as assumptions, and a constraint a leader
+could remove names the decision-maker or relief path. Removing or changing one
+is recorded as a decision rather than silently rewriting the solution space.
+
 **How do I see what's on my plate?**
 Ask the agent ("what's open?"), run `dossier ls`, or open the terminal UI by
 running `dossier` with no arguments. The UI opens on a lead picker — choose a
@@ -137,18 +163,26 @@ what makes the meeting-prep and (in v02) escalation views possible.
 Yes — that's the `dossier-delegate` skill, installed with `dossier init`. Invoke
 it explicitly (`/dossier-delegate`, or just ask for help defining a piece of
 delegated work) and it reads the Dossier as the person receiving it would: "they
-wake up with no way to reach you for hours — where do they stall?" It asks about
-the one or two things genuinely missing, usually decision rights and escalation,
-then persists the agreed contract onto the Dossier and renders a paste-able note
-from it. It never produces a completeness score, and it never runs on its own —
-structure is available on demand, never imposed.
+wake up with no way to reach you for hours—where do they stall?" If Objective,
+Done When, Validation, Constraints, or a deliverable is unclear, the answer
+improves the canonical Dossier. The contract records only Scope, Acceptance,
+Decision Rights, Escalation, and Return Expectations, including which Dossier
+revision was accepted. The note renders the canonical work plus those terms. It
+never produces a completeness score, and it never runs on its own.
+
+**When is a Dossier done?**
+When its primary outcome's Done When conditions have been validated. Every
+required deliverable must be done or explicitly dropped; a contributor saying
+"finished" is a submission, not validation. Follow-on work begins as a new
+spark rather than keeping the completed Dossier indefinitely open.
 
 **Won't the context get huge over time?**
 Dossier targets 100k tokens for the Distilled State. That is a warning
-threshold, not a hard stop: the state loads in full, and if it is over target the
-agent tells you and helps you decide whether to reorganise, archive resolved
-material, split the topic, or keep going. Archive artifacts are not loaded by
-default; they are pulled in on demand.
+threshold, not a brevity objective or hard stop. The state loads in full, and if
+it is over target the agent helps you decide whether to reorganise, archive
+resolved material, split the work, or keep going. A longer coherent brief is
+often cheaper than reconstructing terse fragments or reconciling duplicate
+documents. Archive artifacts are pulled in on demand.
 
 **If it summarises my work, won't it drop something I needed?**
 The agent decides what to keep in ordinary saves — no confirmation step, because
@@ -215,14 +249,14 @@ is resolved by **merging** two Dossiers into one. Flat plus merge is simpler and
 matches how the work is actually reasoned about.
 
 **Why separate Distilled State from Archive instead of one evolving document?**
-Two requirements pull opposite ways: "keep only the critical information" wants a
-focused working document; "cite the actual thread verbatim" wants raw fidelity.
-One document can't be both. Splitting them lets the Distilled State carry the
-full substance of the topic while the Archive stays citable. The provenance links
-across the two layers are what make citation a *property of the model* rather
-than a feature to add later. Note: "distilled" means *noise removed*, not *made
-short* — but there is still a fixed 100k-token threshold so the product can warn when a topic
-is sprawling.
+Two requirements pull opposite ways: an operational brief should contain the
+complete signal needed to act, while citation needs the raw source verbatim. One
+document cannot efficiently be both. Splitting them lets the Distilled State
+retain coherent work truth while the Archive stays citable. The provenance links
+across the two layers make citation a *property of the model* rather than a
+feature to add later. "Distilled" means *noise removed*, not *made short*; the
+100k-token threshold warns when work may need reorganization but never overrides
+signal retention.
 
 **Why no review step — isn't "the agent decides" too loose?**
 A confirm-on-every-write gate adds friction on every save, directly counter to

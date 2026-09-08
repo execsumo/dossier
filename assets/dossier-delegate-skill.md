@@ -1,275 +1,262 @@
 ---
 name: dossier-delegate
-description: "Turn a Dossier into a delegation-ready handoff for a human teammate (not another agent — for agent-to-agent delegation see the `delegate` skill). Explicit-invocation only: use when the user asks to define/scope delegated work, e.g. 'help me define this exercise', 'let's clarify so we can delegate', 'write a delegation note', or runs `/dossier-delegate`. Never trigger automatically off dossier state — this skill is pull-only by design. Reads/writes the bound Dossier via the dossier MCP tools; reasons about what a teammate reading async, with no way to reach the sender for hours, would stall on."
+description: "Assess a Dossier's readiness for human delegation, strengthen the canonical work brief, and produce a person-specific handoff agreement and note. Explicit-invocation only: use when the user asks to define, scope, delegate, or check delegated work. Never trigger automatically from status or lead."
 ---
 
-# dossier-delegate — a HANDOFF.md for the human on the other end
+# dossier-delegate — make the work executable before handing it over
 
-A Dossier captures *your* state on a topic. This skill turns that state into a
-**delegation contract** for a teammate picking up a piece of it — specifically
-tuned for an overseas team on an offset schedule, where an unanswered
-ambiguity doesn't cost a Slack reply, it costs a full day.
+A Dossier is the canonical operational brief for its outcome. This skill does
+not create a second work specification. It uses delegation as a practical
+checkpoint: when another person must act without a same-day clarification loop,
+the work itself needs to be clear enough to execute and validate.
 
-**Explicit invocation only.** This skill does not run because a dossier has a
-`lead` set, or because `next_action` looks thin, or on any other passive
-signal. It runs because the user asked — by name, by phrase ("help me define
-this exercise", "let's clarify so we can delegate", "write a delegation
-note"), or via `/dossier-delegate`. Do not suggest invoking it unprompted more
-than once in a session; the user owns when structure gets added.
+The user may have captured only a loose spark. That is healthy. Do not demand a
+fully structured brief at creation time. Structure becomes necessary when the
+work leaves define and enters execute, especially when someone else is about to
+own all or part of it.
 
-**Disambiguation:** the `delegate` skill orchestrates *other coding agents* in
-herdr panes (subprocess, machine-checkable DoD, `notify`/`monitor` protocol).
-This skill is for *a human teammate* who has no MCP access, works async, and
-replies in prose in Slack/Jira — the mechanics differ throughout, but the
-underlying discipline (unambiguous objective, symmetric success criteria,
-explicit escalation) is the same lineage.
+Explicit invocation only. Run because the user asked by name, asked for help
+defining or delegating work, or requested a handoff note. Never auto-run because
+a lead exists, a Dossier looks thin, or a status changed.
 
-## The two things this skill does, in order
+## Core distinction
 
-1. **Gap-check** — read the bound Dossier, find the load-bearing pieces of a
-   delegation contract that are missing or ambiguous, ask only about those.
-2. **Render** — once resolved, persist a compressed contract into the Dossier,
-   then emit a verbose, paste-able note built from it.
+Person-agnostic truth belongs once in the Dossier:
 
-Never skip straight to rendering from a thin dossier — an invented success
-criterion is worse than an absent one, because the reader can't tell the
-difference.
+- Objective
+- Done When
+- Validation
+- Constraints
+- Situation, Decisions, Findings, and Current State
+- for a multi-deliverable Dossier, each deliverable's Outcome, Done When,
+  Validation, Owner, and Completion
 
-## 1. Gap-check: read as the stalled reader
+The Delegation Contract contains only what becomes true because a particular
+person is taking a particular scope:
 
-Pull the Dossier's current `next_action`, `lead`, `status`, `due_date`, and body
-(via `dossier_recall`). Read the body's `## Open Questions` section as part of
-that context.
+- Scope
+- Acceptance
+- Decision Rights
+- Escalation
+- Return Expectations
 
-**Check `## Delegation Contracts` first.** If that section already holds a
-contract for this work, this invocation is a *resumption*, not fresh scoping:
-the settled `[decided]` blocks are agreed and are not reopened, and the gap-check
-narrows to the `[proposed]` ones plus whatever the paired `## Open Questions`
-entries record. Re-asking a question the previous session already answered is
-the specific failure to avoid here — the answer is in the body, so read it.
+If removing the assignee would not make the information irrelevant, update the
+canonical Dossier rather than the contract.
 
-Then run one framing pass, not a checklist walk:
+## The three things this skill does
 
-> **Read this as the teammate — waking up at the start of their day, with no
-> way to reach the sender until theirs ends. Where do they stall?**
+1. Health-check the canonical work as the person receiving it.
+2. Persist missing work clarity into the Dossier and person-specific terms into
+   a Delegation Contract.
+3. Render a paste-able note from those two sources without inventing or
+   duplicating criteria.
 
-That framing does the prioritization for you. For an offset team, the two
-categories that cause a full-day loss are disproportionately likely to be the
-gap:
+## 1. Read the bound Dossier
 
-- **Decision Rights** — can they decide this themselves, or must they wait?
-- **Escalation** — if blocked, what do they do *instead of waiting silently*?
+Use dossier_recall. Read the current revision, frontmatter, full body, artifact
+index, and Open Questions.
 
-Check those first. Then check the other five blocks (below) only if the
-dossier's existing content doesn't already answer them. **Only surface a
-block if you can name the specific missing fact** — never ask about a block
-that's already clear from context, and never ask all seven as a form.
+Determine the work shape:
 
-### The seven blocks
+- One deliverable: Objective / Done When / Validation describe the work
+  directly. Do not introduce a Deliverables section.
+- Several contributions that combine into one outcome: use one Dossier with a
+  Deliverables section. Each contribution needs its own Outcome, Owner, Done
+  When, Validation, and Completion.
+- Independently completable outcomes with substantially different context,
+  evidence, timelines, or decisions may be separate Dossiers. Treat this as a
+  judgment call, not a mechanical rule.
 
-Adapted from Anthropic's agent-design guidance and this environment's
-`delegate` skill's Spec Contract, for a *human, async, offset* delegate
-rather than a supervised agent:
+Check Delegation Contracts before asking anything. Settled person-specific
+terms are not reopened without a concrete contradiction or material change.
 
-```
-1. OBJECTIVE       — one sentence: what "done" produces. An end state, not a
-                     task list.
+## 2. Run the health checkpoint
 
-2. CONTEXT         — self-contained. Assume zero shared memory: they don't
-                     have your conversation, only what's in the Dossier and
-                     the note. Pull from the Dossier's Situation/Decisions/
-                     Findings rather than re-deriving.
+Read the Dossier as the teammate waking up with no way to reach the sender for
+hours:
 
-3. SUCCESS CRITERIA — the target state in testable terms ("the deck has 3
-                     pricing scenarios with margin shown"), not adjectives
-                     ("make it look good"). This is the piece you'll check
-                     later — get it right or the check is meaningless.
+> Where would they be unable to proceed, choose, or know they are finished?
 
-4. VALIDATION       — how you (or they) will confirm each success criterion
-                     is met. Must be the SAME check whether you run it or
-                     they self-report against it. If you can't write this,
-                     the delegation isn't ready yet — that's a real signal,
-                     not a formality to skip.
+Check the work before the relationship.
 
-5. CONSTRAINTS      — what must NOT change, be touched, or be assumed.
-                     Separate from success criteria: this is what stops a
-                     reasonable-but-wrong shortcut, not what defines "done."
+### Objective
 
-6. DECISION RIGHTS  — what they can decide unilaterally vs. what needs your
-                     sign-off. This is the inverse of Escalation: naming it
-                     explicitly is what prevents needless waiting.
+Is the primary outcome explicit? It must describe the end state rather than a
+task list. If only a loose idea exists, help the user state the outcome now;
+that is the purpose of define.
 
-7. ESCALATION       — the conditions under which they stop and flag rather
-                     than guess (spec conflicts with what they find, the
-                     real scope is much bigger, a decision outside their
-                     rights, missing access) — AND what to do while they
-                     wait for you, given the offset (park it and move to the
-                     next thing; don't block the whole day on one answer).
-```
+### Done When
 
-An eighth, implicit block — **Return Contract** — isn't something you ask the
-user to define; you write it yourself once the other seven are set (see
-Persist, below).
+Are there observable conditions that close the overall Dossier? For multiple
+deliverables, does each one also have local Done When conditions? Never accept
+adjectives such as "good", "complete", or "reviewed" without the observable
+meaning behind them.
 
-### Asking
+### Validation
 
-Ask only the questions the stall-simulation actually surfaced — usually 1–3,
-rarely all seven. Keep it binary and qualitative:
+Is there a concrete check for the overall result and every deliverable? The
+check must be symmetric: the same evidence should support completion whether
+the owner self-reports or the sender reviews it. Submission is not completion;
+validation is.
 
-- "Escalation path isn't defined — if they hit an API rate limit at 9pm your
-  time, what should they do: wait, work around it, or stop entirely?"
-- "Looks ready — Objective, Success Criteria, and Decision Rights are all
-  clear from the dossier as-is."
+### Constraints
 
-**Never** produce a completeness score ("4 of 7 defined"). A score turns this
-into a form to fill out, which is exactly the overhead the user is avoiding.
-Name the gap or say it's ready — nothing in between.
+Are the boundaries of the feasible solution space retained? Look for technical,
+commercial, legal, timing, budget, dependency, interface, and authority
+constraints.
 
-## 2. Persist: the contract is durable, the note is not
+Distinguish:
 
-This is the resolution to a real tension: the delegation *note* (the thing
-you paste into Slack) is verbose by design — frontloading is the whole
-point. The Dossier's Distilled State is terse by design — the Distillation
-Guide actively fights bloat. Those two disciplines don't have to fight each
-other if you separate **what's committed** from **how it's presented**:
+- observed or decided constraints, which bind the work;
+- assumed constraints, which need verification;
+- constraints a leader could alleviate, which must name the decision-maker or
+  relief path.
 
-- **The contract is committed state, and it is written incrementally.** Do
-  not wait for all seven blocks to resolve before persisting — write the
-  section as soon as the first blocks settle, and re-save as each further
-  one lands. A contract that exists only in the conversation does not
-  survive the session; end-of-session capture is best-effort, and this is
-  exactly the material that must not depend on it.
+Never silently omit or remove a constraint to make a solution fit. If one is
+alleviated or disproved, record that change in Decisions with rationale,
+attribution, date, and provenance.
 
-  It goes into the Dossier body via `dossier_save` (or `dossier_update` for
-  frontmatter fields) under the reserved `## Delegation Contracts` section
-  defined in the Distillation Guide §4 — a stable heading, one `###` per
-  contract, blocks in the Guide's fixed order:
+### Person-specific terms
 
-  ```
-  ## Delegation Contracts
-  ### <Task label> — owner: <Lead>, agreed <YYYY-MM-DD> [src:art_<id>]
-  - Objective: [decided] ...
-  - Context: [decided] ...
-  - Success Criteria: [decided] ...
-  - Validation: [proposed] ...
-  - Constraints: [decided] ...
-  - Decision Rights: [proposed] ...
-  - Escalation: [proposed] ...
-  ```
+Only after the work is healthy, check:
 
-  The heading is fixed, not templated — never fold the task label or date
-  into the `##`, or nothing downstream can find the section by name.
-  A block still under discussion is written `[proposed]`, not omitted: an
-  absent block and an unresolved one look identical to the next reader, and
-  they are not the same thing.
+- Scope: whole Dossier or exact deliverable?
+- Acceptance: have they accepted, requested clarification, or proposed a
+  change? What timing or commitment did they accept, and against which Dossier
+  revision?
+- Decision Rights: what can they decide without waiting?
+- Escalation: when do they stop rather than guess, who or where do they raise
+  it, and what should they work on while waiting?
+- Return Expectations: what status, validation evidence, output link, and
+  decisions should come back?
 
-  This is what answers "how do I check success criteria was met without
-  moving the goalpost": the contract goes through the same `Save` path as
-  everything else in the Dossier, which means it's optimistic-concurrency
-  protected and every edit lands in the audit log with a field-level diff.
-  The goalpost can still move — but never silently. If you (or the skill, on
-  a later invocation) find the current `next_action`/body has drifted from
-  the persisted contract, **say so explicitly** rather than rendering the new
-  state as if it were what was originally agreed.
+Ask only about specific load-bearing gaps, usually one to three. Never walk the
+user through every heading as a form and never produce a completeness score.
+Name the missing fact or say the work is ready.
 
-- **The note is a rendering, not a store.** Every time this skill is invoked
-  to produce the paste-able message, it expands the *currently persisted*
-  contract into full sentences, greeting, sign-off — whatever the channel
-  needs. It never invents a criterion at render time that isn't already in
-  the persisted contract. If nothing has changed, re-rendering is just
-  reformatting; it should never require re-asking the gap-check questions.
+## 3. Persist in the correct place
 
-- **Return Contract**, written by you into the note (not asked of the user):
-  since the teammate has no MCP access, define the exact shape of the reply
-  that lets their answer get pasted back into the Dossier cleanly later —
-  e.g. "reply in-thread with: (1) status — done / blocked, (2) one line per
-  success criterion — met / not met / n-a, (3) link to the output, (4)
-  anything you decided under your own decision rights, so it gets logged."
+Write incrementally with dossier_save and the recalled base revision. Do not
+leave settled work only in conversation.
 
-## Leaving mid-contract
+### Canonical Dossier content
 
-Scoping a delegation often spans sessions — the user goes to check something,
-or the day ends, before all seven blocks resolve. A session binding is
-per-session, so the next session starts unbound and begins from what is on
-disk. Leave three things behind, all of which survive a restart:
+When the checkpoint clarifies Objective, Done When, Validation, Constraints, or
+a deliverable, update those canonical sections. Preserve relevant rationale and
+citations. Shared context and constraints appear once at Dossier level; only
+genuinely narrower constraints belong under a deliverable.
 
-1. **The partial contract, persisted**, with unresolved blocks marked
-   `[proposed]`. This is the incremental-write rule above; it is what makes
-   resumption possible at all.
-2. **One `## Open Questions` entry per unresolved block**, phrased as the
-   question that would settle it ("Can Priya ship copy fixes without
-   sign-off?"). This is the handle the next session actually finds — the
-   Distillation Guide gives that section a fixed slot, and this skill reads
-   it on invocation.
-3. **`next_action` and stage set to say so** — `next_action` naming the
-   contract as unfinished ("Settle decision rights + escalation for the
-   pricing copy handoff"), and status left at `define`, not `delegated`.
-   Both are frontmatter, so they surface in the session-start library
-   listing, `dossier ls`, and the board without anyone opening the Dossier.
-   Moving to `delegated` before the contract is complete asserts a handoff
-   that hasn't happened.
+The Dossier may stay in define while questions remain. Move to execute only when
+the person doing the work can proceed and know when they are finished. This is
+a semantic checkpoint, not a parser-enforced form.
 
-Never report a partial contract as complete, and never fill a `[proposed]`
-block on resumption by inference to make the note renderable — an invented
-criterion is worse than an absent one, because the reader can't tell the
-difference. If the user asks for the note while blocks are open, render what
-is settled and name the open blocks in plain text above it.
+### Delegation Contract
+
+Use the reserved heading and fixed field order:
+
+    ## Delegation Contracts
+    ### <Assignment label> — owner: <Person>[, accepted <YYYY-MM-DD>] [src:art_<id>]
+    - Scope: [decided|proposed] <Entire Dossier or exact Deliverables heading.>
+    - Acceptance: [decided|proposed] <Response, timing/commitment, and accepted revision.>
+    - Decision Rights: [decided|proposed] <Unilateral decisions vs sign-off.>
+    - Escalation: [decided|proposed] <Conditions, route, and work while waiting.>
+    - Return Expectations: [decided|proposed] <Status, validation, output/evidence, decisions.>
+
+Every field is present and tagged. A proposed field is mirrored in Open
+Questions so the next session can resume without reconstructing the gap.
+
+Acceptance is not inferred from sending the note. Before the recipient replies,
+write Acceptance as proposed. Once accepted, record the date, any commitment,
+and the Dossier revision they accepted. If they propose changes, update the
+canonical work first, then ask them to accept the resulting revision.
+
+Do not copy Objective, context, Done When, Validation, or Constraints into the
+contract. Scope points to the canonical work.
+
+### Existing seven-field contracts
+
+Legacy contracts may still contain Objective / Context / Success Criteria /
+Validation / Constraints / Decision Rights / Escalation. Preserve them. During
+the next requested delegation pass:
+
+- move person-agnostic work truth into the canonical Dossier sections without
+  losing citations or rationale;
+- keep Decision Rights and Escalation in the contract;
+- replace Objective with a Scope reference;
+- record explicit Acceptance against the current revision;
+- add Return Expectations.
+
+Never silently claim that a legacy contract has been migrated merely because a
+reader can project some of its fields.
+
+## 4. Render the outbound note
+
+The note is a view, not another store. Build it from:
+
+- canonical Objective, Done When, Validation, Constraints, and relevant context;
+- the scoped deliverable, if applicable;
+- the recipient's Delegation Contract;
+- any relevant person-calibration note when that capability exists.
+
+Use full sentences and enough context for an asynchronous reader. A clear note
+may be longer than the stored contract; that is presentation, not duplication.
+Never invent a success criterion, constraint, authority, or deadline while
+rendering.
+
+Ask the recipient to reply with one of:
+
+- accepted;
+- clarification needed, naming the blocking ambiguity;
+- proposed change, naming the requested change and reason.
+
+Also request the agreed return shape: status, each validation result, output or
+evidence link, decisions made under their authority, and any escalation.
+
+## Leaving mid-checkpoint
+
+If the session ends before the work is ready:
+
+1. Persist every settled clarification in its canonical Dossier section.
+2. Mark unresolved contract terms proposed.
+3. Add one Open Questions entry per load-bearing unresolved fact.
+4. Set next_action to the next clarification and keep status at define.
+
+Do not fill a gap by inference merely to render a complete note.
 
 ## Checking completion later
 
-A second use of this skill, on an already-delegated Dossier: compare the
-teammate's reply (or the Dossier's current state) against the *persisted*
-Validation block, criterion by criterion. Report pass/fail/unclear per
-criterion — never a percentage or score. If a criterion can't be checked
-from what's available, say that plainly rather than guessing a pass.
+Evaluate each deliverable against its canonical Done When and Validation.
+Report pass, fail, or unclear per condition, never a percentage. Mark a
+deliverable done only after validation; preserve evidence. Mark the Dossier done
+only when every required deliverable is done or explicitly dropped and the
+overall Done When conditions validate.
+
+When the primary outcome is complete, the Dossier is done. Capture follow-on
+work as a new spark; until first-class linking exists, record the relationship
+plainly rather than keeping the completed Dossier artificially open.
+
+Before checking completion, compare the current revision and material work
+definition with the accepted baseline. If Objective, Done When, Validation,
+Constraints, or scoped deliverable changed, state the drift and seek renewed
+acceptance before judging the recipient against the new target.
 
 ## Worked example
 
-**Dossier before** (thin, organic — exactly as it should be day-to-day):
-```
-next_action: "Get the new pricing page copy reviewed."
-lead: "Priya"
-```
+The Pricing page launch Dossier already contains the shared Objective, Done
+When, Validation, Constraints, and three deliverables: Copy review,
+Implementation, and Analytics verification.
 
-**Stall-simulation finds:** Objective and Context are fine (the body already
-has the pricing decision). Success Criteria is vague ("reviewed" — reviewed
-against what?). Decision Rights and Escalation are both undefined — the
-highest-leverage gaps for an 8-hour offset.
+For Priya, persist only:
 
-**Questions asked (2, not 7):**
-- "What does 'reviewed' mean concretely — sign-off from Legal, or just no
-  factual errors?"
-- "If Priya finds a factual error, can she fix it herself, or does it need
-  your sign-off before it ships?"
+    ## Delegation Contracts
+    ### Pricing copy review — owner: Priya
+    - Scope: [decided] Deliverables / Pricing copy review.
+    - Acceptance: [proposed] Awaiting Priya's reply; proposed due 2026-09-12.
+    - Decision Rights: [decided] Priya may fix factual errors and typos; claim or tone changes need sign-off.
+    - Escalation: [decided] If approved sources conflict, flag in the launch Steerco and continue with the next page.
+    - Return Expectations: [decided] Return status, the line-by-line validation result, output link, and decisions made.
 
-**Contract persisted into the Dossier body:**
-```
-## Delegation Contracts
-### Pricing page copy review — owner: Priya, agreed 2026-06-30 [src:art_01jz8pricing_sheet]
-- Objective: [decided] Pricing page copy is factually correct and ready to
-  publish.
-- Context: [decided] Copy follows the 2026-06-14 usage-tier pricing decision;
-  approved figures live in the pricing sheet.
-- Success Criteria: [decided] Every dollar figure and plan name matches the
-  approved pricing sheet; no claims beyond what Legal already signed off on.
-- Validation: [decided] Priya diffs the copy against the pricing sheet line by
-  line; same check I'd run.
-- Constraints: [decided] Don't touch layout/design — copy only.
-- Decision Rights: [decided] Priya can fix factual errors and typos
-  unilaterally. Anything that changes claims/tone needs my sign-off.
-- Escalation: [decided] If a figure in the sheet itself looks wrong, flag and
-  move to the next page rather than blocking — don't wait on me to unblock.
-```
-
-**Rendered note** (what actually gets pasted to Priya): the same content
-expanded into full sentences with a greeting and the return-contract shape,
-built entirely from the block above — nothing new introduced at render time.
-
-**Had the session ended after the first two questions** — Decision Rights
-settled, Escalation still open — the same section would persist with
-`- Escalation: [proposed] ...` or the block left explicitly unresolved,
-`## Open Questions` would carry "If Priya hits a wrong figure in the pricing
-sheet itself, does she stop or work around it?", `next_action` would read
-"Settle escalation path for the pricing copy handoff", and status would stay
-`define`. The next session resumes from those three signals without re-asking
-what Priya can decide.
+The rendered note includes the canonical work criteria and constraints, but the
+contract does not copy them. When Priya accepts, update Acceptance with the date,
+commitment, and accepted Dossier revision, then move the Dossier to execute if
+the remaining work is ready.

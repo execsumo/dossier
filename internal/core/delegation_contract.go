@@ -25,16 +25,15 @@ const (
 	ContractFieldUntagged ContractFieldStatus = "untagged"
 )
 
-// contractFieldLabels is the fixed, ordered schema every contract block
-// carries (guide.md §4, in the order a triage decision is actually made).
+// contractFieldLabels is the fixed, ordered schema every current contract
+// carries (guide.md §4). Work-definition fields live once in the canonical
+// Dossier body; a Delegation Contract contains only the person-specific terms.
 var contractFieldLabels = []string{
-	"Objective",
-	"Context",
-	"Success Criteria",
-	"Validation",
-	"Constraints",
+	"Scope",
+	"Acceptance",
 	"Decision Rights",
 	"Escalation",
+	"Return Expectations",
 }
 
 // ContractField is one bullet of a Delegation Contract block.
@@ -48,10 +47,14 @@ type ContractField struct {
 type DelegationContract struct {
 	// Header is the raw, unparsed `###` line, kept so a caller can render it
 	// verbatim even when it doesn't match the "owner: ..., agreed ..." shape.
-	Header     string
-	Label      string
-	Owner      string
-	AgreedDate string
+	Header       string
+	Label        string
+	Owner        string
+	AcceptedDate string
+	// Legacy is true when the block uses the former seven-field schema. The
+	// parser projects what it can into the current person-specific contract so
+	// existing Dossiers stay visible without pretending migration is complete.
+	Legacy bool
 	// Fields is always exactly len(contractFieldLabels) long and in schema
 	// order, regardless of the order or completeness of the source text.
 	Fields []ContractField
@@ -84,9 +87,9 @@ var (
 	// is exactly this text: guide.md §4 requires it "fixed, not templated"
 	// so nothing downstream (including this parser) has to guess variants.
 	delegationContractsHeadingRE = regexp.MustCompile(`(?m)^##\s+Delegation Contracts\s*$`)
-	contractHeaderRE             = regexp.MustCompile(`^###\s+(.+?)\s+—\s+owner:\s*([^,]*),\s*agreed\s+(\S+)`)
+	contractHeaderRE             = regexp.MustCompile(`^###\s+(.+?)\s+—\s+owner:\s*([^,]*?)(?:,\s*(?:agreed|accepted)\s+(\S+))?(?:\s+\[src:|$)`)
 	contractFieldRE              = regexp.MustCompile(
-		`^-\s+(Objective|Context|Success Criteria|Validation|Constraints|Decision Rights|Escalation):` +
+		`^-\s+(Scope|Acceptance|Decision Rights|Escalation|Return Expectations|Objective|Context|Success Criteria|Validation|Constraints):` +
 			`\s*(?:\[(decided|proposed)\]\s*)?(.*)$`)
 )
 
@@ -121,6 +124,7 @@ func ParseDelegationContracts(body string) []DelegationContract {
 	flushContract := func() {
 		flushField()
 		if cur != nil {
+			cur.Fields, cur.Legacy = normalizeContractFields(cur.Fields, cur.AcceptedDate)
 			cur.Fields = orderContractFields(cur.Fields)
 			contracts = append(contracts, *cur)
 			cur = nil
@@ -136,7 +140,7 @@ func ParseDelegationContracts(body string) []DelegationContract {
 			if m := contractHeaderRE.FindStringSubmatch(line); m != nil {
 				c.Label = strings.TrimSpace(m[1])
 				c.Owner = strings.TrimSpace(m[2])
-				c.AgreedDate = strings.TrimSpace(m[3])
+				c.AcceptedDate = strings.TrimSpace(m[3])
 			} else {
 				c.Label = strings.TrimSpace(strings.TrimPrefix(line, "###"))
 			}
@@ -163,6 +167,58 @@ func ParseDelegationContracts(body string) []DelegationContract {
 	return contracts
 }
 
+// normalizeContractFields provides a read-only compatibility projection for
+// the original seven-field contract. Its person-agnostic Objective becomes the
+// closest available Scope signal and an agreed header supplies Acceptance.
+// Context, Success Criteria, Validation, and Constraints remain in the source
+// block for a human or agent to migrate into the canonical Dossier; they are
+// not duplicated into the new contract model. Return Expectations stays
+// missing so the readiness marker honestly surfaces what legacy contracts did
+// not persist.
+func normalizeContractFields(fields []ContractField, agreedDate string) ([]ContractField, bool) {
+	legacy := false
+	hasScope := false
+	hasAcceptance := false
+	var objective ContractField
+	for _, field := range fields {
+		switch field.Label {
+		case "Scope":
+			hasScope = true
+		case "Acceptance":
+			hasAcceptance = true
+		case "Objective", "Context", "Success Criteria", "Validation", "Constraints":
+			legacy = true
+			if field.Label == "Objective" {
+				objective = field
+			}
+		}
+	}
+	if !legacy {
+		return fields, false
+	}
+
+	normalized := make([]ContractField, 0, len(fields)+2)
+	for _, field := range fields {
+		switch field.Label {
+		case "Scope", "Acceptance", "Decision Rights", "Escalation", "Return Expectations":
+			normalized = append(normalized, field)
+		}
+	}
+	if !hasScope && objective.Label != "" {
+		objective.Label = "Scope"
+		objective.Text = "Legacy objective: " + objective.Text
+		normalized = append(normalized, objective)
+	}
+	if !hasAcceptance && agreedDate != "" {
+		normalized = append(normalized, ContractField{
+			Label:  "Acceptance",
+			Status: ContractFieldDecided,
+			Text:   "Accepted " + agreedDate + "; baseline revision not recorded (legacy contract).",
+		})
+	}
+	return normalized, true
+}
+
 // HasOpenDelegationContract reports whether body's Delegation Contracts
 // section (if any) contains at least one contract with a field that isn't yet
 // [decided] — the cheap per-dossier attention signal a list surface (TUI
@@ -179,7 +235,7 @@ func HasOpenDelegationContract(body string) bool {
 
 // orderContractFields returns fields reordered (and gap-filled) to match
 // contractFieldLabels exactly, so a caller can always render or index the
-// same seven positions regardless of how the source text was written.
+// same positions regardless of how the source text was written.
 func orderContractFields(fields []ContractField) []ContractField {
 	byLabel := make(map[string]ContractField, len(fields))
 	for _, f := range fields {

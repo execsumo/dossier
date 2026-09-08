@@ -76,7 +76,7 @@ func TestSaveStatusChangeAuditsStatusChanged(t *testing.T) {
 		id = did
 	}
 
-	if _, err := svc.Save(ctx, SaveReq{ID: id, FrontmatterUpdates: map[string]any{"status": "delegated"}}); err != nil {
+	if _, err := svc.Save(ctx, SaveReq{ID: id, FrontmatterUpdates: map[string]any{"status": "execute"}}); err != nil {
 		t.Fatalf("status Save failed: %v", err)
 	}
 
@@ -85,7 +85,7 @@ func TestSaveStatusChangeAuditsStatusChanged(t *testing.T) {
 	if last.Event != AuditEventStatusChanged {
 		t.Errorf("expected %q event for a status change, got %q", AuditEventStatusChanged, last.Event)
 	}
-	if !strings.Contains(last.Message, "define") || !strings.Contains(last.Message, "delegated") {
+	if !strings.Contains(last.Message, "define") || !strings.Contains(last.Message, "execute") {
 		t.Errorf("expected status before→after in message, got %q", last.Message)
 	}
 }

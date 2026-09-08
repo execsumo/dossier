@@ -58,11 +58,9 @@ const (
 	// ViewLinks is a contextual overlay over a dossier surface. It presents active
 	// monitors before passive references while preserving their distinct meaning.
 	ViewLinks
-	// ViewContracts is a contextual overlay over ViewDetail showing the mechanical
-	// completeness checklist for every `## Delegation Contracts` block in the
-	// Distilled State (guide.md §4): which of the seven fields per contract are
-	// [decided] versus still open, derived from core.ParseDelegationContracts —
-	// never self-reported by whatever wrote the dossier.
+	// ViewContracts is a contextual overlay over ViewDetail showing the
+	// person-specific terms for every `## Delegation Contracts` block in the
+	// Distilled State (guide.md §4), derived from core.ParseDelegationContracts.
 	ViewContracts
 )
 
@@ -191,16 +189,16 @@ var (
 	metaValueStyle = lipgloss.NewStyle() // Inherit terminal's default text foreground color
 	mutedStyle     = lipgloss.NewStyle().Foreground(darkGray)
 
-	statusSparkStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D7D7")).Bold(true)
-	statusDefineStyle    = lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true)
-	statusDelegatedStyle = lipgloss.NewStyle().Foreground(warningGold)
-	statusReviewStyle    = lipgloss.NewStyle().Foreground(purple).Bold(true)
-	statusBlockedStyle   = lipgloss.NewStyle().Foreground(vibrantRed).Bold(true)
-	statusDoneStyle      = lipgloss.NewStyle().Foreground(darkGray)
+	statusSparkStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D7D7")).Bold(true)
+	statusDefineStyle  = lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true)
+	statusExecuteStyle = lipgloss.NewStyle().Foreground(warningGold)
+	statusReviewStyle  = lipgloss.NewStyle().Foreground(purple).Bold(true)
+	statusBlockedStyle = lipgloss.NewStyle().Foreground(vibrantRed).Bold(true)
+	statusDoneStyle    = lipgloss.NewStyle().Foreground(darkGray)
 
 	// Legacy aliases for backward compatibility
 	statusActiveStyle   = statusDefineStyle
-	statusWaitingStyle  = statusDelegatedStyle
+	statusWaitingStyle  = statusExecuteStyle
 	statusResolvedStyle = statusDoneStyle
 	statusArchivedStyle = lipgloss.NewStyle().Foreground(darkGray).Faint(true)
 
@@ -727,7 +725,44 @@ func (m Model) mergeCmd(sourceID, targetID string, resolved []string) tea.Cmd {
 	}
 }
 
+// selectedListItem returns the dossier highlighted on either home surface.
+// The detail recall is only a cache of the last opened dossier and must not
+// override the current dashboard or Kanban selection.
+func (m Model) selectedListItem() (core.ListItem, bool) {
+	if m.currentView == ViewKanban {
+		return m.selectedKanbanItem()
+	}
+	if m.currentView != ViewDashboard {
+		return core.ListItem{}, false
+	}
+
+	itemIdx, isToggle := m.rowToItemIndex(m.table.Cursor())
+	if isToggle || itemIdx < 0 || itemIdx >= len(m.visibleItems) {
+		return core.ListItem{}, false
+	}
+	return m.visibleItems[itemIdx], true
+}
+
+func targetFromListItem(item core.ListItem) targetDossier {
+	return targetDossier{
+		id:           item.ID,
+		name:         item.Name,
+		slug:         item.Slug,
+		status:       core.Status(item.Status),
+		priority:     core.Priority(item.Priority),
+		dueDate:      item.DueDate,
+		nextAction:   item.NextAction,
+		lead:         item.Lead,
+		interfaces:   append([]string{}, item.Interfaces...),
+		baseRevision: "", // List rows do not carry a revision.
+	}
+}
+
 func (m Model) getTargetDossier() (targetDossier, bool) {
+	if item, ok := m.selectedListItem(); ok {
+		return targetFromListItem(item), true
+	}
+
 	if m.currentView == ViewDetail {
 		fm := m.recallResult.Frontmatter
 		return targetDossier{
@@ -741,43 +776,6 @@ func (m Model) getTargetDossier() (targetDossier, bool) {
 			lead:         fm.Lead,
 			interfaces:   append([]string{}, fm.Interfaces...),
 			baseRevision: m.recallResult.Revision,
-		}, true
-	}
-
-	if m.currentView == ViewKanban {
-		item, ok := m.selectedKanbanItem()
-		if !ok {
-			return targetDossier{}, false
-		}
-		return targetDossier{
-			id:           item.ID,
-			name:         item.Name,
-			slug:         item.Slug,
-			status:       core.Status(item.Status),
-			priority:     core.Priority(item.Priority),
-			dueDate:      item.DueDate,
-			nextAction:   item.NextAction,
-			lead:         item.Lead,
-			interfaces:   append([]string{}, item.Interfaces...),
-			baseRevision: "", // Skip check from the board, as from the dashboard
-		}, true
-	}
-
-	// Dashboard view
-	itemIdx, isToggle := m.rowToItemIndex(m.table.Cursor())
-	if !isToggle && itemIdx >= 0 && itemIdx < len(m.visibleItems) {
-		item := m.visibleItems[itemIdx]
-		return targetDossier{
-			id:           item.ID,
-			name:         item.Name,
-			slug:         item.Slug,
-			status:       core.Status(item.Status),
-			priority:     core.Priority(item.Priority),
-			dueDate:      item.DueDate,
-			nextAction:   item.NextAction,
-			lead:         item.Lead,
-			interfaces:   append([]string{}, item.Interfaces...),
-			baseRevision: "", // Skip check from dashboard
 		}, true
 	}
 	return targetDossier{}, false
@@ -905,7 +903,7 @@ func deriveLeadOptions(items []core.ListItem, configured ...[]string) []leadOpti
 }
 
 // statusTier ranks a dossier's lifecycle status for dashboard ordering: open
-// work (spark/define/delegated/review/blocked) is tier 0, terminal work (done) is
+// work (spark/define/execute/review/blocked) is tier 0, terminal work (done) is
 // tier 1, so terminal dossiers always sort below open ones at any priority.
 func statusTier(status string) int {
 	if core.Status(status).IsTerminal() {

@@ -134,7 +134,7 @@ dossier ls                        # open Dossiers, by priority
 dossier show payments-migration   # full distilled state + metadata
 dossier search "webhook"          # search distilled state + archives
 dossier artifact payments-migration art_a1b2c3 -L 10-20   # resolve a [src:] citation to its source
-dossier status payments-migration active
+dossier status payments-migration execute
 dossier lead payments-migration "Bob"
 dossier interface payments-migration "1:1" "Pricing WBR"
 dossier ls --interface "1:1" --json   # topics to discuss in a 1:1
@@ -168,7 +168,7 @@ It opens a priority-sorted dashboard of your Dossiers, with Lead and discussion-
 
 - **open** a Dossier to read its distilled state (with a live token estimate and over-target warning). The distilled state is rendered natively as rich, syntax-highlighted Markdown. The view automatically live-refreshes when Claude Code updates the dossier in the background.
 - **filter** by Lead and discussion interface with `f`, then cycle through `All`, `Unassigned`, and configured values,
-- **switch views** with `v` — the same filtered Dossiers are available as either the table or stage columns (spark → define → delegated → review → blocked → done), each card showing the Dossier's name and description. Arrows move between cards, enter opens one, and `v` returns you to the table. Done cards show the title only, so finished work costs the space it deserves. Every dashboard key works on the board, filters included.
+- **switch views** with `v` — the same filtered Dossiers are available as either the table or stage columns (spark → define → execute → review → blocked → done), each card showing the Dossier's name and description. Arrows move between cards, enter opens one, and `v` returns you to the table. Done cards show the title only, so finished work costs the space it deserves. Every dashboard key works on the board, filters included.
 - **edit** the Lead, stage, priority (`low`/`medium`/`high`/`max`), due date, and next action (up to 140 characters) inline without leaving the dashboard,
 - **link** a source, resolving ambiguous matches by picking from ranked candidates, and
 - **merge** one Dossier into another, resolving any conflicts in a syntax-highlighted side-by-side view (sources are archived, never deleted), and
@@ -180,12 +180,27 @@ Both views — the table and the board — are thin layers over the same core as
 
 Each Dossier is a directory under `~/.dossier/<slug>/`:
 
-- **Distilled State** — one curated Markdown file: the topic with noise removed, not a lossy summary.
+- **Distilled State** — one canonical operational brief: Objective, Done When, Validation, Constraints, and the context needed to act, with conversational noise removed. It is not optimized for terseness.
 - **Archive** — the captured source artifacts that the distilled claims cite. `artifacts/` holds registered evidence only; use `dossier link --from-file` to add to it.
 - **files/** — loose deliverables, scratch, and attachments that aren't (yet) evidence.
 - **audit.log** — an append-only record of every change.
 
 One Go binary serves the CLI, the MCP-over-stdio server, and the session hooks. There's no daemon — it runs on demand, invoked by you, by the hooks, or by the MCP server. **Nothing is ever deleted:** superseded content moves to the Archive and audit log.
+
+A Dossier may begin as a loose `spark`. During `define`, it becomes executable:
+the person doing the work should be able to proceed and know when they are
+finished. A single-deliverable Dossier uses its top-level Objective / Done When /
+Validation directly. When several contributions combine into one outcome,
+`## Deliverables` gives each one an owner and local completion check while
+shared context and Constraints remain in one place.
+
+The installed `/dossier-delegate` skill uses delegation as that health
+checkpoint. Work gaps improve the canonical Dossier; `## Delegation Contracts`
+stores only Scope, Acceptance, Decision Rights, Escalation, and Return
+Expectations. Press `d` from a Dossier's detail view to inspect those terms.
+The TUI says `ready` or names the open terms—it never gives a completeness
+score. Existing seven-field contracts remain readable and are surfaced for
+explicit migration rather than silently rewritten.
 
 ## Good to know
 

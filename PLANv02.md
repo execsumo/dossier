@@ -4,7 +4,11 @@
 > Scope: retained for design history only.
 > Precedence note: this document is not an implementation contract. The current
 > breaking schema is defined by `SPEC.md`: canonical `priority` only, no legacy
-> frontmatter migration, and open questions in the Markdown body.
+> frontmatter migration, and open questions in the Markdown body. Its original
+> seven-field delegation-contract model is superseded by
+> [ADR 0008](docs/adr/0008-dossier-as-canonical-operational-brief.md): the
+> Dossier owns work truth and Constraints; delegation stores only
+> person-specific terms.
 
 ---
 
@@ -426,12 +430,12 @@ Framed generally: a profile is not "how to manage this person." It is **how to
 exchange work with this person without a wasted round-trip** — and round-trips
 are expensive in both directions.
 
-**Why this is the magic multiplier:** the downward sections map almost 1:1 onto
-the seven blocks the `dossier-delegate` skill already gap-checks
-(`assets/dossier-delegate-skill.md:65-99`). Today that skill re-asks you the
-same questions for every delegation. With a profile loaded, it asks only what is
-**new for this person on this topic** — a two-question gap-check instead of a
-five-question one, every time. The upward sections do the same job for
+**Why this is the magic multiplier:** the downward sections inform the
+person-specific half of the `dossier-delegate` checkpoint: Decision Rights,
+Escalation, and Return Expectations. Objective, Done When, Validation, and
+Constraints now come from the canonical Dossier, not the person's profile or a
+duplicated contract. With a profile loaded, the skill asks only what is **new
+for this person on this work**. The upward sections do the same job for
 `dossier prep` (§7.2): preparing an update *to* someone is the same problem
 viewed from the other end.
 
@@ -1087,12 +1091,11 @@ out of the sort rather than being bolted on beside it.
 a real dossier list in Phase 1 before it is fixed in code — the shape is a
 considered judgement, not a measured one.
 
-### 13.3 Delegations and requirements overlap — **RESOLVED**
+### 13.3 Delegations and requirements overlap — **RESOLVED, AMENDED BY ADR 0008**
 
-Two structures will exist for "Alex owes me something":
+The original resolution assumed two structures for "Alex owes me something":
 
-- the `dossier-delegate` skill's persisted contract (Objective / Success
-  Criteria / Validation / … in the body), and
+- the `dossier-delegate` skill's persisted seven-field work contract, and
 - `requirements[]` (§3.1).
 
 The intended line is that a **requirement** is a discrete input you need (a
@@ -1101,17 +1104,19 @@ success criteria. In practice nobody will sort them that way reliably, and if
 they diverge, "what does Alex owe me?" returns half the truth — which is exactly
 the question the whole plan exists to answer.
 
-**Accepted resolution: a delegation *creates* a requirement.** Delegating work
-opens a requirement (`from: alex`, `need: "<the objective, one line>"`,
-`via`, `needed_by`) whose detail field points at the persisted contract. One
-list, two levels of zoom: the requirement is the tracking unit, the contract is
-what you open when you need the specifics. Requirements stay the single answer
-to "who owes what," and the contract stays the single answer to "what exactly
-did we agree."
+**Amended resolution:** a delegation still creates a requirement when that
+model ships, but the work details do not live in the contract. The requirement
+points to the whole canonical Dossier or an exact Deliverables heading. The
+Delegation Contract carries only Scope, Acceptance, Decision Rights,
+Escalation, and Return Expectations, including the accepted Dossier revision.
+One list still answers "who is needed for what"; the Dossier answers "what does
+the work require"; the contract answers "what did this person agree about how
+they will carry it."
 
-Build order: `requirements[]` must carry a pointer to the contract from Phase 2
-(one optional field), so Phase 4's delegate-skill integration is a wiring job
-rather than a schema change.
+If requirements are revived from this historical plan, their reference must
+address the Dossier/deliverable as canonical work and may separately address
+the person-specific contract. Do not reintroduce work-definition fields into
+requirements or delegation.
 
 ### 13.4 Where requirements live — **OPEN by decision; settle in Phase 2**
 

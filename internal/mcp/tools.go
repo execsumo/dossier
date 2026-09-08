@@ -47,7 +47,7 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 				"properties": map[string]any{
 					"status": map[string]any{
 						"type":        "string",
-						"description": "Filter by status (spark|define|delegated|review|blocked|done|all)",
+						"description": "Filter by status (spark|define|execute|review|blocked|done|all)",
 					},
 					"interfaces": configuredStringListSchema(interfaces, "Filter by discussion interface; matches dossiers assigned to any supplied interface"),
 					"query": map[string]any{
@@ -243,7 +243,7 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 					"id":          map[string]any{"type": "string", "description": "The dossier slug or ID to update"},
 					"name":        map[string]any{"type": "string", "description": "Replace the display name (omit to leave unchanged). Use dossier_rename when the rename should be explicit."},
 					"description": map[string]any{"type": "string", "description": "Replace the optional progressive-disclosure summary (omit to leave unchanged)"},
-					"status":      map[string]any{"type": "string", "description": "Replace the current status: spark|define|delegated|review|blocked|done (omit to leave unchanged)"},
+					"status":      map[string]any{"type": "string", "description": "Replace the current status: spark|define|execute|review|blocked|done (omit to leave unchanged)"},
 					"lead":        configuredLeadSchema(leads, "Replace the lead assignee (omit to leave unchanged; empty clears)"),
 					"next_action": map[string]any{"type": "string", "description": "Replace the current next action (omit to leave unchanged)"},
 					"priority":    map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "max"}, "description": "low|medium|high|max (omit to leave unchanged)"},
