@@ -117,6 +117,9 @@ func (m Model) renderOverlay(background string, v View) string {
 		content += "\n\n" + footer
 	}
 	context := m.recallResult.Frontmatter.Name
+	if v == ViewEdit && m.targetName != "" {
+		context = m.targetName
+	}
 	if v == ViewLeadSelector {
 		context = "Dashboard"
 		if m.overlayBase == ViewKanban {

@@ -725,7 +725,44 @@ func (m Model) mergeCmd(sourceID, targetID string, resolved []string) tea.Cmd {
 	}
 }
 
+// selectedListItem returns the dossier highlighted on either home surface.
+// The detail recall is only a cache of the last opened dossier and must not
+// override the current dashboard or Kanban selection.
+func (m Model) selectedListItem() (core.ListItem, bool) {
+	if m.currentView == ViewKanban {
+		return m.selectedKanbanItem()
+	}
+	if m.currentView != ViewDashboard {
+		return core.ListItem{}, false
+	}
+
+	itemIdx, isToggle := m.rowToItemIndex(m.table.Cursor())
+	if isToggle || itemIdx < 0 || itemIdx >= len(m.visibleItems) {
+		return core.ListItem{}, false
+	}
+	return m.visibleItems[itemIdx], true
+}
+
+func targetFromListItem(item core.ListItem) targetDossier {
+	return targetDossier{
+		id:           item.ID,
+		name:         item.Name,
+		slug:         item.Slug,
+		status:       core.Status(item.Status),
+		priority:     core.Priority(item.Priority),
+		dueDate:      item.DueDate,
+		nextAction:   item.NextAction,
+		lead:         item.Lead,
+		interfaces:   append([]string{}, item.Interfaces...),
+		baseRevision: "", // List rows do not carry a revision.
+	}
+}
+
 func (m Model) getTargetDossier() (targetDossier, bool) {
+	if item, ok := m.selectedListItem(); ok {
+		return targetFromListItem(item), true
+	}
+
 	if m.currentView == ViewDetail {
 		fm := m.recallResult.Frontmatter
 		return targetDossier{
@@ -739,43 +776,6 @@ func (m Model) getTargetDossier() (targetDossier, bool) {
 			lead:         fm.Lead,
 			interfaces:   append([]string{}, fm.Interfaces...),
 			baseRevision: m.recallResult.Revision,
-		}, true
-	}
-
-	if m.currentView == ViewKanban {
-		item, ok := m.selectedKanbanItem()
-		if !ok {
-			return targetDossier{}, false
-		}
-		return targetDossier{
-			id:           item.ID,
-			name:         item.Name,
-			slug:         item.Slug,
-			status:       core.Status(item.Status),
-			priority:     core.Priority(item.Priority),
-			dueDate:      item.DueDate,
-			nextAction:   item.NextAction,
-			lead:         item.Lead,
-			interfaces:   append([]string{}, item.Interfaces...),
-			baseRevision: "", // Skip check from the board, as from the dashboard
-		}, true
-	}
-
-	// Dashboard view
-	itemIdx, isToggle := m.rowToItemIndex(m.table.Cursor())
-	if !isToggle && itemIdx >= 0 && itemIdx < len(m.visibleItems) {
-		item := m.visibleItems[itemIdx]
-		return targetDossier{
-			id:           item.ID,
-			name:         item.Name,
-			slug:         item.Slug,
-			status:       core.Status(item.Status),
-			priority:     core.Priority(item.Priority),
-			dueDate:      item.DueDate,
-			nextAction:   item.NextAction,
-			lead:         item.Lead,
-			interfaces:   append([]string{}, item.Interfaces...),
-			baseRevision: "", // Skip check from dashboard
 		}, true
 	}
 	return targetDossier{}, false

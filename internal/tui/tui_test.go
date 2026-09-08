@@ -2803,6 +2803,60 @@ func TestEditorReachableFromEverySurface(t *testing.T) {
 	}
 }
 
+func TestEditorUsesHighlightedDossierNotLastDetail(t *testing.T) {
+	tests := []struct {
+		name string
+		open func(*testing.T, *testStore) Model
+		move func(Model) Model
+	}{
+		{
+			name: "dashboard",
+			open: func(t *testing.T, store *testStore) Model {
+				return dashboardModel(t, store, 120, 40)
+			},
+			move: func(m Model) Model {
+				m.table.MoveDown(1)
+				return m
+			},
+		},
+		{
+			name: "kanban",
+			open: func(t *testing.T, store *testStore) Model {
+				return boardModel(t, store, 120, 40)
+			},
+			move: func(m Model) Model {
+				m.kanbanCol = 0
+				m.kanbanRow = 1
+				return m
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newTestStore()
+			seedDossier(store, "first", "First", core.StatusSpark)
+			seedDossier(store, "second", "Second", core.StatusSpark)
+			m := tc.open(t, store)
+
+			// Simulate a previously viewed detail dossier left in the recall cache.
+			m.recallResult.Frontmatter.ID = "first"
+			m = tc.move(m)
+
+			m, _ = press(t, m, "e")
+			if m.currentView != ViewEdit {
+				t.Fatalf("'e' opened %v, want ViewEdit", m.currentView)
+			}
+			if m.targetID != "second" || m.editOriginal.id != "second" {
+				t.Fatalf("editor target = %q, original = %q, want highlighted dossier second", m.targetID, m.editOriginal.id)
+			}
+			if got := stripANSI(m.View()); !strings.Contains(got, "Second · Edit Dossier") {
+				t.Fatalf("editor title did not identify highlighted dossier:\n%s", got)
+			}
+		})
+	}
+}
+
 // TestEditorSavesOnlyChangedFields keeps the audit log honest: the form shows
 // five fields, but opening it and pressing enter is not a decision about any of
 // them, so it must not mint a revision.
