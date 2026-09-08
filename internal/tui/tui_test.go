@@ -2835,8 +2835,12 @@ func TestEditorUsesHighlightedDossierNotLastDetail(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			store := newTestStore()
-			seedDossier(store, "first", "First", core.StatusSpark)
-			seedDossier(store, "second", "Second", core.StatusSpark)
+			seedDossier(store, "first", "First", core.StatusSpark, func(fm *core.Frontmatter) {
+				fm.UpdatedAt = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			})
+			seedDossier(store, "second", "Second", core.StatusSpark, func(fm *core.Frontmatter) {
+				fm.UpdatedAt = time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+			})
 			m := tc.open(t, store)
 
 			// Simulate a previously viewed detail dossier left in the recall cache.
