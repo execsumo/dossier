@@ -12,18 +12,15 @@ func TestParseDelegationContracts_NoSection(t *testing.T) {
 	}
 }
 
-func TestParseDelegationContracts_FullyDecided(t *testing.T) {
+func TestParseDelegationContracts_CurrentFullyDecided(t *testing.T) {
 	body := "" +
 		"## Delegation Contracts\n" +
-		"### Pricing page copy review — owner: Priya, agreed 2026-06-30 [src:art_01jz8pricing_sheet]\n" +
-		"- Objective: [decided] Pricing page copy is factually correct and ready to\n" +
-		"  publish.\n" +
-		"- Context: [decided] Copy follows the pricing decision.\n" +
-		"- Success Criteria: [decided] Every figure matches the sheet.\n" +
-		"- Validation: [decided] Priya diffs the copy against the sheet.\n" +
-		"- Constraints: [decided] Don't touch layout/design — copy only.\n" +
+		"### Pricing page copy review — owner: Priya, accepted 2026-09-08 [src:art_01jz8pricing_sheet]\n" +
+		"- Scope: [decided] Own the Copy review deliverable.\n" +
+		"- Acceptance: [decided] Accepted 2026-09-08 against rev_123; due 2026-09-12.\n" +
 		"- Decision Rights: [decided] Priya fixes typos unilaterally.\n" +
-		"- Escalation: [decided] Flag and move on rather than blocking.\n" +
+		"- Escalation: [decided] Flag contradictory source figures and continue with the next page.\n" +
+		"- Return Expectations: [decided] Reply with status, validation result, output link, and decisions made.\n" +
 		"\n## Next Steps\nShip it.\n"
 
 	contracts := ParseDelegationContracts(body)
@@ -37,8 +34,11 @@ func TestParseDelegationContracts_FullyDecided(t *testing.T) {
 	if c.Owner != "Priya" {
 		t.Errorf("Owner = %q", c.Owner)
 	}
-	if c.AgreedDate != "2026-06-30" {
-		t.Errorf("AgreedDate = %q", c.AgreedDate)
+	if c.AcceptedDate != "2026-09-08" {
+		t.Errorf("AcceptedDate = %q", c.AcceptedDate)
+	}
+	if c.Legacy {
+		t.Fatal("current contract reported as legacy")
 	}
 	if !c.Complete() {
 		t.Errorf("expected Complete() true, open fields: %v", c.OpenFields())
@@ -46,22 +46,16 @@ func TestParseDelegationContracts_FullyDecided(t *testing.T) {
 	if len(c.Fields) != len(contractFieldLabels) {
 		t.Fatalf("expected %d fields, got %d", len(contractFieldLabels), len(c.Fields))
 	}
-	wantObjective := "Pricing page copy is factually correct and ready to publish."
-	if got := c.Fields[0].Text; got != wantObjective {
-		t.Errorf("Objective text = %q, want %q (continuation line should be joined)", got, wantObjective)
-	}
 }
 
 func TestParseDelegationContracts_MixedAndMissingFields(t *testing.T) {
 	body := "" +
 		"## Delegation Contracts\n" +
-		"### Q3 renewal outreach — owner: Marco, agreed 2026-07-01\n" +
-		"- Objective: [decided] Renewal outreach sent to all at-risk accounts.\n" +
-		"- Context: [decided] Follows the churn-risk model output.\n" +
-		"- Success Criteria: [proposed] Not yet discussed.\n" +
-		"- Validation: [proposed] Not yet discussed.\n" +
-		"- Constraints: [decided] Do not discount below list without sign-off.\n" +
+		"### Q3 renewal outreach — owner: Marco\n" +
+		"- Scope: [decided] Own the renewal-outreach deliverable.\n" +
+		"- Acceptance: [proposed] Awaiting Marco's response.\n" +
 		"- Decision Rights: [decided] Marco can reschedule calls unilaterally.\n" +
+		"- Escalation: [decided] Escalate discounts below list.\n" +
 		"\n## Next Steps\nFollow up.\n"
 
 	contracts := ParseDelegationContracts(body)
@@ -69,56 +63,67 @@ func TestParseDelegationContracts_MixedAndMissingFields(t *testing.T) {
 		t.Fatalf("expected 1 contract, got %d", len(contracts))
 	}
 	c := contracts[0]
-	if c.Complete() {
-		t.Fatalf("expected Complete() false")
+	if c.Owner != "Marco" || c.AcceptedDate != "" {
+		t.Fatalf("header parsed owner=%q date=%q, want Marco with no accepted date", c.Owner, c.AcceptedDate)
 	}
-	want := []string{"Success Criteria", "Validation", "Escalation"}
+	if c.Complete() {
+		t.Fatal("expected Complete() false")
+	}
+	want := []string{"Acceptance", "Return Expectations"}
 	if got := c.OpenFields(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("OpenFields() = %v, want %v", got, want)
 	}
-
-	var escalation ContractField
-	for _, f := range c.Fields {
-		if f.Label == "Escalation" {
-			escalation = f
-		}
-	}
-	if escalation.Status != ContractFieldMissing {
-		t.Errorf("Escalation status = %q, want %q (bullet was never written)", escalation.Status, ContractFieldMissing)
+	if c.Fields[4].Status != ContractFieldMissing {
+		t.Errorf("Return Expectations status = %q, want %q", c.Fields[4].Status, ContractFieldMissing)
 	}
 }
 
 func TestParseDelegationContracts_UntaggedField(t *testing.T) {
 	body := "" +
 		"## Delegation Contracts\n" +
-		"### Vendor eval — owner: Sam, agreed 2026-08-01\n" +
-		"- Objective: [decided] Choose a vendor by end of quarter.\n" +
-		"- Context: [decided] Three vendors shortlisted.\n" +
-		"- Success Criteria: [decided] Scorecard total above 80.\n" +
-		"- Validation: Sam and I both review the scorecard.\n" +
-		"- Constraints: [decided] Budget cap $50k/yr.\n" +
-		"- Decision Rights: [decided] Sam picks among vendors scoring above 80.\n" +
-		"- Escalation: [decided] If none score above 80, escalate to me.\n"
+		"### Vendor eval — owner: Sam, agreed 2026-09-08\n" +
+		"- Scope: [decided] Own the vendor evaluation.\n" +
+		"- Acceptance: Sam accepted against rev_123.\n" +
+		"- Decision Rights: [decided] Sam picks among qualifying vendors.\n" +
+		"- Escalation: [decided] Escalate if none qualify.\n" +
+		"- Return Expectations: [decided] Return the scorecard and validation notes.\n"
 
-	contracts := ParseDelegationContracts(body)
-	if len(contracts) != 1 {
-		t.Fatalf("expected 1 contract, got %d", len(contracts))
-	}
-	c := contracts[0]
+	c := ParseDelegationContracts(body)[0]
 	if c.Complete() {
-		t.Fatalf("expected Complete() false for an untagged field")
+		t.Fatal("expected Complete() false for an untagged field")
 	}
-	var validation ContractField
-	for _, f := range c.Fields {
-		if f.Label == "Validation" {
-			validation = f
-		}
+	if c.Fields[1].Status != ContractFieldUntagged {
+		t.Errorf("Acceptance status = %q, want %q", c.Fields[1].Status, ContractFieldUntagged)
 	}
-	if validation.Status != ContractFieldUntagged {
-		t.Errorf("Validation status = %q, want %q", validation.Status, ContractFieldUntagged)
+}
+
+func TestParseDelegationContracts_LegacyProjection(t *testing.T) {
+	body := "" +
+		"## Delegation Contracts\n" +
+		"### Pricing page copy review — owner: Priya, agreed 2026-06-30\n" +
+		"- Objective: [decided] Pricing page copy is ready to publish.\n" +
+		"- Context: [decided] Copy follows the pricing decision.\n" +
+		"- Success Criteria: [decided] Every figure matches the sheet.\n" +
+		"- Validation: [decided] Diff copy against the sheet.\n" +
+		"- Constraints: [decided] Do not touch layout.\n" +
+		"- Decision Rights: [decided] Priya fixes typos.\n" +
+		"- Escalation: [decided] Flag contradictory figures.\n"
+
+	c := ParseDelegationContracts(body)[0]
+	if !c.Legacy {
+		t.Fatal("legacy contract was not identified")
 	}
-	if validation.Text != "Sam and I both review the scorecard." {
-		t.Errorf("Validation text = %q", validation.Text)
+	if c.Complete() {
+		t.Fatal("legacy contract without Return Expectations must remain open")
+	}
+	if got := c.OpenFields(); !reflect.DeepEqual(got, []string{"Return Expectations"}) {
+		t.Fatalf("OpenFields() = %v, want Return Expectations", got)
+	}
+	if c.Fields[0].Label != "Scope" || c.Fields[0].Text != "Legacy objective: Pricing page copy is ready to publish." {
+		t.Errorf("legacy objective was not projected to Scope: %+v", c.Fields[0])
+	}
+	if c.Fields[1].Label != "Acceptance" || c.Fields[1].Status != ContractFieldDecided {
+		t.Errorf("legacy agreed date was not projected to Acceptance: %+v", c.Fields[1])
 	}
 }
 
@@ -132,23 +137,19 @@ func TestHasOpenDelegationContract(t *testing.T) {
 		{"fully decided", "" +
 			"## Delegation Contracts\n" +
 			"### Task — owner: A, agreed 2026-01-01\n" +
-			"- Objective: [decided] X.\n" +
-			"- Context: [decided] X.\n" +
-			"- Success Criteria: [decided] X.\n" +
-			"- Validation: [decided] X.\n" +
-			"- Constraints: [decided] X.\n" +
+			"- Scope: [decided] Entire Dossier.\n" +
+			"- Acceptance: [decided] Accepted against rev_123.\n" +
 			"- Decision Rights: [decided] X.\n" +
-			"- Escalation: [decided] X.\n", false},
+			"- Escalation: [decided] X.\n" +
+			"- Return Expectations: [decided] X.\n", false},
 		{"one proposed field", "" +
 			"## Delegation Contracts\n" +
 			"### Task — owner: A, agreed 2026-01-01\n" +
-			"- Objective: [decided] X.\n" +
-			"- Context: [decided] X.\n" +
-			"- Success Criteria: [decided] X.\n" +
-			"- Validation: [decided] X.\n" +
-			"- Constraints: [decided] X.\n" +
+			"- Scope: [decided] Entire Dossier.\n" +
+			"- Acceptance: [decided] Accepted against rev_123.\n" +
 			"- Decision Rights: [decided] X.\n" +
-			"- Escalation: [proposed] Not yet discussed.\n", true},
+			"- Escalation: [proposed] Not yet discussed.\n" +
+			"- Return Expectations: [decided] X.\n", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -164,21 +165,17 @@ func TestParseDelegationContracts_MultipleContractsAndSectionBoundary(t *testing
 		"## Situation\nBackground.\n" +
 		"\n## Delegation Contracts\n" +
 		"### First — owner: A, agreed 2026-01-01\n" +
-		"- Objective: [decided] Do the first thing.\n" +
-		"- Context: [decided] Context one.\n" +
-		"- Success Criteria: [decided] Criteria one.\n" +
-		"- Validation: [decided] Validation one.\n" +
-		"- Constraints: [decided] Constraint one.\n" +
-		"- Decision Rights: [decided] Rights one.\n" +
-		"- Escalation: [decided] Escalation one.\n" +
+		"- Scope: [decided] First deliverable.\n" +
+		"- Acceptance: [decided] Accepted against rev_1.\n" +
+		"- Decision Rights: [decided] X.\n" +
+		"- Escalation: [decided] X.\n" +
+		"- Return Expectations: [decided] X.\n" +
 		"### Second — owner: B, agreed 2026-01-02\n" +
-		"- Objective: [proposed] Do the second thing.\n" +
-		"- Context: [decided] Context two.\n" +
-		"- Success Criteria: [decided] Criteria two.\n" +
-		"- Validation: [decided] Validation two.\n" +
-		"- Constraints: [decided] Constraint two.\n" +
-		"- Decision Rights: [decided] Rights two.\n" +
-		"- Escalation: [decided] Escalation two.\n" +
+		"- Scope: [decided] Second deliverable.\n" +
+		"- Acceptance: [proposed] Awaiting reply.\n" +
+		"- Decision Rights: [decided] X.\n" +
+		"- Escalation: [decided] X.\n" +
+		"- Return Expectations: [decided] X.\n" +
 		"\n## Next Steps\n" +
 		"- This line must not be parsed as a contract field.\n"
 
@@ -190,9 +187,9 @@ func TestParseDelegationContracts_MultipleContractsAndSectionBoundary(t *testing
 		t.Errorf("expected first contract complete, open: %v", contracts[0].OpenFields())
 	}
 	if contracts[1].Complete() {
-		t.Errorf("expected second contract incomplete")
+		t.Error("expected second contract incomplete")
 	}
-	if want := []string{"Objective"}; !reflect.DeepEqual(contracts[1].OpenFields(), want) {
+	if want := []string{"Acceptance"}; !reflect.DeepEqual(contracts[1].OpenFields(), want) {
 		t.Errorf("second contract OpenFields() = %v, want %v", contracts[1].OpenFields(), want)
 	}
 }

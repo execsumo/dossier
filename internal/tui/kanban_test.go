@@ -94,32 +94,33 @@ func TestGroupByStage(t *testing.T) {
 			items: []core.ListItem{
 				{ID: "1", Name: "a", Status: "spark"},
 				{ID: "2", Name: "b", Status: "define"},
-				{ID: "3", Name: "c", Status: "delegated"},
+				{ID: "3", Name: "c", Status: "execute"},
 				{ID: "4", Name: "d", Status: "review"},
 				{ID: "5", Name: "e", Status: "blocked"},
 				{ID: "6", Name: "f", Status: "done"},
 			},
 			want: map[core.Status][]string{
-				core.StatusSpark:     {"a"},
-				core.StatusDefine:    {"b"},
-				core.StatusDelegated: {"c"},
-				core.StatusReview:    {"d"},
-				core.StatusBlocked:   {"e"},
-				core.StatusDone:      {"f"},
+				core.StatusSpark:   {"a"},
+				core.StatusDefine:  {"b"},
+				core.StatusExecute: {"c"},
+				core.StatusReview:  {"d"},
+				core.StatusBlocked: {"e"},
+				core.StatusDone:    {"f"},
 			},
 		},
 		{
 			name: "legacy statuses normalize onto canonical stages",
 			items: []core.ListItem{
 				{ID: "1", Name: "legacy-active", Status: "active"},
-				{ID: "2", Name: "legacy-waiting", Status: "waiting"},
-				{ID: "3", Name: "legacy-resolved", Status: "resolved"},
-				{ID: "4", Name: "legacy-archived", Status: "archived"},
+				{ID: "2", Name: "legacy-delegated", Status: "delegated"},
+				{ID: "3", Name: "legacy-waiting", Status: "waiting"},
+				{ID: "4", Name: "legacy-resolved", Status: "resolved"},
+				{ID: "5", Name: "legacy-archived", Status: "archived"},
 			},
 			want: map[core.Status][]string{
-				core.StatusDefine:    {"legacy-active"},
-				core.StatusDelegated: {"legacy-waiting"},
-				core.StatusDone:      {"legacy-resolved", "legacy-archived"},
+				core.StatusDefine:  {"legacy-active"},
+				core.StatusExecute: {"legacy-delegated", "legacy-waiting"},
+				core.StatusDone:    {"legacy-resolved", "legacy-archived"},
 			},
 		},
 		{
@@ -260,7 +261,7 @@ func TestKanbanNavigationClampsAtEveryEdge(t *testing.T) {
 	// Right into an empty column: row stays 0 and enter is a no-op.
 	m, _ = press(t, m, "right")
 	if m.kanbanCol != 2 || m.kanbanRow != 0 {
-		t.Fatalf("entering delegated landed at col=%d row=%d, want 2/0", m.kanbanCol, m.kanbanRow)
+		t.Fatalf("entering execute landed at col=%d row=%d, want 2/0", m.kanbanCol, m.kanbanRow)
 	}
 	if _, ok := m.selectedKanbanItem(); ok {
 		t.Fatal("empty column reported a selection")

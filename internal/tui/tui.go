@@ -58,11 +58,9 @@ const (
 	// ViewLinks is a contextual overlay over a dossier surface. It presents active
 	// monitors before passive references while preserving their distinct meaning.
 	ViewLinks
-	// ViewContracts is a contextual overlay over ViewDetail showing the mechanical
-	// completeness checklist for every `## Delegation Contracts` block in the
-	// Distilled State (guide.md §4): which of the seven fields per contract are
-	// [decided] versus still open, derived from core.ParseDelegationContracts —
-	// never self-reported by whatever wrote the dossier.
+	// ViewContracts is a contextual overlay over ViewDetail showing the
+	// person-specific terms for every `## Delegation Contracts` block in the
+	// Distilled State (guide.md §4), derived from core.ParseDelegationContracts.
 	ViewContracts
 )
 
@@ -191,16 +189,16 @@ var (
 	metaValueStyle = lipgloss.NewStyle() // Inherit terminal's default text foreground color
 	mutedStyle     = lipgloss.NewStyle().Foreground(darkGray)
 
-	statusSparkStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D7D7")).Bold(true)
-	statusDefineStyle    = lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true)
-	statusDelegatedStyle = lipgloss.NewStyle().Foreground(warningGold)
-	statusReviewStyle    = lipgloss.NewStyle().Foreground(purple).Bold(true)
-	statusBlockedStyle   = lipgloss.NewStyle().Foreground(vibrantRed).Bold(true)
-	statusDoneStyle      = lipgloss.NewStyle().Foreground(darkGray)
+	statusSparkStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D7D7")).Bold(true)
+	statusDefineStyle  = lipgloss.NewStyle().Foreground(vibrantGreen).Bold(true)
+	statusExecuteStyle = lipgloss.NewStyle().Foreground(warningGold)
+	statusReviewStyle  = lipgloss.NewStyle().Foreground(purple).Bold(true)
+	statusBlockedStyle = lipgloss.NewStyle().Foreground(vibrantRed).Bold(true)
+	statusDoneStyle    = lipgloss.NewStyle().Foreground(darkGray)
 
 	// Legacy aliases for backward compatibility
 	statusActiveStyle   = statusDefineStyle
-	statusWaitingStyle  = statusDelegatedStyle
+	statusWaitingStyle  = statusExecuteStyle
 	statusResolvedStyle = statusDoneStyle
 	statusArchivedStyle = lipgloss.NewStyle().Foreground(darkGray).Faint(true)
 
@@ -905,7 +903,7 @@ func deriveLeadOptions(items []core.ListItem, configured ...[]string) []leadOpti
 }
 
 // statusTier ranks a dossier's lifecycle status for dashboard ordering: open
-// work (spark/define/delegated/review/blocked) is tier 0, terminal work (done) is
+// work (spark/define/execute/review/blocked) is tier 0, terminal work (done) is
 // tier 1, so terminal dossiers always sort below open ones at any priority.
 func statusTier(status string) int {
 	if core.Status(status).IsTerminal() {

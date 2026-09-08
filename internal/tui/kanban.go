@@ -61,8 +61,8 @@ func stageStyle(s core.Status) lipgloss.Style {
 		return statusSparkStyle
 	case core.StatusDefine:
 		return statusDefineStyle
-	case core.StatusDelegated:
-		return statusDelegatedStyle
+	case core.StatusExecute:
+		return statusExecuteStyle
 	case core.StatusReview:
 		return statusReviewStyle
 	case core.StatusBlocked:
@@ -74,8 +74,9 @@ func stageStyle(s core.Status) lipgloss.Style {
 }
 
 // groupByStage buckets items into one slice per canonical stage, in lifecycle
-// order. Legacy statuses are normalized first so active/waiting/resolved/archived
-// dossiers land in define/delegated/done/done rather than vanishing. Placeholder
+// order. Legacy statuses are normalized first so active/delegated/waiting/
+// resolved/archived dossiers land in define/execute/execute/done/done rather
+// than vanishing. Placeholder
 // rows (empty ID) and unrecognisable statuses are dropped — the board only shows
 // work it can honestly place. Input order is preserved within a column, which is
 // what makes the list's tier/priority/due sort carry over for free.

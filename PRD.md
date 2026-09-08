@@ -11,15 +11,16 @@ These are settled. They are placed up front because they constrain everything do
 
 | # | Decision | Rationale | What it rules out |
 |---|----------|-----------|-------------------|
-| **D1** | A **flat set of distinct Dossiers**. Artifacts belong to a Dossier. No topic graph/tree/cross-links. | A topic is self-contained; extra material is *artifacts of one topic*, not multiple topics. | Inter-topic link graph, nesting, topic hierarchies. |
-| **D2** | **Two layers** per Dossier: curated **Distilled State** + source-retaining **Archive** of captured artifacts. Provenance links connect distilled claims → source artifacts. | The Distilled State holds *all critical information with noise removed* — not a short summary; "be citable" and "carry the full substance of the topic" can't both live in the raw transcript. | A single evolving doc; lossy summaries that discard substance or sources. |
+| **D1** | A **flat set of distinct Dossiers**. Artifacts belong to a Dossier. No topic graph/tree/cross-links. | A Dossier is the primary outcome being worked toward; several contributions can live inside it when they combine into that outcome. | Inter-Dossier graph, nesting, topic hierarchies. |
+| **D2** | **Two layers** per Dossier: canonical operational **Distilled State** + source-retaining **Archive** of captured artifacts. Provenance links connect distilled claims → source artifacts. | The Distilled State holds the complete signal needed to understand and execute the work with noise removed—not a terse summary. One coherent brief costs less than reconstructing context or reconciling redundant documents. | Lossy summaries; optimizing document length at the expense of reasoning cost; duplicated work specifications. |
 | **D3** | Access via **MCP** (auto-surfaces available Dossiers on agent load) **+ CLI/TUI**. **Local-first, optionally team-synced** (amended per B12/ADR 0005, 2026-07-15; originally local, single-user). v1 supports **Claude Code and Pi** (§5.5); Pi requires a compatible Claude-like hooks extension. | Meet the agent where it lives; degrade gracefully. | Cloud dependency, web app, account system (v1); other harnesses (Codex, Antigravity). |
 | **D4** | Distillation runs **without a human gate**, but it is **governed, not ad hoc**. *What* to retain is steered by a shipped **Distillation Guide** (a skill/instructions the agent loads). *When* to write is **deterministic** — hook-driven cadence + triggers (§4.11), never "the agent remembers to." | A confirm step adds friction; but "agent freely decides whether and what to write" is too loose. Steer content quality up front, enforce update cadence mechanically. Trust on content comes from **non-destruction** + the guide, not a gate. | A blocking human-confirm; relying on the agent's discretion to update. |
 | **D5** | Relatedness is resolved by **merge**, producing **one converged Distilled State**; **conflicts and ambiguous targets are surfaced to the human**. | Matches D1 (no persistent links); keeps one source of truth per topic. | Auto-merge that silently reconciles; permanent dossier-to-dossier references. |
-| **D6** | Dossier **stores** artifact content provided by the agent/user; it does **not fetch from external sources itself**. The agent (assumed to have its own integrations) fetches **on request**; snapshots are **refreshed while active** and **frozen on resolution**. | Sourcing is the agent's/user's job, not this app's. Accuracy during active work; stable citation after. | The app owning source integrations; live links only (rot); a snapshot that goes stale mid-thread. |
+| **D6** | Dossier **stores** artifact content provided by the agent/user; it does **not fetch from external sources itself**. The agent (assumed to have its own integrations) fetches **on request**; snapshots are **refreshed while work is open** and **frozen when the Dossier is done**. | Sourcing is the agent's/user's job, not this app's. Accuracy during open work; stable citation after completion. | The app owning source integrations; live links only (rot); a snapshot that goes stale mid-thread. |
 | **D7** | **100k-token target for Distilled State context.** Over-target recall is allowed with an explicit warning; Archive is retrieved on demand. | Predictable, bloat-aware resumes without blocking progress. | Loading whole transcripts/archives into context by default; silently truncating critical state. |
-| **D8** | Every Dossier carries **lifecycle status + next action + priority**; open questions live in the body. | "See what's open and needs to progress" is the daily-driver surface. | Treating topics as an undifferentiated list. |
+| **D8** | Every Dossier carries **lifecycle status + next action + priority**; open questions live in the body. Canonical stages describe the work: `spark`, `define`, `execute`, `review`, `blocked`, `done`. | "See what's open and needs to progress" is the daily-driver surface. Delegation is staffing, not a lifecycle phase. | Treating topics as an undifferentiated list; a Dossier-wide `delegated` stage that misstates mixed-owner work. |
 | **D9** | **One plain Markdown file is the human-readable source of truth for each Dossier's distilled state**: YAML **frontmatter** for lifecycle fields, body for the distilled critical information. Each Dossier also has an artifact folder and audit log. **No database.** | Files are inspectable in any Markdown reader (e.g. Obsidian) with no special tool; frontmatter is the natural, Obsidian-native home for status/next-action. Listing and search are file scans (frontmatter read + `ripgrep`). | A SQLite/derived index; a proprietary store; metadata locked away from the user's own tools. |
+| **D10** | The Dossier itself owns **Objective, Done When, Validation, and Constraints**. A single deliverable uses these directly; several contributions use lightweight body sections with local completion checks. Delegation health-checks this canonical brief and stores only Scope, Acceptance, Decision Rights, Escalation, and Return Expectations. | Users define work progressively and usually only when execution forces clarity. One source of work truth prevents drift; a checkpoint at `define → execute` adds rigor when it becomes valuable without taxing spark capture. Constraints remain visible because they determine feasibility and show leaders what they can alleviate. | A separate Work Definition entity; seven-field contracts duplicating the work; mandatory structured intake for sparks; numeric completeness scores. |
 
 **Deferred (explicitly not v1):** sharing/multi-user, web app, in-app LLM wrapper, automated ingestion integrations (Slack/email/Drive OAuth), binary attachment storage, a database/index layer, semantic/embedding search beyond fast-follow.
 
@@ -51,10 +52,10 @@ Single user (the operator). Core jobs-to-be-done:
 ## 3. Core concepts & data model
 
 ### 3.1 Dossier
-A distinct topic of work. Its distilled state lives in **one Markdown file** (D9), with supporting artifacts and audit history beside it. Composed of:
+A distinct primary outcome of work, which may begin as a loose idea. Its distilled state lives in **one Markdown file** (D9), with supporting artifacts and audit history beside it. Composed of:
 
 - **Frontmatter (YAML):** identity (`id`, `name`, `slug`, `created_at`, `updated_at`) and lifecycle (D8):
-  - `status ∈ {active, blocked, waiting, resolved, archived}`
+  - `status ∈ {spark, define, execute, review, blocked, done}`; legacy values remain readable
   - `description` (short progressive-disclosure summary, optional)
   - `lead` (string)
   - `next_action` (string)
@@ -62,7 +63,7 @@ A distinct topic of work. Its distilled state lives in **one Markdown file** (D9
   - Open questions belong in the Distilled State body under `## Open Questions`.
 
   These prioritization fields feed surfacing (§4.1). Frontmatter is what the open-work view scans and what Obsidian-style readers render natively.
-- **Body — Distilled State (D2):** the topic's **critical information with noise removed** (not a chat recap). Sections: Situation, Decisions, Findings, Open Questions, optional References, optional Active Monitors, Current State, Next Steps. References and monitors share one tool-agnostic Markdown link convention; only Active Monitors imply polling. The agent keeps everything that informs the topic and strips niceties, small talk, and dead ends. The Distilled State has a **100k-token target** for recall ergonomics; over-target state is allowed but must warn (see §6).
+- **Body — Distilled State (D2/D10):** the work's complete **operational signal with noise removed** (not a chat recap or terse index). During `define`, the body gains Objective, Done When, Validation, and first-class Constraints alongside Situation, Decisions, Findings, Open Questions, optional References/Active Monitors, Current State, and Next Steps. A conditional Deliverables section represents several contributions toward one shared outcome; each has local Done When and Validation. A conditional Delegation Contracts section stores only person-specific terms. References and monitors share one tool-agnostic Markdown link convention; only Active Monitors imply polling. The Distilled State has a **100k-token warning target** for recall ergonomics; over-target state is allowed (see §6).
 - **Archive (D2):** the Dossier's `artifacts/` directory of **Artifacts**.
 - **Audit log:** append-only `audit.log` — writes, merges, snapshot refreshes/freezes (also the provenance backbone).
 
@@ -90,11 +91,53 @@ An **active Dossier** is bound to one agent session, not globally.
 
 ### 3.5 Lifecycle status semantics
 
-- `active`: work is ongoing and may need the user or agent to progress.
-- `waiting`: progress depends on an external event, person, or date; still appears in the open-work view.
-- `blocked`: progress is stuck because a specific blocker must be resolved; still appears in the open-work view and should be made visible alongside other active work.
-- `resolved`: the topic reached its intended conclusion. It is hidden from the default open-work view, snapshots are frozen, and recall remains available.
-- `archived`: the topic is no longer operationally relevant. It is hidden from default views but remains searchable and recoverable. Archiving does not delete source material.
+- `spark`: a loose idea worth retaining; a complete brief is not required.
+- `define`: Objective, Done When, Validation, Constraints, and any
+  deliverable-specific completion conditions are being made executable.
+- `execute`: sufficiently defined work is underway, whether performed by the
+  user, an agent, one colleague, or several contributors.
+- `review`: the result is being checked against the canonical Validation.
+- `blocked`: progress is stuck because a specific blocker must be resolved;
+  still appears with open work.
+- `done`: the primary outcome's Done When conditions validated. Every required
+  deliverable is done or explicitly dropped; recall remains available and
+  snapshots are frozen.
+
+Legacy `active` normalizes to `define`; `delegated` and `waiting` normalize
+to `execute`; `resolved` and `archived` normalize to `done`.
+
+### 3.5.1 Definition, deliverables, constraints, and delegation
+
+The common shape is one Dossier with one deliverable. Its top-level Objective,
+Done When, and Validation define the work directly; no additional wrapper is
+created.
+
+When several contributions combine into the same primary outcome, the Dossier
+may carry a lightweight Deliverables section. Each contribution names its
+Outcome, Owner, local Done When, Validation, and Completion. The Dossier lead
+remains accountable for the integrated outcome. Several independently
+completable outcomes with substantially different context, evidence, timelines,
+or decisions are candidates for separate Dossiers, but this boundary is
+deliberately judgment-based.
+
+Constraints are canonical work truth, not delegation metadata. Technical,
+commercial, legal, timing, budget, dependency, interface, and authority
+boundaries remain visible with rationale and provenance. Assumptions are marked
+as such. When leadership could alleviate a constraint, the brief names the
+decision-maker or relief path. Changing or removing a material constraint is a
+Decision, never a silent edit made to fit a preferred solution.
+
+Delegation is the practical health checkpoint. The skill reads the Dossier as
+an asynchronous recipient and first asks whether they can proceed and know when
+they are finished. Missing work clarity updates the canonical Dossier. The
+Delegation Contract records only Scope, Acceptance, Decision Rights,
+Escalation, and Return Expectations. The rendered outbound note composes both
+sources; it is not separately persisted.
+
+Acceptance records the Dossier revision agreed. If Objective, Done When,
+Validation, Constraints, or a scoped deliverable changes materially, the
+recipient is asked to accept the new baseline rather than being judged against
+a silently moved target.
 
 ### 3.6 Storage layout (D9 — plain files, no database)
 Local-first. One directory per Dossier; no index, no DB.
@@ -120,7 +163,7 @@ Local-first. One directory per Dossier; no index, no DB.
 - The `dossier_list` MCP tool still exists for on-demand refresh within a session, but the *guarantee* of surfacing comes from the hook, not the tool.
 - Payload per Dossier: `name`, optional `description`, `status`, `lead`, `next_action`, `priority`, `due_date`, `path`, and any harness capability warnings (for example: "transcript archive unavailable in this session").
 - CLI/TUI `dossier ls` shows the same, sortable/filterable by any of these.
-- **Open-work view:** default filter = `status ∈ {active, blocked, waiting}`. This is the daily driver.
+- **Open-work view:** default filter = `status ∈ {spark, define, execute, review, blocked}`. This is the daily driver.
 - **Surfacing order:** rank by the explicit `priority` level (`max` → `high` → `medium` → `low`), then by due date and `updated_at`. Due dates remain visible context but do not silently rewrite the user's priority.
 
 ### 4.2 Resume / recall (D7)
@@ -142,8 +185,8 @@ Local-first. One directory per Dossier; no index, no DB.
 
 ### 4.7 Snapshots (D6)
 - Dossier does **not fetch external content itself**. The agent (assumed to have its own integrations — Slack, email, web, etc.) or the user supplies the content; Dossier **stores** it as a `source_snapshot` artifact with its provenance at attach time.
-- While the Dossier is `active`, a snapshot can be **refreshed on request** — the agent re-fetches and re-saves; Dossier just persists the new content. (Dossier never polls or fetches on its own.)
-- On `resolved`, snapshots are **frozen** (`frozen = true`); refresh disabled to preserve citation stability.
+- While the Dossier is open, a snapshot can be **refreshed on request** — the agent re-fetches and re-saves; Dossier just persists the new content. (Dossier never polls or fetches on its own.)
+- On `done`, snapshots are **frozen** (`frozen = true`); refresh disabled to preserve citation stability.
 
 ### 4.8 Search & suggestion engine
 - **Search:** full-text via `ripgrep` over `dossier.md` files + artifact content/titles, v1 (no DB, D9). Semantic/embedding search is a fast-follow if file scan proves insufficient.
@@ -160,9 +203,9 @@ Local-first. One directory per Dossier; no index, no DB.
 The agent is steered up front and updates are enforced mechanically, so distillation is never left to discretion.
 
 **(a) Distillation Guide (the *what*).** A first-class, rigorously developed artifact shipped with Dossier — a skill/instructions file the agent loads (surfaced by the SessionStart hook, §5.4). It defines, with examples:
-- **Keep:** decisions + their rationale + attribution (who/what decided), current state, open questions, next action, experiment results and findings, hard constraints, key data/figures, and provenance links to the artifacts that justify each claim.
+- **Keep:** Objective, Done When, Validation, every constraint that changes the feasible solution space, decisions + rationale + attribution, current state, deliverables and their local completion checks when applicable, open questions, next action, experiment results and findings, key data/figures, and provenance links to the artifacts that justify each claim. Mark assumed constraints; name the relief path when a leader can alleviate one.
 - **Strip:** greetings/niceties/small talk, reasoning that led nowhere, tool-call mechanics, redundant restatement, and anything not informing the topic's current state or future moves.
-- **How:** preserve substance over brevity while respecting the 100k-token target as a warning threshold (D2/§6); write in the Dossier's section structure (Situation, Decisions, Findings, Open Questions, Current State, Next Steps); every material claim carries a provenance link; updating supersedes prose in-place while the superseded content remains in the Archive.
+- **How:** preserve operational signal and minimize total comprehension cost while respecting the 100k-token target as a warning threshold (D2/§6). A longer coherent brief is preferable to terse fragments that require reconstruction or reconciliation. Shape sparks during `define`; use the canonical section structure from SPEC §4.2; every material claim carries a provenance link; updating supersedes prose in-place while the superseded content remains in the Archive.
 
 This guide is a prompt asset to iterate on like code — its quality is a primary driver of the product (see Risks, §9).
 
@@ -223,7 +266,7 @@ Even within Claude Code, if an expected capability is unavailable in a given ses
 
 ## 6. Token target (D7)
 
-The token target governs the **Distilled State context loaded on recall**. The fixed target is **100k tokens**. This is a guideline and warning threshold, not a hard failure condition. The agent keeps *all critical information* and strips only noise (niceties, small talk, dead ends); it should not silently drop material merely to satisfy the target.
+The token target governs the **Distilled State context loaded on recall**. The fixed target is **100k tokens**. This is a guideline and warning threshold, not a hard failure condition. The agent keeps all operational signal—including explanatory context and constraints that affect feasible solutions—and strips conversation mechanics, repetition, and superseded narration. It must not drop material merely to satisfy the target; total reasoning and error cost matter more than input length alone.
 
 | Component | Budget | On overflow |
 |-----------|--------|-------------|
@@ -265,7 +308,7 @@ The token target governs the **Distilled State context loaded on recall**. The f
 | Merge mangles history | D5 surface conflicts; audit log; non-destructive. |
 | Context bloat returns | D7 100k target + explicit warnings; over-target state is a sprawl signal to reorganize/archive/split, not to silently truncate. |
 | Suggestion engine misfires | Propose with confidence, never auto-link; user always confirms. |
-| Snapshot staleness / rot | D6 refresh-while-active, freeze-on-resolve, store content not just links. |
+| Snapshot staleness / rot | D6 refresh-while-open, freeze-when-done, store content not just links. |
 | Scope creep into deferred surfaces | §0 deferral list is explicit; v1 = local core only. |
 
 ---
@@ -287,7 +330,7 @@ Because the hook output is silent to the user (injected into the agent's context
 That makes the behavior automatic without any user-visible ceremony at session start.
 
 The confirmation itself should be lightweight:
-> "I see a couple of Dossiers that look related — *Auth refactor (active, last updated 3 days ago)* and *Login flow cleanup (blocked)*. Is one of these the right one to continue, or is this a separate thread?"
+> "I see a couple of Dossiers that look related — *Auth refactor (define, last updated 3 days ago)* and *Login flow cleanup (blocked)*. Is one of these the right one to continue, or is this a separate thread?"
 
 If the user picks one, bind to it (`dossier_session`) and resume. If none fit, proceed with creation.
 

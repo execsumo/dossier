@@ -172,14 +172,29 @@ would experience them.
 
 ### Layer 1 — Memory that survives the conversation
 
-**The pattern:** a topic outlives the session it started in, the tool it
-started in, and eventually the person who started it.
+**The pattern:** an outcome of work outlives the session it started in, the
+tool it started in, and eventually the person who started it.
 
 You work on something for an hour. That conversation ends. Three days later,
-you or a colleague opens a new one and the topic is intact — not the chat
-transcript, but the *state*: where things stand, what was settled, what is
-open. The dead ends are recorded too, compressed into a line, so nobody
-re-runs an experiment that already failed.
+you or a colleague opens a new one and the work is intact—not the chat
+transcript, but the *operational brief*: the objective, what done means and how
+it will be checked, the constraints that shape feasible solutions, where things
+stand, what was settled, and what remains open. The dead ends are recorded too,
+without the conversational play-by-play, so nobody re-runs an experiment that
+already failed.
+
+The brief is not required on day one. A Dossier can start as a loose spark; it
+becomes defined when execution makes the detail valuable. Nor is the brief
+optimized for terseness. A few thousand coherent tokens are cheaper than a
+short document that forces the next agent to reconstruct causality, fetch five
+sources, or reconcile three redundant versions of the same objective.
+
+Constraints deserve their own place because they do two jobs. They tell the
+person doing the work which solutions are actually feasible, and they tell a
+leader where intervention has leverage. "The budget is fixed" and "Finance can
+raise the budget if the VP approves" are not equivalent constraints; the second
+contains an unblocking route that disappears if the Dossier merely records
+"budget problem."
 
 **Why it matters:** this is the foundation everything else sits on. Without
 durable state there is nothing to delegate from, nothing to escalate, and
@@ -292,7 +307,7 @@ unblocking are exactly the things that do not show up on a personal to-do list.
 Two patterns that compound: one makes each handoff good, the other makes every
 subsequent handoff shorter.
 
-#### 3a. Delegation as a written contract
+#### 3a. Delegation as a health checkpoint and written agreement
 
 When you hand work to a colleague, especially one who will read it while you
 sleep, the agent helps you write it properly. Not by making you fill in a
@@ -301,37 +316,50 @@ template — by asking the right question:
 > *Read this as the person receiving it. They wake up, they have no way to
 > reach you for eight hours. Where do they get stuck?*
 
-That framing does the prioritising. The two things that actually cost a full
-day on an offset team are almost always the ones missing:
+The first pass is over the work itself:
 
+- Is the outcome clear?
+- Can they tell when their part is done?
+- Is the validation concrete and symmetric?
+- Are all constraints that change the feasible solution visible—including the
+  ones a leader could alleviate?
+
+If any of that is missing, the answer strengthens the canonical Dossier. It
+does not go into a second delegation-shaped copy of the work. This is the
+practical forcing function: nobody has time to define every spark up front, but
+the moment another person must act is the moment ambiguity becomes expensive.
+
+Only then does the agent check what is specific to this relationship:
+
+- **Scope** — the whole Dossier, or which named deliverable?
+- **Acceptance** — did they accept, need clarification, or propose a change;
+  what timing did they commit to, and which revision did they accept?
 - **Decision rights** — can they decide this themselves, or must they wait?
-- **Escalation** — if they are blocked, what should they do *instead of waiting
-  silently*? Including the crucial part: what to work on while they wait, so
-  one open question does not cost them the whole day.
-
-Everything else — the objective, the context, the constraints, what "done"
-means and how it will be checked — the agent fills in from the dossier, because
-it is usually already there. It asks about those only where the dossier is
-genuinely silent or says two different things, which happens most often when the
-work crosses into a function that was never part of the original conversation.
-What it does not do is walk you through all seven every time to prove it
-checked.
+- **Escalation** — if blocked, who or where do they raise it, and what should
+  they do instead of waiting silently?
+- **Return expectations** — what status, validation evidence, output, and
+  decisions come back?
 
 Two deliberate choices here:
 
-**It only runs when you ask.** It never fires because a dossier looks thin or
-because an owner was set. Structure is available on demand; it never becomes
-overhead on the fast, informal path that works fine most of the time.
+**The Dossier gets structured progressively.** A spark may remain loose. Define
+is the checkpoint before execution, and delegation is the strongest practical
+reason to run it. The delegation skill itself still runs only when asked; it
+does not become ambient form-filling overhead.
 
-**It never gives you a score.** No "4 of 7 sections complete." Either it names
+**It never gives you a score.** No "4 of 5 terms complete." Either it names
 the specific thing that is missing, or it tells you it is ready. A completeness
 score turns a judgement into a form, and forms get abandoned.
 
-The contract is then stored on the dossier, and the message you paste to your
-colleague is generated from it. That matters for the check-back later: you can
-ask "did this meet what we agreed?" and get an answer against what was
-*actually* agreed. If the goalposts moved in between, they moved — but you will
-be told, rather than shown the new target as though it were the original.
+The Dossier stores the work once. The contract stores only the person-specific
+agreement. The message pasted to a colleague is a rendering of both, detailed
+enough for asynchronous work but never another source of truth.
+
+That distinction matters at check-back. Acceptance records the Dossier revision
+the colleague agreed to. If the objective, completion conditions, validation,
+constraints, or scoped deliverable later changes, the current Dossier remains
+the current truth—but the accepted baseline exposes the movement. The colleague
+is asked to accept the new target rather than silently judged against it.
 
 **And it is only a contract once they say so.** The note tells your colleague
 that three replies are useful — *accepted*, *I need one thing clarified*, or *I'd
@@ -339,7 +367,9 @@ propose changing this* — and whichever comes back gets recorded against the
 handoff. This is the same honesty as Layer 2a, one level up: a brief you sent is
 not a brief they took on. Until someone accepts, what you have is a proposal, and
 Dossier will say so rather than let you spend a week believing the work is
-underway.
+underway. Once accepted and adequately defined, the Dossier is in execute:
+delegation is a staffing relationship, not the lifecycle stage of the whole
+outcome.
 
 #### 3b. The colleague profile that learns — in both directions
 

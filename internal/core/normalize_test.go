@@ -26,7 +26,8 @@ func TestStatusEnum(t *testing.T) {
 		canonical Status
 	}{
 		{StatusActive, StatusDefine},
-		{StatusWaiting, StatusDelegated},
+		{StatusDelegated, StatusExecute},
+		{StatusWaiting, StatusExecute},
 		{StatusBlocked, StatusBlocked},
 		{StatusResolved, StatusDone},
 		{StatusArchived, StatusDone},

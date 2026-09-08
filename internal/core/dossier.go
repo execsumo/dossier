@@ -11,18 +11,19 @@ import (
 type Status string
 
 const (
-	StatusSpark     Status = "spark"
-	StatusDefine    Status = "define"
-	StatusDelegated Status = "delegated"
-	StatusReview    Status = "review"
-	StatusBlocked   Status = "blocked"
-	StatusDone      Status = "done"
+	StatusSpark   Status = "spark"
+	StatusDefine  Status = "define"
+	StatusExecute Status = "execute"
+	StatusReview  Status = "review"
+	StatusBlocked Status = "blocked"
+	StatusDone    Status = "done"
 
 	// Legacy statuses maintained for backward compatibility.
-	StatusActive   Status = "active"
-	StatusWaiting  Status = "waiting"
-	StatusResolved Status = "resolved"
-	StatusArchived Status = "archived"
+	StatusDelegated Status = "delegated"
+	StatusActive    Status = "active"
+	StatusWaiting   Status = "waiting"
+	StatusResolved  Status = "resolved"
+	StatusArchived  Status = "archived"
 )
 
 // NormalizeStatus translates legacy status values into their canonical equivalents.
@@ -30,8 +31,8 @@ func NormalizeStatus(s Status) Status {
 	switch s {
 	case StatusActive:
 		return StatusDefine
-	case StatusWaiting:
-		return StatusDelegated
+	case StatusDelegated, StatusWaiting:
+		return StatusExecute
 	case StatusResolved, StatusArchived:
 		return StatusDone
 	default:
@@ -44,7 +45,7 @@ func CanonicalStatuses() []Status {
 	return []Status{
 		StatusSpark,
 		StatusDefine,
-		StatusDelegated,
+		StatusExecute,
 		StatusReview,
 		StatusBlocked,
 		StatusDone,
@@ -54,7 +55,7 @@ func CanonicalStatuses() []Status {
 // IsValid validates if the status is one of the allowed enums (canonical or legacy).
 func (s Status) IsValid() bool {
 	switch NormalizeStatus(s) {
-	case StatusSpark, StatusDefine, StatusDelegated, StatusReview, StatusBlocked, StatusDone:
+	case StatusSpark, StatusDefine, StatusExecute, StatusReview, StatusBlocked, StatusDone:
 		return true
 	}
 	return false

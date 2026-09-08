@@ -8,7 +8,7 @@ import (
 // TestDelegationContractsHeadingStaysInSyncAcrossGuideAndSkill guards a coupling
 // nothing else enforces: dossier-delegate-skill.md instructs an agent to write a
 // "## Delegation Contracts" section, and guide.md is where that section's schema
-// (its seven block labels) is actually defined. Renaming the heading in one file
+// (its person-specific block labels) is actually defined. Renaming the heading in one file
 // without the other would silently break the skill — it would write a heading
 // no reader, including the guide's own "check this section first" instruction,
 // looks for.
@@ -33,17 +33,15 @@ func TestDelegationContractsHeadingStaysInSyncAcrossGuideAndSkill(t *testing.T) 
 			"the schema for, so a rename here must be mirrored in the guide", heading)
 	}
 
-	// The skill writes these seven labels, in this order, under the heading above.
+	// The skill writes these five labels, in this order, under the heading above.
 	// guide.md is where the order and wording are defined; if guide.md changes a
 	// label, the skill would keep writing the old one under the new schema.
 	labels := []string{
-		"Objective:",
-		"Context:",
-		"Success Criteria:",
-		"Validation:",
-		"Constraints:",
+		"Scope:",
+		"Acceptance:",
 		"Decision Rights:",
 		"Escalation:",
+		"Return Expectations:",
 	}
 	for _, label := range labels {
 		if !strings.Contains(string(guide), label) {

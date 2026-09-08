@@ -782,14 +782,12 @@ func TestTUI_ContractsChecklistFromDetail(t *testing.T) {
 		DistilledState: core.DistilledState{
 			Body: "" +
 				"## Delegation Contracts\n" +
-				"### Pricing copy review — owner: Priya, agreed 2026-06-30\n" +
-				"- Objective: [decided] Copy is factually correct.\n" +
-				"- Context: [decided] Follows the pricing decision.\n" +
-				"- Success Criteria: [decided] Every figure matches the sheet.\n" +
-				"- Validation: [decided] Priya diffs against the sheet.\n" +
-				"- Constraints: [decided] Copy only, no layout changes.\n" +
+				"### Pricing copy review — owner: Priya, agreed 2026-09-08\n" +
+				"- Scope: [decided] Own the Pricing copy review deliverable.\n" +
+				"- Acceptance: [decided] Accepted against rev_123.\n" +
 				"- Decision Rights: [decided] Priya fixes typos unilaterally.\n" +
 				"- Escalation: [proposed] Not yet discussed.\n" +
+				"- Return Expectations: [decided] Return status, validation, output, and decisions.\n" +
 				"\n## Next Steps\nShip it.\n",
 		},
 	}
@@ -823,8 +821,11 @@ func TestTUI_ContractsChecklistFromDetail(t *testing.T) {
 	}
 
 	got := stripANSI(m.View())
-	if !strings.Contains(got, "(6/7 decided)") {
-		t.Fatalf("expected checklist to report 6/7 decided, got:\n%s", got)
+	if !strings.Contains(got, "open: Escalation") {
+		t.Fatalf("expected checklist to name Escalation as open, got:\n%s", got)
+	}
+	if strings.Contains(got, "/5 decided") {
+		t.Fatalf("readiness must not be rendered as a completeness score, got:\n%s", got)
 	}
 	if !strings.Contains(got, "[x]") || !strings.Contains(got, "[ ]") {
 		t.Fatalf("expected both a checked and an open field row, got:\n%s", got)
@@ -2167,7 +2168,7 @@ func TestTUIStatusOptionsAndTiers(t *testing.T) {
 	wantStatuses := []core.Status{
 		core.StatusSpark,
 		core.StatusDefine,
-		core.StatusDelegated,
+		core.StatusExecute,
 		core.StatusReview,
 		core.StatusBlocked,
 		core.StatusDone,
@@ -2184,7 +2185,7 @@ func TestTUIStatusOptionsAndTiers(t *testing.T) {
 	}
 
 	// Verify statusTier ordering
-	for _, openStatus := range []string{"spark", "define", "delegated", "review", "blocked", "active", "waiting"} {
+	for _, openStatus := range []string{"spark", "define", "execute", "review", "blocked", "active", "delegated", "waiting"} {
 		if tier := statusTier(openStatus); tier != 0 {
 			t.Errorf("statusTier(%q) = %d, want 0", openStatus, tier)
 		}

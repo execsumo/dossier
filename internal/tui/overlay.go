@@ -458,10 +458,9 @@ func (m Model) renderArtifactIndexBody() string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// renderContractsChecklist renders every Delegation Contract's mechanical
-// completeness checklist: one row per field, checked only when its guide.md
-// §4 tag is literally [decided] — never inferred from the presence of text,
-// so the checklist can't be gamed by writing a field without settling it.
+// renderContractsChecklist renders the person-specific terms of each
+// Delegation Contract. It deliberately names open fields rather than producing
+// a completeness score: readiness is a judgment, not a form-filling metric.
 func renderContractsChecklist(contracts []core.DelegationContract) string {
 	if len(contracts) == 0 {
 		return overlayEmptyStyle.Render("No delegation contracts recorded for this dossier.")
@@ -471,23 +470,26 @@ func renderContractsChecklist(contracts []core.DelegationContract) string {
 		if i > 0 {
 			sb.WriteString("\n\n")
 		}
-		decided := 0
-		for _, f := range c.Fields {
-			if f.Status == core.ContractFieldDecided {
-				decided++
-			}
-		}
 		header := c.Label
 		if c.Owner != "" {
 			header += " — owner: " + c.Owner
 		}
-		if c.AgreedDate != "" {
-			header += ", agreed " + c.AgreedDate
+		if c.AcceptedDate != "" {
+			header += ", accepted " + c.AcceptedDate
 		}
 		sb.WriteString(overlaySectionStyle.Render(header))
-		sb.WriteString("  ")
-		sb.WriteString(overlayMutedStyle.Render(fmt.Sprintf("(%d/%d decided)", decided, len(c.Fields))))
+		if c.Complete() {
+			sb.WriteString("  ")
+			sb.WriteString(lipgloss.NewStyle().Foreground(vibrantGreen).Render("ready"))
+		} else {
+			sb.WriteString("  ")
+			sb.WriteString(overlayMutedStyle.Render("open: " + strings.Join(c.OpenFields(), ", ")))
+		}
 		sb.WriteString("\n")
+		if c.Legacy {
+			sb.WriteString(overlayMutedStyle.Render("Legacy contract: move Objective, Context, Success Criteria, Validation, and Constraints into the canonical Dossier; confirm Return Expectations."))
+			sb.WriteString("\n")
+		}
 		for _, f := range c.Fields {
 			sb.WriteString(renderContractFieldRow(f))
 			sb.WriteString("\n")

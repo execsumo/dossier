@@ -4,7 +4,7 @@ Guidance for any agent (Claude Code, Codex, etc.) building Dossier. Read `HANDOF
 
 ## What this is
 
-Dossier (codename *chainlink*) is a local-first durable memory layer for agent-driven work in Claude Code and Pi. Pi support depends on the compatible hooks-extension contract documented in `HANDOFF.md`. Originally single-user; as of B12 / ADR 0005 (2026-07-15) it is growing optional **Team Sync** — a shared store transported through a private GitHub repo hidden behind the binary (see `docs/team-sync-plan.md`). A Dossier is a flat durable topic with a curated Markdown **Distilled State**, a source-retaining **Archive**, and an append-only audit log. One self-contained **Go** binary serves CLI + MCP-over-stdio + hooks + TUI. No database; files are the source of truth.
+Dossier (codename *chainlink*) is a local-first durable memory layer for agent-driven work in Claude Code and Pi. Pi support depends on the compatible hooks-extension contract documented in `HANDOFF.md`. Originally single-user; as of B12 / ADR 0005 (2026-07-15) it is growing optional **Team Sync** — a shared store transported through a private GitHub repo hidden behind the binary (see `docs/team-sync-plan.md`). A Dossier holds one primary outcome in a curated Markdown **Distilled State**, with a source-retaining **Archive** and append-only audit log. The Distilled State is the canonical operational brief, not a terse abstract: it keeps the context and constraints required to act while removing conversational noise. One self-contained **Go** binary serves CLI + MCP-over-stdio + hooks + TUI. No database; files are the source of truth.
 
 ## Reading order (do not skip)
 
@@ -37,6 +37,9 @@ Match the surrounding code's idioms once they exist. Standard Go: `gofmt`, table
 - **No native delete.** Archive only.
 - **No last-write-wins for Distilled State.** Concurrent edits become `conflicts/*.md` artifacts, surfaced.
 - **No silent truncation** to hit the token target (configured via `token_limit`, default 100k) — warn, never cut.
+- **One canonical work definition.** Objective, Done When, Validation, Constraints, and shared context live in the Dossier. Do not copy them into a delegation document. For several contributions to one outcome, use lightweight deliverable sections with local Done When and Validation; create separate Dossiers only for independently valuable outcomes.
+- **Constraints are first-class signal.** Preserve every boundary that changes feasible solutions, identify assumptions, and name the relief path for constraints a leader can remove. A changed constraint is a decision, not editorial cleanup.
+- **Delegation is a checkpoint plus relationship terms.** Before work enters `execute` or is delegated, surface missing work-definition signal qualitatively. Persist only Scope, Acceptance, Decision Rights, Escalation, and Return Expectations in the Delegation Contract; Acceptance identifies the agreed Dossier revision.
 - **No silent link/merge** of ambiguous targets — ask the user.
 - **No global active Dossier** — binding is per session.
 - **Non-destructive always** — superseded content moves to Archive/audit, never deleted. This replaces a human confirm gate.
