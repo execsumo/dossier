@@ -42,6 +42,16 @@ type transcriptRecord struct {
 		Content    json.RawMessage `json:"content"`
 		ToolCallID string          `json:"toolCallId"`
 		ToolName   string          `json:"toolName"`
+		// Pi carries some conversational content outside `content`: a
+		// bashExecution holds the command and its output directly, and the two
+		// summary roles hold prose in `summary`. Without these fields such a
+		// record decodes as contentless and is tallied as bookkeeping — which
+		// both loses the content and mislabels what was lost.
+		Command            string `json:"command"`
+		Output             string `json:"output"`
+		ExitCode           *int   `json:"exitCode"`
+		ExcludeFromContext bool   `json:"excludeFromContext"`
+		Summary            string `json:"summary"`
 	} `json:"message"`
 	Content   json.RawMessage `json:"content"`
 	Summary   string          `json:"summary"`
@@ -106,6 +116,9 @@ func CompileTranscript(raw string) (string, ContentFormat, []Warning) {
 		nonContent   = map[string]int{}
 		unknownBlock = map[string]int{}
 		recordCount  int
+		// Bash the user ran with Pi's `!!` prefix: withheld from the model on
+		// purpose, so withheld from the compiled view too.
+		elidedPrivateBash int
 	)
 
 	for _, rawLine := range rawLines {
@@ -125,6 +138,14 @@ func CompileTranscript(raw string) (string, ContentFormat, []Warning) {
 		recordCount++
 		if nonContentRecordTypes[rec.Type] {
 			nonContent[rec.Type]++
+			continue
+		}
+		// A bash execution the user marked excludeFromContext (Pi's `!!` prefix)
+		// was deliberately withheld from the model. Archiving it would put
+		// content the user chose not to share into an artifact that can sync to
+		// a team remote (B13) — so it is elided and counted, never rendered.
+		if rec.Message != nil && rec.Message.Role == "bashExecution" && rec.Message.ExcludeFromContext {
+			elidedPrivateBash++
 			continue
 		}
 		recNodes, recUnknown := recordNodes(rec)
@@ -183,7 +204,7 @@ func CompileTranscript(raw string) (string, ContentFormat, []Warning) {
 			"Transcript compile: %d content block(s) of unrecognized type were preserved as raw JSON [%s].", total, strings.Join(types, " "))))
 	}
 
-	return renderTranscript(nodes, recordCount, nonContent, unknownBlock, elidedThinking), ContentFormatMarkdown, warnings
+	return renderTranscript(nodes, recordCount, nonContent, unknownBlock, elidedThinking, elidedPrivateBash), ContentFormatMarkdown, warnings
 }
 
 // recordNodes lowers one JSONL record into zero or more IR nodes, plus a
@@ -199,6 +220,10 @@ func recordNodes(rec transcriptRecord) ([]TranscriptNode, map[string]int) {
 		content = rec.Message.Content
 		if rec.Message.Role != "" {
 			role = rec.Message.Role
+		}
+		if nodes, ok := messageRoleNodes(rec.Message.Role, rec.Message.Command, rec.Message.Output,
+			rec.Message.ExitCode, rec.Message.Summary); ok {
+			return nodes, nil
 		}
 	}
 	if len(content) == 0 {
@@ -254,6 +279,53 @@ func recordNodes(rec transcriptRecord) ([]TranscriptNode, map[string]int) {
 		addTranscriptCounts(unknown, blockUnknown)
 	}
 	return nodes, unknown
+}
+
+// messageRoleNodes lowers the message roles that carry their content in
+// dedicated fields rather than in `content`. ok=false means the role is not one
+// of them and normal `content` handling applies.
+//
+// A bashExecution becomes a call/result pair rather than one blob, so a
+// citation can land on the command or on its output independently, matching how
+// a tool call and its result are already split.
+func messageRoleNodes(role, command, output string, exitCode *int, summary string) ([]TranscriptNode, bool) {
+	switch role {
+	case "bashExecution":
+		var nodes []TranscriptNode
+		if strings.TrimSpace(command) != "" {
+			nodes = append(nodes, TranscriptNode{
+				Role:  TranscriptRoleToolCall,
+				Label: "bash",
+				Lines: splitLines(command),
+			})
+		}
+		if strings.TrimSpace(output) != "" {
+			node := TranscriptNode{
+				Role:  TranscriptRoleToolResult,
+				Label: "bash",
+				Lines: splitLines(output),
+			}
+			if exitCode != nil {
+				node.Ref = fmt.Sprintf("exit %d", *exitCode)
+			}
+			nodes = append(nodes, node)
+		}
+		return nodes, true
+
+	case "compactionSummary", "branchSummary":
+		// The single most information-dense record in a long session: it stands
+		// in for everything compaction discarded. Losing it loses that history
+		// outright.
+		if strings.TrimSpace(summary) == "" {
+			return nil, true
+		}
+		return []TranscriptNode{{
+			Role:  TranscriptRoleSystem,
+			Label: role,
+			Lines: splitLines(summary),
+		}}, true
+	}
+	return nil, false
 }
 
 // blockNode lowers a single content block into an IR node. Unknown blocks are
@@ -416,7 +488,7 @@ func splitLines(s string) []string {
 // renderTranscript lowers the IR to the final full view. Each node gets a
 // role-tagged header so a citation can name what it is citing, and the header
 // block states exactly what was elided.
-func renderTranscript(nodes []TranscriptNode, recordCount int, nonContent, unknownBlock map[string]int, elidedThinking int) string {
+func renderTranscript(nodes []TranscriptNode, recordCount int, nonContent, unknownBlock map[string]int, elidedThinking, elidedPrivateBash int) string {
 	var sb strings.Builder
 	sb.WriteString("# Compiled Session Transcript\n")
 	sb.WriteString(fmt.Sprintf("Records read: %d. Content nodes: %d.\n", recordCount, len(nodes)))
@@ -449,6 +521,11 @@ func renderTranscript(nodes []TranscriptNode, recordCount int, nonContent, unkno
 		sb.WriteString(fmt.Sprintf(
 			"Assistant thinking turns excluded from this view: %d. The verbatim trace is retained in the machine-local session stash.\n",
 			elidedThinking))
+	}
+	if elidedPrivateBash > 0 {
+		sb.WriteString(fmt.Sprintf(
+			"Bash executions excluded from the model's context by the user excluded from this view: %d. The verbatim trace is retained in the machine-local session stash.\n",
+			elidedPrivateBash))
 	}
 	sb.WriteString("Cite spans from this file as [src:<artifact_id>#L<start>-L<end>].\n")
 

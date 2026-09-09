@@ -1715,17 +1715,25 @@ func piTranscriptPath() string {
 	return ""
 }
 
+// harnessCapabilityOrder fixes the reporting order, so the same integration
+// reads the same way on every run.
+var harnessCapabilityOrder = []struct{ key, label string }{
+	{"SessionIdentity", "Session identity"},
+	{"MCP", "MCP"},
+	{"SessionStartHook", "Session-start hook"},
+	{"SessionEndHook", "Session-end hook"},
+	{"PreCompactionHook", "Pre-compaction hook"},
+	{"TranscriptCapture", "Transcript capture"},
+}
+
 // printHarnessReports renders per-harness detection for `init` and
 // `harness list`. Capabilities a harness does not provide are printed, not
-// omitted: a missing integration has to be visible to be fixable.
+// omitted: a missing integration has to be visible to be fixable. What is
+// printed is the capability's *state* rather than a bare boolean, because
+// "unavailable" and "not applicable by design" are different messages to a
+// user — and a complete integration says so outright, so a line the user
+// cannot act on is never mistaken for a broken install.
 func printHarnessReports(reports []core.HarnessReport) {
-	avail := func(b bool) string {
-		if b {
-			return "available"
-		}
-		return "unavailable"
-	}
-
 	for _, r := range reports {
 		fmt.Printf("%s integration:\n", r.DisplayName)
 		if !r.Detected {
@@ -1734,12 +1742,24 @@ func printHarnessReports(reports []core.HarnessReport) {
 			continue
 		}
 		fmt.Println("- detected")
-		fmt.Printf("- Session identity: %s\n", avail(r.Capabilities["SessionIdentity"]))
-		fmt.Printf("- MCP: %s\n", avail(r.Capabilities["MCP"]))
-		fmt.Printf("- Session-start hook: %s\n", avail(r.Capabilities["SessionStartHook"]))
-		fmt.Printf("- Session-end hook: %s\n", avail(r.Capabilities["SessionEndHook"]))
-		fmt.Printf("- Pre-compaction hook: %s\n", avail(r.Capabilities["PreCompactionHook"]))
-		fmt.Printf("- Transcript capture: %s\n", avail(r.Capabilities["TranscriptCapture"]))
+		for _, c := range harnessCapabilityOrder {
+			status, ok := r.CapabilityStatuses[c.key]
+			if !ok {
+				// A report from an older payload carries booleans only.
+				status = core.CapabilityStatus{State: core.CapabilityUnavailable}
+				if r.Capabilities[c.key] {
+					status.State = core.CapabilityAvailable
+				}
+			}
+			line := fmt.Sprintf("- %s: %s", c.label, status.State)
+			if status.Note != "" {
+				line += fmt.Sprintf(" (%s)", status.Note)
+			}
+			fmt.Println(line)
+		}
+		if r.IntegrationComplete {
+			fmt.Printf("- Dossier is fully functional in %s. Nothing further to install.\n", r.DisplayName)
+		}
 		for _, note := range r.Notes {
 			fmt.Printf("- %s\n", note)
 		}

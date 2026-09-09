@@ -27,6 +27,16 @@ All capabilities are available, so Claude Code supports Dossier's full determini
 ## 2. Capability Matrix (Pi)
 
 > **Verified against Pi (`@earendil-works/pi-coding-agent`) 0.83.0, re-verified against 0.85.0 on 2026-09-05 — source-read, not assumed.**
+> Lifecycle bridging was added 2026-09-09 and verified against **0.85.1** by
+> source-read *and* by type-checking the bundled extension against the installed
+> package (`TestPiExtensionTypeChecksAgainstInstalledPi`). That confirmed the
+> additional APIs it depends on: the `session_before_compact` event (payload
+> `SessionBeforeCompactEvent`, result `SessionBeforeCompactResult` — returning
+> nothing leaves compaction untouched), `pi.exec(command, args, options)`
+> returning `{stdout, stderr, code, killed}`, and
+> `pi.sendMessage({customType, content, display}, { deliverAs })` where
+> `deliverAs: "nextTurn"` queues a message into LLM context without interrupting
+> or triggering a turn.
 > The 0.85.0 re-read confirmed every API the bundled extension depends on:
 > `session_start` / `session_shutdown` events, `ctx.sessionManager.getSessionId()`
 > and `getSessionFile()`, `ctx.ui.notify`, `registerCommand`, and
@@ -48,7 +58,7 @@ All capabilities are available, so Claude Code supports Dossier's full determini
 | **Extension model** | In-process TypeScript modules loaded via jiti; no build step |
 | **MCP Registration Path** | **None built in.** MCP arrives only through a third-party adapter extension |
 | **Hook Configuration** | **None.** Pi has extension *events*, not out-of-process hooks |
-| **SessionStart / SessionEnd / Pre-compaction** | Extension events (`session_start`, `session_shutdown`, `session_before_compact`) — **not bridged by Dossier yet** |
+| **SessionStart / SessionEnd / Pre-compaction** | Extension events (`session_start`, `session_shutdown`, `session_before_compact`) — **bridged by the bundled Dossier extension** (2026-09-09) |
 | **Raw Transcript Access** | Yes — session JSONL at `<agent dir>/sessions/--<cwd>--/<ts>_<uuid>.jsonl` |
 | **Stable Session ID** | Yes (UUID; `ctx.sessionManager.getSessionId()`) |
 | **Session env vars** | `PI_SESSION_ID` / `PI_SESSION_FILE` — **bash-tool children only** |
@@ -66,8 +76,8 @@ All capabilities are available, so Claude Code supports Dossier's full determini
 2. **Pi ships no MCP client.** MCP support is a third-party adapter extension, so
    Dossier must not claim the MCP capability under Pi.
 
-Consequence: Dossier claims neither MCP nor lifecycle hooks for Pi, and supplies
-session identity itself through a bundled extension. The same extension also
+Consequence: Dossier claims no MCP for Pi, and supplies session identity and
+lifecycle bridging itself through a bundled extension. The same extension also
 provides the `/spark` command alias described below.
 
 ### The Dossier Pi extension (`assets/pi-extension.ts`)
@@ -99,24 +109,55 @@ command. It forwards any command arguments to the shared skill, which uses the
 installed `dossier` CLI because Pi has no built-in MCP client. The CLI's
 `--distilled-file` option preserves multiline raw captures safely.
 
+### Lifecycle bridging (2026-09-09)
+
+The extension maps Pi's in-process events onto the harness-agnostic `dossier
+hook` CLI:
+
+| Pi event | Dossier hook | Notes |
+|:---|:---|:---|
+| `session_start` | `session-start` | stdout injected via `pi.sendMessage(..., { deliverAs: "nextTurn" })` — lands in LLM context without triggering a turn, matching Claude Code's SessionStart injection. Skipped for `reason: "reload"`, where the context already holds the block. |
+| `session_shutdown` | `session-end` | Runs for every reason except `"reload"`, and **before** `clearPointer()`, since the CLI resolves this session's id and JSONL through that pointer. |
+| `session_before_compact` | `pre-compaction` | Returns nothing, so Dossier observes the boundary but can never cancel or rewrite a compaction. |
+
+No payload is piped in: the extension mirrors `PI_SESSION_ID`/`PI_SESSION_FILE`
+into Pi's process environment, so the child the hook runs in resolves this
+session's identity and transcript itself (`resolveSessionID`, `piTranscriptPath`).
+The binary is `DOSSIER_BIN`, else `dossier` from PATH — deliberately *not*
+templated in at install time, because `PiExtensionInstalled` byte-compares this
+file against the embedded asset and a machine-specific path would make that
+comparison fail on every init. A failing hook warns once per distinct message
+via `ctx.ui.notify` and never propagates: degraded durable memory is worth a
+warning, not a broken Pi session.
+
+`Detect` reports `SessionStartHook`/`SessionEndHook`/`PreCompactionHook` from
+`PiExtensionInstalled()`, which is a byte-comparison — so a drifted or
+pre-bridging extension reports them false and is not credited with behaviour it
+does not implement.
+
+Pi's MCP is reported as **not applicable**, not unavailable (`core.capabilityStatuses`).
+"Unavailable" asserts that Dossier wanted a capability and did not get it, which
+is actionable; Pi's MCP is neither wanted nor missing, and printing it as a gap
+sends users hunting for a fix that does not exist. The boolean stays false — this
+changes how it reads, not what is true — and `HarnessReport.IntegrationComplete`
+consequently reports a fully bridged Pi as complete.
+
 ### Out of scope in this pass (named, not forgotten)
 
-- **Lifecycle bridging.** The extension does not yet call `dossier hook
-  session-start|session-end|pre-compaction`. Until it does, Pi sessions get no
-  session-start context injection, no end-of-session capture, and no
-  pre-compaction save. `Detect` reports those capabilities as unavailable rather
-  than implying them.
-- **MCP registration.** Users who run an MCP adapter extension register
-  `dossier mcp serve` with that adapter themselves; Dossier does not write
-  `mcp.json` for Pi.
+- **MCP registration.** Deliberate, not deferred: Pi ships no MCP client, and
+  Dossier's Pi surface is the CLI. Users who run an MCP adapter extension
+  register `dossier mcp serve` with that adapter themselves; Dossier does not
+  write `mcp.json` for Pi, does not detect such an adapter, and `Detect` reports
+  MCP false unconditionally.
 - Pi's JSONL is archived as provided — Dossier never mutates or reinterprets the
   source transcript.
-- **No automated validation of the bundled extension.** `assets/pi-extension.ts`
-  is embedded and byte-compared, but nothing in the build type-checks it or
-  asserts that Pi can load it, so a breaking change to Pi's extension API would
-  surface only at runtime — as a session that reports no id. The extension's
-  own `ctx.ui.notify` warning covers a throwing `publish()`, not a handler that
-  never registers. Re-read this section's API list when bumping the pinned Pi
+- **The extension is type-checked, not run.** `TestPiExtensionTypeChecksAgainstInstalledPi`
+  compiles the embedded asset against whatever Pi is installed on the machine
+  (skipping where `tsc`, Pi, or `@types/node` are absent), so a breaking change
+  to Pi's extension *types* now fails a test instead of surfacing at runtime.
+  Nothing yet asserts Pi actually loads and fires it end to end, so a change
+  that keeps the types but alters event semantics would still surface only in a
+  live session. Re-read this section's API list when bumping the pinned Pi
   version.
 
 ---

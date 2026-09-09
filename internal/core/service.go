@@ -268,22 +268,98 @@ func (s *Service) Init(ctx context.Context, req InitReq) (Result, error) {
 	}, nil
 }
 
+// CapabilityState is how a capability should be *reported*, which is not the
+// same question as whether the boolean is true.
+//
+// "unavailable" means Dossier wanted this and did not get it: something is
+// missing and the user can act on it. A capability Dossier deliberately does
+// not use for a harness is a different statement entirely, and printing it as
+// "unavailable" reads as a broken install — the user asks what is wrong and
+// what they have lost, when the honest answer is "nothing, this is by design".
+type CapabilityState string
+
+const (
+	CapabilityAvailable   CapabilityState = "available"
+	CapabilityUnavailable CapabilityState = "unavailable"
+	// CapabilityNotApplicable: not part of this harness's integration by
+	// design. Always carries a note saying what covers the same ground.
+	CapabilityNotApplicable CapabilityState = "not applicable"
+)
+
+// CapabilityStatus is one capability as it should be presented to a user.
+type CapabilityStatus struct {
+	State CapabilityState `json:"state"`
+	Note  string          `json:"note,omitempty"`
+}
+
 // HarnessReport is the per-harness detection result surfaced by init, doctor and
 // `dossier harness`.
 type HarnessReport struct {
-	Name         string          `json:"name"`
-	DisplayName  string          `json:"display_name"`
-	Detected     bool            `json:"detected"`
-	Capabilities map[string]bool `json:"capabilities"`
-	Notes        []string        `json:"notes,omitempty"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Detected    bool   `json:"detected"`
+	// Capabilities is the raw boolean map. Retained as the machine-readable
+	// answer; CapabilityStatuses is the one to render to a person.
+	Capabilities       map[string]bool             `json:"capabilities"`
+	CapabilityStatuses map[string]CapabilityStatus `json:"capability_statuses,omitempty"`
+	// IntegrationComplete reports that Dossier has everything it needs from this
+	// harness — every capability is either available or not applicable by
+	// design. It is what lets a surface say so plainly instead of leaving the
+	// user to infer it from a list containing the word "unavailable".
+	IntegrationComplete bool     `json:"integration_complete"`
+	Notes               []string `json:"notes,omitempty"`
+}
+
+// capabilityStatuses renders the capability booleans as reportable statuses,
+// applying the per-harness knowledge of what Dossier actually uses.
+func capabilityStatuses(name string, caps Capabilities) map[string]CapabilityStatus {
+	state := func(ok bool) CapabilityStatus {
+		if ok {
+			return CapabilityStatus{State: CapabilityAvailable}
+		}
+		return CapabilityStatus{State: CapabilityUnavailable}
+	}
+	statuses := map[string]CapabilityStatus{
+		"SessionIdentity":   state(caps.SessionIdentity),
+		"MCP":               state(caps.MCP),
+		"SessionStartHook":  state(caps.SessionStartHook),
+		"SessionEndHook":    state(caps.SessionEndHook),
+		"PreCompactionHook": state(caps.PreCompactionHook),
+		"TranscriptCapture": state(caps.TranscriptCapture),
+	}
+
+	// Pi ships no MCP client, so Dossier drives Pi through its CLI instead —
+	// the same operations, a different transport. Nothing is missing and there
+	// is nothing for the user to install (B2, ADR 0005).
+	if name == "pi" && !caps.MCP {
+		statuses["MCP"] = CapabilityStatus{
+			State: CapabilityNotApplicable,
+			Note:  "Pi has no MCP client; Dossier drives Pi through its CLI instead, which covers the same operations",
+		}
+	}
+	return statuses
+}
+
+// integrationComplete reports whether every capability is either available or
+// not applicable by design — i.e. nothing is missing that the user could fix.
+func integrationComplete(statuses map[string]CapabilityStatus) bool {
+	for _, st := range statuses {
+		if st.State == CapabilityUnavailable {
+			return false
+		}
+	}
+	return true
 }
 
 func newHarnessReport(name string, caps Capabilities) HarnessReport {
+	statuses := capabilityStatuses(name, caps)
 	return HarnessReport{
-		Name:         name,
-		DisplayName:  displayHarnessName(name),
-		Detected:     caps.Present(),
-		Capabilities: capabilityMap(caps),
+		Name:                name,
+		DisplayName:         displayHarnessName(name),
+		Detected:            caps.Present(),
+		Capabilities:        capabilityMap(caps),
+		CapabilityStatuses:  statuses,
+		IntegrationComplete: caps.Present() && integrationComplete(statuses),
 	}
 }
 
@@ -325,6 +401,14 @@ func harnessAdvisories(name string, caps Capabilities) []string {
 		notes = append(notes, fmt.Sprintf(
 			"%s is installed but cannot give Dossier a session id yet; run `dossier harness install %s` (and restart %s) to install the session bridge.",
 			displayHarnessName(name), name, displayHarnessName(name)))
+	} else if caps.Installed && !caps.SessionStartHook && !caps.SessionEndHook && !caps.PreCompactionHook {
+		// Identity resolves but nothing calls Dossier at a session boundary. The
+		// failure mode is quiet and easy to misread as Dossier losing state, so
+		// it has to be named separately: the session works, but nothing is
+		// captured when it ends or compacts.
+		notes = append(notes, fmt.Sprintf(
+			"%s can identify sessions but its lifecycle is not bridged; nothing saves state at session end or before compaction. Run `dossier harness install %s` (and restart %s).",
+			displayHarnessName(name), name, displayHarnessName(name)))
 	}
 	return notes
 }
@@ -347,9 +431,36 @@ func displayHarnessName(name string) string {
 	}
 }
 
+// activeHarness resolves the harness owning the current process, plus its
+// capabilities. Prefer this over scanning hreg.All() for LiveSession(): the
+// registry order is not evidence of which harness a session is running under,
+// and Detect() is device-level (see ActiveHarnessResolver).
+//
+// The fallback keeps the pre-port behaviour for registries that cannot answer —
+// first harness offering a live session surface — because reporting the wrong
+// harness is still better than reporting none for a single-harness machine,
+// which is the only shape where the fallback is reliable.
+func (s *Service) activeHarness() (Harness, Capabilities) {
+	if s.hreg == nil {
+		return nil, Capabilities{}
+	}
+	if r, ok := s.hreg.(ActiveHarnessResolver); ok {
+		if h, caps, found := r.ActiveHarness(); found {
+			return h, caps
+		}
+		return nil, Capabilities{}
+	}
+	for _, h := range s.hreg.All() {
+		if caps, err := h.Detect(); err == nil && caps.LiveSession() {
+			return h, caps
+		}
+	}
+	return nil, Capabilities{}
+}
+
 // sessionHarness resolves the harness a session belongs to: the one the adapter
-// named, when it is present on this device, else the first harness offering a
-// live session surface.
+// named, when it is present on this device, else whichever harness owns the
+// current process.
 func (s *Service) sessionHarness(name string) (Harness, Capabilities) {
 	if name != "" {
 		if h, err := s.hreg.Get(name); err == nil && h != nil {
@@ -361,12 +472,7 @@ func (s *Service) sessionHarness(name string) (Harness, Capabilities) {
 		// a newly launched session to another live harness on the same machine.
 		return nil, Capabilities{}
 	}
-	for _, h := range s.hreg.All() {
-		if caps, err := h.Detect(); err == nil && caps.LiveSession() {
-			return h, caps
-		}
-	}
-	return nil, Capabilities{}
+	return s.activeHarness()
 }
 
 // HarnessStatus reports detection for every supported harness without changing
@@ -853,19 +959,8 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 		}
 	}
 
-	harnesses := s.hreg.All()
-	var activeHarness Harness
-	for _, h := range harnesses {
-		caps, err := h.Detect()
-		if err == nil && (caps.MCP || caps.SessionStartHook || caps.SessionEndHook || caps.PreCompactionHook || caps.TranscriptCapture) {
-			activeHarness = h
-			if !caps.TranscriptCapture {
-				warnings = append(warnings, Warning("Transcript archive is unavailable in this session."))
-			}
-			break
-		}
-	}
-	if activeHarness == nil {
+	activeHarness, activeCaps := s.activeHarness()
+	if activeHarness == nil || !activeCaps.TranscriptCapture {
 		warnings = append(warnings, Warning("Transcript archive is unavailable in this session."))
 	}
 
@@ -2085,19 +2180,9 @@ func (s *Service) ContextRefresh(ctx context.Context) (Result, error) {
 		})
 	}
 
-	// Detect harnesses and capabilities
-	harnesses := s.hreg.All()
-	var activeHarness Harness
-	var activeCaps Capabilities
-
-	for _, h := range harnesses {
-		caps, err := h.Detect()
-		if err == nil && (caps.MCP || caps.SessionStartHook || caps.SessionEndHook || caps.PreCompactionHook || caps.TranscriptCapture) {
-			activeHarness = h
-			activeCaps = caps
-			break
-		}
-	}
+	// Report the harness this process is running under, not the first one the
+	// registry happens to list as installed.
+	activeHarness, activeCaps := s.activeHarness()
 
 	harnessName := "CLI"
 	harnessCaps := map[string]bool{
@@ -2302,18 +2387,8 @@ func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, e
 		namesStr = strings.Join(names, ", ")
 	}
 
-	// Detect capabilities
-	harnesses := s.hreg.All()
-	var activeHarness Harness
-	var activeCaps Capabilities
-	for _, h := range harnesses {
-		caps, err := h.Detect()
-		if err == nil && (caps.MCP || caps.SessionStartHook || caps.SessionEndHook || caps.PreCompactionHook || caps.TranscriptCapture) {
-			activeHarness = h
-			activeCaps = caps
-			break
-		}
-	}
+	// Detect capabilities for the harness owning this process.
+	activeHarness, activeCaps := s.activeHarness()
 
 	var sb strings.Builder
 	sb.WriteString("# Dossier Library\n\n")

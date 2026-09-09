@@ -26,11 +26,26 @@
  * finds the pointer belonging to the Pi process that owns it, which keeps
  * concurrent Pi sessions isolated from each other.
  *
+ * Lifecycle bridging
+ * ------------------
+ * Pi has extension *events*, not out-of-process hooks, so this extension is
+ * also what turns them into `dossier hook session-start|session-end|
+ * pre-compaction` invocations:
+ *   - session_start      -> `session-start`, whose stdout is injected into the
+ *                           session as a custom message (deliverAs "nextTurn",
+ *                           so it lands in context without triggering a turn).
+ *   - session_shutdown   -> `session-end`, before the pointer is cleared.
+ *   - session_before_compact -> `pre-compaction`, returning nothing so
+ *                           compaction itself is never cancelled or rewritten.
+ * The child process inherits PI_SESSION_ID/PI_SESSION_FILE from the mirror
+ * below, so the CLI resolves this session's identity and transcript on its own
+ * and no payload has to be piped in.
+ *
  * Scope
  * -----
- * Session identity plus the `/spark` capture command. Bridging Pi's lifecycle
- * into `dossier hook session-start|session-end|pre-compaction` is deliberately
- * not wired here yet; see docs/harness-capabilities.md.
+ * Session identity, lifecycle bridging, and the `/spark` capture command. MCP
+ * is deliberately not wired: Pi ships no MCP client, and Dossier's Pi surface
+ * is the CLI. See docs/harness-capabilities.md.
  */
 
 import * as fs from "node:fs";
@@ -152,9 +167,81 @@ function clearPointer(): void {
 	}
 }
 
+/** Lifecycle events Dossier bridges, named as the CLI subcommands they invoke. */
+type HookEvent = "session-start" | "session-end" | "pre-compaction";
+
+/**
+ * Budget for one hook. Generous for session-start (it reads the store and may
+ * inline a Distilled State) but bounded, because a hung Dossier must never be
+ * able to wedge Pi's startup or block a quit.
+ */
+const HOOK_TIMEOUT_MS: Record<HookEvent, number> = {
+	"session-start": 15_000,
+	"session-end": 10_000,
+	"pre-compaction": 10_000,
+};
+
+/**
+ * The Dossier binary to invoke. DOSSIER_BIN wins so a non-PATH install still
+ * works; otherwise PATH resolution matches what the user types themselves.
+ *
+ * Deliberately not templated in at install time: PiExtensionInstalled compares
+ * this file byte-for-byte against the embedded asset to decide whether the
+ * integration is current, and a machine-specific path in the source would make
+ * that comparison always fail and rewrite the file on every init.
+ */
+function dossierBin(): string {
+	return process.env.DOSSIER_BIN?.trim() || "dossier";
+}
+
 export default function (pi: ExtensionAPI) {
 	let published: SessionPointer | undefined;
 	let lastError: string | undefined;
+	const hookErrors = new Map<HookEvent, string>();
+
+	/**
+	 * Run one lifecycle hook and return its stdout, or undefined when it did not
+	 * run. Never throws: a failing hook degrades this session's durable memory,
+	 * which is worth a warning, but must not take Pi's session down with it.
+	 */
+	const runHook = async (event: HookEvent, ctx: ExtensionContext): Promise<string | undefined> => {
+		if (!published) {
+			// Without a published identity the CLI would resolve no session (or,
+			// worse, a stale one) and file the result against the wrong Dossier.
+			return undefined;
+		}
+		try {
+			const result = await pi.exec(dossierBin(), ["hook", event], {
+				cwd: ctx.cwd,
+				timeout: HOOK_TIMEOUT_MS[event],
+			});
+			if (result.code !== 0) {
+				const detail = result.stderr.trim() || result.stdout.trim() || `exit ${result.code}`;
+				noteHookFailure(event, ctx, result.killed ? `timed out after ${HOOK_TIMEOUT_MS[event]}ms` : detail);
+				return undefined;
+			}
+			hookErrors.delete(event);
+			return result.stdout;
+		} catch (err) {
+			noteHookFailure(event, ctx, err instanceof Error ? err.message : String(err));
+			return undefined;
+		}
+	};
+
+	/**
+	 * Surface a hook failure once per distinct message per session. Repeating an
+	 * identical warning on every compaction would train the user to ignore it.
+	 */
+	const noteHookFailure = (event: HookEvent, ctx: ExtensionContext, detail: string): void => {
+		if (hookErrors.get(event) === detail) return;
+		hookErrors.set(event, detail);
+		const consequence: Record<HookEvent, string> = {
+			"session-start": "this session started without its Dossier context",
+			"session-end": "this session's transcript was not archived",
+			"pre-compaction": "state was not saved before compaction",
+		};
+		ctx.ui.notify(`Dossier: \`${dossierBin()} hook ${event}\` failed (${detail}); ${consequence[event]}.`, "warning");
+	};
 
 	pi.on("session_start", async (event, ctx) => {
 		prunePointers();
@@ -172,9 +259,40 @@ export default function (pi: ExtensionAPI) {
 				"warning",
 			);
 		}
+
+		// "reload" re-runs extensions against a session whose context is intact
+		// and already holds the block injected when it started; re-injecting
+		// would duplicate it.
+		if (event.reason === "reload") return;
+
+		const context = (await runHook("session-start", ctx))?.trim();
+		if (!context) return;
+		// A custom message participates in LLM context; "nextTurn" queues it for
+		// the next prompt without interrupting or triggering a turn, which is the
+		// same passive-injection shape the Claude Code SessionStart hook has.
+		// display:false keeps the transcript clean — this is context for the
+		// model, not output for the user.
+		pi.sendMessage(
+			{ customType: "dossier-context", content: context, display: false },
+			{ deliverAs: "nextTurn" },
+		);
 	});
 
-	pi.on("session_shutdown", async (event) => {
+	pi.on("session_before_compact", async (_event, ctx) => {
+		// Save before the context that would produce the state is discarded.
+		// Returning nothing leaves compaction itself untouched: Dossier observes
+		// this boundary, it does not get to cancel or rewrite it.
+		await runHook("pre-compaction", ctx);
+	});
+
+	pi.on("session_shutdown", async (event, ctx) => {
+		// "reload" swaps the extension runtime under a session that is still
+		// going; it is not a session boundary and must not archive a transcript.
+		if (event.reason !== "reload") {
+			// Before clearPointer(): the CLI resolves this session's id and JSONL
+			// through the pointer it is about to remove.
+			await runHook("session-end", ctx);
+		}
 		// "new" / "resume" / "fork" are followed by a session_start that
 		// overwrites the pointer; only a real quit leaves it dangling.
 		if (event.reason === "quit") {
@@ -191,8 +309,13 @@ export default function (pi: ExtensionAPI) {
 			lines.push(`session id: ${sessionId ?? "unavailable"}`);
 			lines.push(`session file: ${ctx.sessionManager.getSessionFile() ?? "none (ephemeral session)"}`);
 			lines.push(`pointer: ${published ? pointerPath(process.pid) : "not published"}`);
+			lines.push(`dossier binary: ${dossierBin()}`);
+			lines.push(
+				`lifecycle hooks: ${hookErrors.size === 0 ? "session-start, session-end, pre-compaction" : "degraded"}`,
+			);
+			for (const [event, detail] of hookErrors) lines.push(`  ${event}: ${detail}`);
 			if (lastError) lines.push(`last error: ${lastError}`);
-			ctx.ui.notify(`Dossier\n${lines.join("\n")}`, lastError ? "warning" : "info");
+			ctx.ui.notify(`Dossier\n${lines.join("\n")}`, lastError || hookErrors.size > 0 ? "warning" : "info");
 		},
 	});
 
