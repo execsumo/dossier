@@ -239,7 +239,7 @@ Build (from `BUILD-DECISIONS.md`):
 
 ## What remains
 
-Implementation is complete. The remaining work is product validation and minor maintenance:
+Implementation of every shipped milestone is complete. One feature is on the roadmap (below); the rest is product validation and minor maintenance:
 
 1. Keep the quality gate green: `go test ./...`, `go vet ./...`, `test -z "$(gofmt -l .)"`, and `git diff --check`.
 2. Dogfood with 10–20 real topics, including resume, ambiguity, unavailable-transcript, concurrency, and merge-conflict drills.
@@ -247,7 +247,64 @@ Implementation is complete. The remaining work is product validation and minor m
 4. Track the PRD success metrics: cross-session resume success, provenance misses, over-target warnings, and time-to-find-next-topic.
 5. **Context assets are self-refreshing as of 2026-09-04 — no `init` needed after an upgrade.** Previously `GetGuide`/`GetInstructions` read only from disk while `dossier init` was the sole writer, so an upgraded binary went on using the previous release's Guide and the stale copy won. The embedded asset is now authoritative and `<home>/context/` is a projection of it: `Store.EnsureContextAssets` refreshes on byte mismatch (called from `wire()`, so every command), `Store.ReadContextAsset` falls back to the embedded original when the disk file is gone, and `Doctor` reports drift as an advisory. Two invariants worth not breaking: **refresh never creates the context directory** (a `team join` clone refuses any target holding more than `config.yaml`, so materializing it there would make joining a team impossible — `Init` creates, refresh only populates), and the embedded content reaches core through the Store port because `TestCorePackageIsPure` forbids `internal/core` importing `dossier/assets`.
 
-The explicitly deferred items remain listed in `BUILD-DECISIONS.md`, `PRD.md`, and the delegation design above. No implementation milestone is currently outstanding.
+The explicitly deferred items remain listed in `BUILD-DECISIONS.md`, `PRD.md`, and the delegation design above.
+
+### Roadmap: unprocessed-session recovery (proposed 2026-09-09, not started)
+
+**The gap.** A session's Distilled State is written only by the agent's saves
+*during* the session. `Service.SessionEnd` cannot distill on the agent's behalf —
+a hook runs the binary, not the agent — so a session that ends without a save
+archives its transcript and emits a `distilled_state_not_captured` audit event
+plus a surfaced warning (`internal/core/service.go`, `AuditEventDistilledStateNotCaptured`
+in `internal/core/audit.go`). Today that is where it ends: the warning is
+correct, honest, and *terminal*. The raw material sits in the Archive and the
+Distilled State stays at its last explicit save until a human notices and
+manually re-reads the transcript.
+
+**The feature.** Let that archived-but-undistilled material be picked up later
+and folded into the Distilled State, so an unprocessed session is a deferred
+task rather than a permanent hole.
+
+**What already exists (this is why it is cheap).** No new persistence is needed.
+The audit log is already a complete record of the work queue: each
+`distilled_state_not_captured` event carries its `dossier_id` and `session_id`,
+and the transcript artifact written in the same `SessionEnd` call has its id
+recorded in the adjacent `save` event's `artifacts_added`. Pairing "unprocessed
+session" with "the artifact holding its transcript" is a read over
+`ReadAuditLog`, not a schema change.
+
+**What has to be built.**
+1. **Discovery** — a core query returning unprocessed sessions and their
+   transcript artifact ids, surfaced through all three adapters (a `doctor`
+   advisory, a `recall` field, a TUI marker). One `core.Service` method; no
+   adapter-local logic.
+2. **A recovery path** — because core cannot distill, recovery is
+   agent-invoked: the agent reads the cited artifact and writes a normal `Save`.
+   The feature is therefore *discovery plus a prompt to act*, not an automatic
+   backfill. Resist making it automatic; a mechanical summariser at the boundary
+   is precisely what the Distillation Guide's standard rejects.
+3. **Clearing the marker** — a recovered session must stop appearing in the
+   queue, which needs a `distilled_state_recovered` audit event naming the
+   session it discharges. Do not mutate or delete the original event: the log is
+   append-only.
+
+**Design hazards to settle before building.**
+- **Regression.** A newer session may already have distilled state that
+  supersedes an older unprocessed transcript. Backfilling must be additive and
+  revision-checked through `Save`'s optimistic concurrency — never a
+  last-write-wins overwrite of newer curation. This is the sharp edge; a naive
+  implementation silently reverts good state.
+- **Provenance.** Content recovered from an old transcript is not the same
+  claim as content written live. It should cite the artifact it came from and
+  be distinguishable in the audit trail as recovered rather than observed.
+- **Team stores (B12/B13).** Audit logs are per-author. Whether you may
+  distil a *colleague's* unprocessed session is a product question, not an
+  implementation detail — default to no, and surface it as theirs.
+- **Staleness.** A transcript from months ago may describe a situation that has
+  since changed. Recovery should date what it folds in rather than presenting it
+  as current.
+
+No implementation milestone from the original plan is outstanding.
 
 ## Historical implementation starting point
 
