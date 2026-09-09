@@ -225,11 +225,14 @@ Yes. The active Dossier is bound per agent session, not globally. Two sessions
 can follow two different topics simultaneously without stepping on each other.
 
 **Can I share a Dossier with a colleague?**
-Not yet. Today Dossier is single-user and local. A shared team memory — where a
-request you record against a colleague appears on *their* list, and their answer
-appears on yours — is the committed end state of the roadmap, deliberately
-sequenced last so the model is validated by real use before distribution is
-added on top. See `VISION.md` §Layer 5.
+In pilot. Dossier remains local-first — nothing blocks on the network — with an
+optional **Team Sync** mode that shares a store with colleagues through a private
+GitHub repo hidden behind the binary (B12/ADR 0005; see
+`docs/team-sync-onboarding.md`). The fuller end state — where a request you record
+against a colleague appears on *their* list, and their answer appears on yours —
+is still the committed direction, deliberately sequenced late so the model is
+validated by real use before distribution is layered on top. See `VISION.md`
+§Layer 5.
 
 **Can I delete a Dossier?**
 Not through Dossier. You can archive it, which hides it from default views while
@@ -282,10 +285,13 @@ We assumed the user's own hooks extension would supply session identity through
 environment variables. Reading Pi 0.83.0 showed those variables reach bash-tool
 children only, and that Pi has no built-in MCP client — so a Dossier MCP server
 under Pi had no session identity at all. Dossier now ships its own Pi extension
-that publishes a per-session pointer. Lifecycle bridging remains genuinely
-missing and is reported as unavailable rather than implied. This is the clearest
-case so far of the standing rule: when reality contradicts a document, change
-the document.
+that publishes a per-session pointer. Lifecycle bridging was genuinely missing
+at that point and was reported as unavailable rather than implied; it landed on
+2026-09-09, when the same extension began bridging Pi's in-process events to the
+`dossier hook` CLI. MCP under Pi is the one capability that stays unclaimed, and
+that is a decision rather than a gap: Pi ships no MCP client, so Dossier drives
+Pi through its CLI. This is the clearest case so far of the standing rule: when
+reality contradicts a document, change the document.
 
 **What's the riskiest part of the product?**
 It was distillation quality and the merge engine; both have held up. The current

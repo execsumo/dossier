@@ -1,8 +1,8 @@
 # Dossier
 
-**A local, single-user durable memory layer for long-running work in Claude Code.**
+**A local-first durable memory layer for long-running work in Claude Code and Pi.**
 
-Dossier keeps a topic of work alive across Claude Code sessions. You *promote* a session into a **Dossier** — the critical state of the topic (situation, decisions and who made them, open questions, next action) with the noise stripped out — backed by an **Archive** of the raw material it came from. Every claim cites its source. Next session you resume with exactly the distilled context you need, and the full archive is one search away.
+Dossier keeps a topic of work alive across agent sessions. You *promote* a session into a **Dossier** — the critical state of the topic (situation, decisions and who made them, open questions, next action) with the noise stripped out — backed by an **Archive** of the raw material it came from. Every claim cites its source. Next session you resume with exactly the distilled context you need, and the full archive is one search away.
 
 No database, no cloud, no account. Your data is plain Markdown under `~/.dossier/` that you can open in any editor (e.g. Obsidian).
 
@@ -15,7 +15,7 @@ Requires **Claude Code or Pi** on macOS or Linux. Both are fully integrated — 
 ```bash
 brew tap execsumo/tap
 brew install dossier
-dossier init        # wires up Claude Code
+dossier init        # wires up Claude Code and Pi
 ```
 
 To update later, on any device: `brew upgrade dossier` (or just `brew upgrade`). The tap's formula is republished automatically on every release, so this always tracks latest.
@@ -28,7 +28,7 @@ Download the latest release for your platform from the [Releases page](https://g
 # example for macOS Apple Silicon
 curl -L https://github.com/execsumo/dossier/releases/latest/download/dossier-darwin-arm64 -o dossier
 chmod +x dossier
-./dossier init        # installs to a stable PATH, then wires up Claude Code
+./dossier init        # installs to a stable PATH, then wires up Claude Code and Pi
 ```
 
 To update later, repeat the download step, then re-run `./dossier install && ./dossier init` to re-bind the stable path.
@@ -69,15 +69,15 @@ Interface and lead selectors follow the configured order after restarting Dossie
 
 ## Using it
 
-### Inside Claude Code (the main way)
+### Inside your agent (the main way)
 
 Once `init` has run, Dossier works on its own:
 
 - **At session start**, your open Dossiers are surfaced into the conversation, sorted by priority — so you and the agent can pick up where you left off.
-- **During the session**, the agent recalls, saves, searches, promotes, and switches Dossiers through MCP tools — nothing for you to remember. Switching binds *this* session (the MCP server resolves your Claude Code session automatically), so concurrent sessions can each follow a different Dossier without stepping on each other.
+- **During the session**, the agent recalls, saves, searches, promotes, and switches Dossiers — through MCP tools in Claude Code, and through the `dossier` CLI in Pi. Either way, switching binds *this* session (the session id is resolved for you), so concurrent sessions can each follow a different Dossier without stepping on each other.
 - **At session end and before compaction**, hooks archive the session transcript into the Archive, so the raw material is never lost. They cannot distill it — a hook runs the binary, not the agent — so the curated Distilled State is written by the agent's saves *during* the session. If a session ends without any such save, Dossier says so rather than leaving you to discover it next time.
 
-A shipped **Distillation Guide** tells the agent *what* to keep; the hooks decide *when* to save. To save tokens on your generic coding tasks, the guide isn't injected globally. Instead, Dossier uses **programmatic context injection**: the moment the agent binds a dossier via the MCP server, the server dynamically wraps its response payload with the full guide. The same bind response carries the **Operating Instructions**, which tell the agent to poll **Active Monitors** (live external links like Slack threads) whose `Last polled` date has gone stale — so resuming a Dossier refreshes its live context rather than trusting a snapshot. `init` also adds a single line to Claude Code's custom instructions: use `dossier_session` when starting work, so the agent reaches for the binding that delivers all of the above. There's no confirmation gate — trust comes from the fact that nothing is ever deleted (superseded content moves to the Archive and audit log) and every claim carries a source link.
+A shipped **Distillation Guide** tells the agent *what* to keep; the hooks decide *when* to save. To save tokens on your generic coding tasks, the guide isn't injected globally. Instead, Dossier uses **programmatic context injection**: the moment the agent binds a dossier via the MCP server, the server dynamically wraps its response payload with the full guide. The same bind response carries the **Operating Instructions**, which tell the agent to poll **Active Monitors** (live external links like Slack threads) whose `Last polled` date has gone stale — so resuming a Dossier refreshes its live context rather than trusting a snapshot. `init` also adds a single line to Claude Code's custom instructions: use `dossier_session` when starting work, so the agent reaches for the binding that delivers all of the above. Pi has no MCP client to intercept, so there the same payloads ride the session-start hook instead: a Pi session that is already bound gets the Guide and the full Distilled State injected as it starts. There's no confirmation gate — trust comes from the fact that nothing is ever deleted (superseded content moves to the Archive and audit log) and every claim carries a source link.
 
 ### Using it with Pi
 
@@ -173,7 +173,7 @@ It opens a priority-sorted dashboard of your Dossiers, with Lead and discussion-
 
 - **search** with `/` (or `ctrl+f`) and just start typing — the dashboard or board narrows on every keystroke, matching against name, description, Lead, discussion interface, and slug. Space-separated words all have to match, so `alice billing` finds Alice's billing topic. `↑`/`↓` moves through the results, `enter` opens one, `tab` keeps the filter and hands your shortcuts back, and `esc` clears it. Resolved and archived Dossiers are included while you search even though they're normally collapsed — the Dossier you can't name is often one you already finished.
 
-- **open** a Dossier to read its distilled state (with a live token estimate and over-target warning). The distilled state is rendered natively as rich, syntax-highlighted Markdown. The view automatically live-refreshes when Claude Code updates the dossier in the background.
+- **open** a Dossier to read its distilled state (with a live token estimate and over-target warning). The distilled state is rendered natively as rich, syntax-highlighted Markdown. The view automatically live-refreshes when an agent updates the dossier in the background.
 - **filter** by Lead and discussion interface with `f`, then cycle through `All`, `Unassigned`, and configured values,
 - **switch views** with `v` — the same filtered Dossiers are available as either the table or stage columns (spark → define → execute → review → blocked → done), each card showing the Dossier's name and description. Arrows move between cards, enter opens one, and `v` returns you to the table. Done cards show the title only, so finished work costs the space it deserves. Every dashboard key works on the board, filters included.
 - **edit** the Lead, stage, priority (`low`/`medium`/`high`/`max`), due date, and next action (up to 140 characters) inline without leaving the dashboard,

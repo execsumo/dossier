@@ -83,6 +83,7 @@ doctor` surface "Pi is installed but cannot give Dossier a session id yet; run
 - Pi sessions still get **no** lifecycle bridging (no session-start injection, no
   end-of-session capture, no pre-compaction save). This is reported as
   unavailable rather than implied, and is the next piece of Pi work.
+  *(Superseded 2026-09-09 — see "Amended 2026-09-09" below.)*
 - macOS/Linux only, as elsewhere in v1: ancestry uses procfs with a `ps`
   fallback.
 
@@ -91,3 +92,23 @@ The resolution ladder was inverted to `3. Pi session pointer → 4. PI_SESSION_I
 because the extension's environment mirroring creates frozen snapshotted variables
 that survive `/new`, `/resume`, and `/fork`. The pointer is rewritten on every
 session start and is therefore never less fresh than the environment.
+
+## Amended 2026-09-09
+Lifecycle bridging, listed above as the next piece of Pi work, has landed. The
+same bundled extension now maps Pi's `session_start`, `session_shutdown` and
+`session_before_compact` events onto `dossier hook session-start|session-end|
+pre-compaction`. Session-start output is injected with
+`pi.sendMessage(..., { deliverAs: "nextTurn" })`, which places it in LLM context
+without triggering a turn — the passive shape Claude Code's SessionStart hook
+has. `PiHarness.Detect` reports the three hook capabilities from
+`PiExtensionInstalled()`, a byte-comparison against the embedded asset, so an
+extension predating this amendment is not credited with behaviour it lacks.
+
+MCP under Pi remains unclaimed, and this ADR's reasoning is unchanged on that
+point — but the *framing* was corrected: `dossier harness` now reports Pi's MCP
+as **not applicable** with the CLI named as what covers it, rather than
+"unavailable", which users read as a broken install.
+
+Verified against Pi 0.85.1 in a live session, and the embedded extension is now
+type-checked against the installed Pi
+(`TestPiExtensionTypeChecksAgainstInstalledPi`).
