@@ -135,6 +135,30 @@ type HarnessRegistry interface {
 	Get(name string) (Harness, error)
 }
 
+// ActiveHarnessResolver is the optional registry capability that names the
+// harness owning the *current process*, as opposed to the ones merely present
+// on the device.
+//
+// It exists because Detect() is deliberately device-level: Claude Code reports
+// its full capability set from the existence of ~/.claude.json, which is the
+// right answer for "what can this machine do" (init, doctor, harness list) and
+// the wrong one for "which harness is this session running under". Without this
+// port, any question of the second kind degenerated into scanning the registry
+// for the first harness with Capabilities.LiveSession() — which on a machine
+// with Claude Code configured always answered "claude-code", including inside a
+// live Pi session, because registration order decided it.
+//
+// Adapters answer from process-level evidence (session environment variables,
+// the Pi session pointer) rather than from files on disk. Implementations
+// return ok=false when no harness owns this process; callers must then fall
+// back rather than treat the first registered harness as the answer.
+//
+// Separate from HarnessRegistry for compatibility with the lightweight test
+// registries that predate it, which supply only All/Get.
+type ActiveHarnessResolver interface {
+	ActiveHarness() (Harness, Capabilities, bool)
+}
+
 // Clock defines a mockable interface for wall time.
 type Clock interface {
 	Now() time.Time

@@ -26,6 +26,36 @@ func (r *Registry) All() []core.Harness {
 	return r.harnesses
 }
 
+// ActiveHarness names the harness owning the current process, implementing
+// core.ActiveHarnessResolver.
+//
+// It answers from ResolveSession, which reads process-level evidence in a fixed
+// precedence (CLAUDE_CODE_SESSION_ID, then the Pi session pointer, then
+// PI_SESSION_ID) rather than from config files on disk. That is what keeps a Pi
+// session from being reported as Claude Code on a machine where both are
+// installed: Detect() answers "is this harness on this device", and on such a
+// machine Claude Code answers yes unconditionally.
+//
+// A session id resolved without a harness name — an explicit --session, or
+// DOSSIER_SESSION — deliberately yields ok=false. Those sources name a session
+// but not a harness, and guessing one from the registry is the exact conflation
+// this method exists to remove.
+func (r *Registry) ActiveHarness() (core.Harness, core.Capabilities, bool) {
+	_, name, err := ResolveSession("", false)
+	if err != nil || name == "" {
+		return nil, core.Capabilities{}, false
+	}
+	h, err := r.Get(name)
+	if err != nil || h == nil {
+		return nil, core.Capabilities{}, false
+	}
+	caps, err := h.Detect()
+	if err != nil || !caps.Present() {
+		return nil, core.Capabilities{}, false
+	}
+	return h, caps, true
+}
+
 // Get retrieves a harness by name.
 func (r *Registry) Get(name string) (core.Harness, error) {
 	for _, h := range r.harnesses {

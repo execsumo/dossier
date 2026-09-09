@@ -24,9 +24,9 @@ func piTestEnv(t *testing.T) string {
 	return agentDir
 }
 
-// Pi's own session environment reaches only bash-tool children, and Dossier does
-// not bridge Pi's lifecycle yet — so identity and transcript are the only things
-// Detect may claim.
+// Without the bundled extension installed, nothing bridges Pi's lifecycle, so
+// identity and transcript (both readable straight from the bash-tool session
+// environment) are the only things Detect may claim.
 func TestPiHarnessDetectsSessionIdentityWithoutClaimingHooks(t *testing.T) {
 	piTestEnv(t)
 	t.Setenv("PI_SESSION_ID", "pi-session")
@@ -295,5 +295,61 @@ func TestPiHarnessPostInstallNotesEmptyOnIdempotentInstall(t *testing.T) {
 	notes := h.PostInstallNotes()
 	if len(notes) != 0 {
 		t.Errorf("expected no post-install notes on idempotent install, got: %v", notes)
+	}
+}
+
+// Installing the bundled extension is what bridges Pi's lifecycle events to
+// `dossier hook`, so it is also what turns the hook capabilities on. Reporting
+// them without it would promise a session-start injection and an end-of-session
+// capture that nothing performs.
+func TestPiHarnessReportsHooksOnceTheExtensionIsInstalled(t *testing.T) {
+	piTestEnv(t)
+	h := NewPiHarness("/tmp/dossier")
+
+	before, err := h.Detect()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if before.SessionStartHook || before.SessionEndHook || before.PreCompactionHook {
+		t.Fatalf("claimed lifecycle hooks with no extension installed: %+v", before)
+	}
+
+	if err := h.Install(core.InstallOpts{YesToAll: true}); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+
+	after, err := h.Detect()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !after.SessionStartHook || !after.SessionEndHook || !after.PreCompactionHook {
+		t.Errorf("expected lifecycle hooks after installing the extension, got %+v", after)
+	}
+	if after.MCP {
+		t.Error("Pi must never claim MCP: it ships no MCP client and Dossier does not bridge one")
+	}
+}
+
+// A drifted or stale extension — including every version that predates
+// lifecycle bridging — must not be credited with capabilities it does not
+// implement. PiExtensionInstalled is a byte-comparison precisely so this holds.
+func TestPiHarnessDropsHookCapabilitiesForDriftedExtension(t *testing.T) {
+	agentDir := piTestEnv(t)
+	h := NewPiHarness("/tmp/dossier")
+	if err := h.Install(core.InstallOpts{YesToAll: true}); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+
+	dest := filepath.Join(agentDir, "extensions", "dossier", "index.ts")
+	if err := os.WriteFile(dest, []byte("export default function () {}\n"), 0o644); err != nil {
+		t.Fatalf("failed to overwrite the extension: %v", err)
+	}
+
+	caps, err := h.Detect()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if caps.SessionStartHook || caps.SessionEndHook || caps.PreCompactionHook {
+		t.Errorf("credited a drifted extension with lifecycle hooks: %+v", caps)
 	}
 }

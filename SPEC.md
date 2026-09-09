@@ -403,15 +403,28 @@ v1 supports **Claude Code and Pi.** Claude Code provides the full capability set
 - MCP tools work.
 - Raw transcript capture works.
 
-**Pi does not provide that set** (verified against Pi 0.83.0; ADR 0005). Pi has no
-built-in MCP client, and its `PI_SESSION_ID`/`PI_SESSION_FILE` reach bash-tool
-children only. Dossier therefore installs its own Pi extension
-(`assets/pi-extension.ts` → `<pi agent dir>/extensions/dossier/index.ts`) which
-supplies **session identity** — a per-Pi-pid session pointer plus environment
-mirroring — and nothing else yet. For Pi, session-start surfacing, session-end
-save, pre-compaction save, and MCP are **unavailable** and must be reported as
-such (§6.1); raw transcript capture is available as a file path only, through
-the pointer's `session_file`.
+**Pi does not provide that set natively** (verified against Pi 0.83.0, extended
+2026-09-09 against 0.85.1; ADR 0005). Pi has no built-in MCP client, its
+`PI_SESSION_ID`/`PI_SESSION_FILE` reach bash-tool children only, and it exposes
+in-process extension *events* rather than out-of-process hooks. Dossier
+therefore installs its own Pi extension (`assets/pi-extension.ts` → `<pi agent
+dir>/extensions/dossier/index.ts`) which supplies:
+
+- **Session identity** — a per-Pi-pid session pointer plus environment mirroring.
+- **Lifecycle bridging** — `session_start`, `session_shutdown` and
+  `session_before_compact` invoke `dossier hook session-start|session-end|
+  pre-compaction`. Session-start output is injected into LLM context without
+  triggering a turn. So session-start surfacing, session-end save and
+  pre-compaction save **are available under Pi**, conditional on the current
+  bundled extension being installed — `Detect` derives them from a
+  byte-comparison against the embedded asset, so a drifted or older extension
+  reports them unavailable rather than promising behaviour it lacks.
+
+**MCP remains unavailable under Pi and must be reported as such** (§6.1). This is
+a decision, not a gap: Pi's Dossier surface is the CLI, and Dossier will not
+claim a capability that depends on a third-party adapter it neither installs nor
+tests. Raw transcript capture is available as a file path, through the pointer's
+`session_file` or `PI_SESSION_FILE`.
 
 Other harnesses (e.g. Codex, Antigravity) remain out of scope for v1.
 

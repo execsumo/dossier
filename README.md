@@ -8,7 +8,7 @@ No database, no cloud, no account. Your data is plain Markdown under `~/.dossier
 
 ## Quickstart
 
-Requires **Claude Code or Pi** on macOS or Linux. Claude Code is fully integrated; Pi support currently covers session identity (see [Using it with Pi](#using-it-with-pi)).
+Requires **Claude Code or Pi** on macOS or Linux. Both are fully integrated — under Pi, Dossier works through its CLI rather than MCP (see [Using it with Pi](#using-it-with-pi)).
 
 **Option A — Homebrew (recommended)**
 
@@ -100,12 +100,19 @@ every Dossier process the Pi session owns; `/dossier-session` inside Pi shows
 what Dossier will resolve. It also provides `/spark`, which captures a raw
 thought as a new medium-priority Dossier in the spark stage.
 
-**What Pi does not have yet:** lifecycle bridging. Pi sessions get no
-session-start surfacing, no end-of-session save, and no pre-compaction save —
-`dossier harness list` reports those as unavailable rather than pretending. Pi
-also has no built-in MCP client; if you run an MCP adapter extension, register
-`dossier mcp serve` with it yourself. Use `/spark` for quick capture, or the
-CLI in the meantime.
+The same extension bridges Pi's lifecycle, so Pi sessions get the full loop:
+session-start surfacing, end-of-session capture, and a save before compaction.
+Because Pi exposes in-process events rather than out-of-process hooks, the
+extension is what calls Dossier at each boundary — which is why a Pi session
+that reports no lifecycle hooks means the extension is missing or out of date,
+and `dossier harness install pi` is the fix.
+
+**On MCP under Pi:** `dossier harness list` reports MCP as *not applicable*, not
+missing. Pi ships no MCP client, so Dossier drives Pi through its CLI instead —
+the same operations over a different transport. Nothing is lost and there is
+nothing to install. (If you run a third-party MCP adapter extension you can
+register `dossier mcp serve` with it yourself, but Dossier neither requires nor
+detects one.)
 
 ### Quick capture
 

@@ -19,10 +19,11 @@ const piExtensionAsset = "pi-extension.ts"
 //
 // Pi exposes session identity (PI_SESSION_ID/PI_SESSION_FILE) only to processes
 // spawned by its bash tool, so Dossier ships an extension that publishes the
-// live session id for every Dossier process Pi owns and exposes the native
-// `/spark` alias. Install writes the extension and shared spark skill into Pi's
-// global integration directories. Pi's lifecycle (session-start/session-end/
-// pre-compaction) is not bridged yet — see docs/harness-capabilities.md.
+// live session id for every Dossier process Pi owns, bridges Pi's in-process
+// lifecycle events to `dossier hook session-start|session-end|pre-compaction`,
+// and exposes the native `/spark` alias. Install writes the extension and
+// shared spark skill into Pi's global integration directories. MCP remains
+// unbridged by design — see docs/harness-capabilities.md.
 type PiHarness struct {
 	dossierHome string
 	notes       []string
@@ -102,9 +103,20 @@ func PiExtensionInstalled() bool {
 }
 
 // Detect reports what Pi actually offers Dossier. Nothing here is assumed from
-// Pi's presence alone: hook capabilities stay false because Dossier does not
-// bridge Pi's lifecycle yet, and MCP stays false because Pi has no built-in MCP
-// client (an MCP adapter extension is the user's own choice).
+// Pi's presence alone.
+//
+// The lifecycle capabilities are reported from the *bundled extension* being
+// installed, because that extension is what bridges Pi's in-process events to
+// `dossier hook session-start|session-end|pre-compaction`. PiExtensionInstalled
+// is a byte-comparison against the embedded asset, so an older extension —
+// including every version predating lifecycle bridging — reports false and the
+// capabilities go with it. This mirrors how ClaudeCodeHarness.Detect reports
+// hooks from its config files: an integration that will fire for the next
+// session is available, whether or not a session is running right now.
+//
+// MCP stays false regardless. Pi ships no MCP client, and Dossier's Pi surface
+// is the CLI (ADR 0005); an MCP adapter extension is the user's own choice and
+// Dossier does not detect, install, or speak for it.
 func (p *PiHarness) Detect() (core.Capabilities, error) {
 	// A resolvable pointer means a live Pi process owns this one, which is proof
 	// of Pi regardless of where its agent directory lives.
@@ -115,8 +127,12 @@ func (p *PiHarness) Detect() (core.Capabilities, error) {
 
 	caps := core.Capabilities{Installed: true}
 
-	caps.SessionIdentity = os.Getenv("PI_SESSION_ID") != "" || hasPointer || PiExtensionInstalled()
+	bridged := PiExtensionInstalled()
+	caps.SessionIdentity = os.Getenv("PI_SESSION_ID") != "" || hasPointer || bridged
 	caps.TranscriptCapture = os.Getenv("PI_SESSION_FILE") != "" || (hasPointer && pointer.SessionFile != "")
+	caps.SessionStartHook = bridged
+	caps.SessionEndHook = bridged
+	caps.PreCompactionHook = bridged
 
 	return caps, nil
 }

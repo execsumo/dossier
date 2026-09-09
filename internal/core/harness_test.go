@@ -136,7 +136,13 @@ func TestInitWarnsWhenSessionIdentityStaysUnavailable(t *testing.T) {
 }
 
 func TestInstallHarnessInstallsNamedHarness(t *testing.T) {
-	identity := Capabilities{Installed: true, SessionIdentity: true}
+	// What a successful Pi install now yields: the bundled extension supplies
+	// session identity *and* bridges the lifecycle, so a report showing identity
+	// alone would mean a stale extension and earns an advisory.
+	identity := Capabilities{
+		Installed: true, SessionIdentity: true,
+		SessionStartHook: true, SessionEndHook: true, PreCompactionHook: true,
+	}
 	pi := &stubHarness{name: "pi", caps: Capabilities{Installed: true}, afterCaps: &identity}
 	svc := serviceWithHarnesses(t, pi)
 
@@ -324,5 +330,114 @@ func TestInstallHarnessAppendsPostInstallNotes(t *testing.T) {
 	}
 	if !warningsContain(res.Warnings, "restart Pi") {
 		t.Errorf("expected post-install notes to surface as warnings, got %v", res.Warnings)
+	}
+}
+
+// A harness that resolves sessions but bridges no lifecycle event is the quiet
+// failure: work proceeds and nothing is captured at the boundary, which reads
+// as Dossier losing state rather than as an integration that was never
+// finished. It has to be named on its own.
+func TestHarnessAdvisoryNamesUnbridgedLifecycle(t *testing.T) {
+	identityOnly := Capabilities{Installed: true, SessionIdentity: true}
+	pi := &stubHarness{name: "pi", caps: identityOnly}
+	svc := serviceWithHarnesses(t, pi)
+
+	res, err := svc.HarnessStatus(context.Background())
+	if err != nil {
+		t.Fatalf("harness status failed: %v", err)
+	}
+	report := reportFor(t, res.Data.([]HarnessReport), "pi")
+	if len(report.Notes) == 0 {
+		t.Fatal("expected an advisory for a harness with no lifecycle bridging")
+	}
+	if !strings.Contains(strings.Join(report.Notes, " "), "lifecycle is not bridged") {
+		t.Errorf("advisory does not name the missing lifecycle: %v", report.Notes)
+	}
+}
+
+// Fully bridged: no advisory. An integration that is complete must be silent,
+// or the warning that matters gets lost among ones that do not.
+func TestHarnessAdvisorySilentWhenFullyBridged(t *testing.T) {
+	pi := &stubHarness{name: "pi", caps: Capabilities{
+		Installed: true, SessionIdentity: true,
+		SessionStartHook: true, SessionEndHook: true, PreCompactionHook: true,
+	}}
+	svc := serviceWithHarnesses(t, pi)
+
+	res, err := svc.HarnessStatus(context.Background())
+	if err != nil {
+		t.Fatalf("harness status failed: %v", err)
+	}
+	if notes := reportFor(t, res.Data.([]HarnessReport), "pi").Notes; len(notes) != 0 {
+		t.Errorf("expected no advisory for a fully bridged harness, got %v", notes)
+	}
+}
+
+// "unavailable" is a claim that something is missing and the user can fix it.
+// Pi's MCP is neither: Pi ships no MCP client and Dossier drives Pi through its
+// CLI by design, so reporting it as unavailable reads as a broken install and
+// invites the user to hunt for a fix that does not exist.
+func TestPiMCPReportsNotApplicableRatherThanUnavailable(t *testing.T) {
+	pi := &stubHarness{name: "pi", caps: Capabilities{
+		Installed: true, SessionIdentity: true, TranscriptCapture: true,
+		SessionStartHook: true, SessionEndHook: true, PreCompactionHook: true,
+	}}
+	svc := serviceWithHarnesses(t, pi)
+
+	res, err := svc.HarnessStatus(context.Background())
+	if err != nil {
+		t.Fatalf("harness status failed: %v", err)
+	}
+	report := reportFor(t, res.Data.([]HarnessReport), "pi")
+
+	mcp := report.CapabilityStatuses["MCP"]
+	if mcp.State != CapabilityNotApplicable {
+		t.Errorf("Pi MCP state = %q, want %q", mcp.State, CapabilityNotApplicable)
+	}
+	if mcp.Note == "" {
+		t.Error("a not-applicable capability must say what covers the same ground")
+	}
+	// The boolean stays false: this changes how it reads, not what is true.
+	if report.Capabilities["MCP"] {
+		t.Error("Pi must not report MCP as an available capability")
+	}
+	if !report.IntegrationComplete {
+		t.Errorf("a Pi install missing only MCP-by-design is complete, got statuses %+v", report.CapabilityStatuses)
+	}
+}
+
+// A genuinely missing capability keeps saying so — the relabelling must not
+// become a way to make every gap look intentional.
+func TestUnbridgedPiStillReportsUnavailableAndIncomplete(t *testing.T) {
+	pi := &stubHarness{name: "pi", caps: Capabilities{Installed: true, SessionIdentity: true}}
+	svc := serviceWithHarnesses(t, pi)
+
+	res, err := svc.HarnessStatus(context.Background())
+	if err != nil {
+		t.Fatalf("harness status failed: %v", err)
+	}
+	report := reportFor(t, res.Data.([]HarnessReport), "pi")
+
+	if got := report.CapabilityStatuses["SessionStartHook"].State; got != CapabilityUnavailable {
+		t.Errorf("unbridged session-start hook = %q, want %q", got, CapabilityUnavailable)
+	}
+	if report.IntegrationComplete {
+		t.Error("an unbridged Pi integration is not complete")
+	}
+}
+
+// Claude Code genuinely uses MCP, so its MCP is never relabelled: an absent MCP
+// there is a real gap the user can act on.
+func TestClaudeCodeMCPIsNeverNotApplicable(t *testing.T) {
+	claude := &stubHarness{name: "claude-code", caps: Capabilities{Installed: true, SessionIdentity: true}}
+	svc := serviceWithHarnesses(t, claude)
+
+	res, err := svc.HarnessStatus(context.Background())
+	if err != nil {
+		t.Fatalf("harness status failed: %v", err)
+	}
+	report := reportFor(t, res.Data.([]HarnessReport), "claude-code")
+	if got := report.CapabilityStatuses["MCP"].State; got != CapabilityUnavailable {
+		t.Errorf("Claude Code MCP = %q, want %q", got, CapabilityUnavailable)
 	}
 }
