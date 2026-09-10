@@ -623,7 +623,7 @@ func (m Model) renderEditor() string {
 	sb.WriteString("\n")
 	sb.WriteString(renderEditTextRow("Next action", next, m.editFocus == editFieldNextAction))
 	sb.WriteString("\n\n")
-	sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, columns...))
+	sb.WriteString(joinModalColumns(columns...))
 	return strings.TrimRight(sb.String(), "\n")
 }
 
