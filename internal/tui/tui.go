@@ -448,7 +448,7 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		{Title: "Dossier", Width: 30},
 		{Title: "Priority", Width: 12},
 		{Title: "Stage", Width: 10},
-		{Title: "Lead", Width: 8},
+		{Title: "Lead", Width: configuredLeadColumnWidth(svc.Leads())},
 		{Title: "Due", Width: 8},
 	}
 
@@ -1973,6 +1973,37 @@ func (m *Model) tableColumnsConfig() (showPriority, showDue bool) {
 	return w >= 55, w >= 65
 }
 
+// configuredLeadColumnWidth returns the smallest width that keeps every
+// configured lead readable in the same form used by dashboard rows: first name
+// plus last initial. The Lead header is included so the column never becomes
+// narrower than its label. An empty configured vocabulary retains the historic
+// compact width for free-form lead assignments.
+func configuredLeadColumnWidth(leads []string) int {
+	width := lipgloss.Width("Lead")
+	for _, lead := range leads {
+		label := formatLeadLabel(lead)
+		if labelWidth := lipgloss.Width(label); labelWidth > width {
+			width = labelWidth
+		}
+	}
+	if len(leads) == 0 && width < 8 {
+		return 8
+	}
+	return width
+}
+
+func formatLeadLabel(lead string) string {
+	parts := strings.Fields(lead)
+	if len(parts) <= 1 {
+		return lead
+	}
+	lastName := []rune(parts[len(parts)-1])
+	if len(lastName) == 0 {
+		return parts[0]
+	}
+	return parts[0] + " " + string(lastName[0])
+}
+
 // itemTableRow builds a single dossier row. Cells mirror the column order
 // Dossier, [Priority], Stage, Lead, [Due]; the optional cells are included only
 // when the corresponding column is shown.
@@ -1989,13 +2020,7 @@ func itemTableRow(item core.ListItem, showPriority, showDue bool) table.Row {
 		return row
 	}
 
-	leadStr := item.Lead
-	if leadStr != "" {
-		parts := strings.Fields(leadStr)
-		if len(parts) > 1 {
-			leadStr = parts[0] + " " + string(parts[len(parts)-1][0])
-		}
-	}
+	leadStr := formatLeadLabel(item.Lead)
 
 	priorityStr := item.Priority
 
@@ -2069,9 +2094,10 @@ func (m *Model) populateTableRows() {
 }
 
 // recalculateTableLayout fits the table to the screen size. Columns appear in
-// the canonical order Dossier, Priority, Stage, Lead, Due; Dossier is always present
-// and flexes to absorb the leftover width, while the fixed-width columns are
-// revealed progressively as the terminal widens.
+// the canonical order Dossier, Priority, Stage, Lead, Due; Dossier is always
+// present and flexes to absorb the leftover width, while the fixed-width
+// columns are revealed progressively as the terminal widens. Lead is sized from
+// the configured vocabulary so its compact display form remains readable.
 func (m *Model) recalculateTableLayout() {
 	footerH := m.footerHeight(ViewDashboard)
 	headerRows := len(m.activeListRows())
@@ -2090,10 +2116,10 @@ func (m *Model) recalculateTableLayout() {
 	const (
 		widthPriority = 12
 		widthStage    = 10
-		widthLead     = 8
 		widthDue      = 8
 		minNameWidth  = 12
 	)
+	widthLead := configuredLeadColumnWidth(m.configuredLeads)
 
 	// Tally the fixed-width columns first so Dossier can take whatever remains.
 	fixedUsed := widthStage + widthLead

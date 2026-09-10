@@ -2596,6 +2596,59 @@ func TestTUI_TableColumnSequence(t *testing.T) {
 	}
 }
 
+func TestTUI_LeadColumnFitsConfiguredDisplayNames(t *testing.T) {
+	const configuredLead = "Alexandria Montgomery"
+	wantLabel := "Alexandria M"
+
+	if got := formatLeadLabel(configuredLead); got != wantLabel {
+		t.Fatalf("formatLeadLabel() = %q, want %q", got, wantLabel)
+	}
+	if got := configuredLeadColumnWidth([]string{configuredLead}); got < len(wantLabel) {
+		t.Fatalf("configuredLeadColumnWidth() = %d, want at least %d", got, len(wantLabel))
+	}
+
+	svc := setupTestService(newTestStore())
+	m := NewModel(svc)
+	m.configuredLeads = []string{configuredLead}
+	m.width = 44
+	m.height = 20
+	m.recalculateTableLayout()
+
+	for _, column := range m.table.Columns() {
+		if column.Title == "Lead" {
+			if column.Width < len(wantLabel) {
+				t.Fatalf("Lead column width = %d at narrow width, want at least %d", column.Width, len(wantLabel))
+			}
+			return
+		}
+	}
+	t.Fatal("Lead column not found")
+}
+
+func TestTUI_LeadColumnKeepsConfiguredWidthWhenWindowShrinks(t *testing.T) {
+	svc := setupTestService(newTestStore())
+	m := NewModel(svc)
+	m.configuredLeads = []string{"Alexandria Montgomery"}
+	m.height = 20
+
+	widths := []int{100, 65, 44, 32}
+	for _, width := range widths {
+		m.width = width
+		m.recalculateTableLayout()
+		for _, column := range m.table.Columns() {
+			if column.Title == "Lead" {
+				if column.Width < len("Alexandria M") {
+					t.Fatalf("Lead column width = %d at window width %d, want at least %d", column.Width, width, len("Alexandria M"))
+				}
+				goto nextWidth
+			}
+		}
+		t.Fatalf("Lead column not found at window width %d", width)
+
+	nextWidth:
+	}
+}
+
 func TestItemTableRowMarksOpenDelegationAsk(t *testing.T) {
 	base := core.ListItem{ID: "dos1", Name: "Alpha", Priority: "high", Status: "active", Lead: "Alice"}
 
