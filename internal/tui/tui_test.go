@@ -2540,13 +2540,13 @@ func TestTUI_TableHeaderColorMatchesDetailLabels(t *testing.T) {
 		t.Errorf("expected view to contain new subheadline, got:\n%s", viewStr)
 	}
 
-	// Check that color 99 (purple) is used for rendering the table header row
-	// lipgloss emits \x1b[...38;5;99...m for Foreground(purple)
+	// Check that the modal accent color is used for rendering the table header row.
+	// Under ANSI256, modalAccentHex maps to color 141.
 	lines := strings.Split(viewStr, "\n")
 	foundHeaderWithPurple := false
 	for _, l := range lines {
 		if strings.Contains(stripANSI(l), "Dossier") && strings.Contains(stripANSI(l), "Stage") {
-			if strings.Contains(l, "38;5;99") {
+			if strings.Contains(l, "38;5;141") {
 				foundHeaderWithPurple = true
 				break
 			}

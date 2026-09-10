@@ -143,17 +143,24 @@ type interfaceOption struct {
 
 // Subheadline banner
 const subheadline = "Durable episodic memory and delegation layer"
-const modalBackgroundHex = "#25243A"
+
+// Keep the modal surface as an indexed color so the legacy Lipgloss renderer
+// and the v2 compositor paint the same cells in ANSI256 terminals as well as
+// truecolor terminals. A hex-only background was converted to dark blue by the
+// former while the latter retained the hex value.
+const modalBackgroundColor = "53"
+const modalAccentHex = "#A78BFA"
 
 // Styling tokens
 var (
-	purple          = lipgloss.Color("99")
+	purple          = lipgloss.Color(modalAccentHex)
 	lightGray       = lipgloss.Color("7") // Use terminal's standard light gray (ANSI 7)
 	darkGray        = lipgloss.Color("8") // Use terminal's standard dark gray/bright black (ANSI 8)
 	vibrantGreen    = lipgloss.Color("2") // Use terminal's standard green (ANSI 2)
 	vibrantRed      = lipgloss.Color("1") // Use terminal's standard red (ANSI 1)
 	warningGold     = lipgloss.Color("3") // Use terminal's standard yellow/gold (ANSI 3)
-	modalBackground = lipgloss.Color(modalBackgroundHex)
+	modalBackground = lipgloss.Color(modalBackgroundColor)
+	modalFillStyle  = lipgloss.NewStyle().Background(modalBackground)
 
 	titleStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF")). // Force crisp white text on purple bg

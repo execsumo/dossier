@@ -17,8 +17,8 @@ import (
 var (
 	overlayPanelStyle = lipglossv2.NewStyle().
 				Border(lipglossv2.RoundedBorder()).
-				BorderForeground(lipglossv2.Color("#A78BFA")).
-				Background(lipglossv2.Color(modalBackgroundHex)).
+				BorderForeground(lipglossv2.Color(modalAccentHex)).
+				Background(lipglossv2.Color(modalBackgroundColor)).
 				Padding(1, 2)
 	overlayTitleStyle = lipglossv2.NewStyle().
 				Foreground(lipglossv2.Color("#B18CFF")).
@@ -284,7 +284,7 @@ func (m Model) renderFilterOverlay() string {
 		renderFilterColumn("Lead", leadLabels, m.leadCursor, m.filterColumn == 0, columnWidth),
 		renderFilterColumn("Interface", interfaceLabels, m.interfaceCursor, m.filterColumn == 1, columnWidth),
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, columns...)
+	return joinModalColumns(columns...)
 }
 
 func renderFilterColumn(title string, options []string, cursor int, focused bool, width int) string {
