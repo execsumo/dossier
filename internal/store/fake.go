@@ -83,6 +83,7 @@ func (f *FakeStore) List(statusFilter string) ([]core.ListedFrontmatter, error) 
 		if statusFilter == "all" || string(d.Frontmatter.Status) == statusFilter {
 			list = append(list, core.ListedFrontmatter{
 				Frontmatter:               d.Frontmatter,
+				Revision:                  f.Revisions[d.Frontmatter.ID],
 				HasOpenDelegationContract: core.HasOpenDelegationContract(d.DistilledState.Body),
 			})
 		}

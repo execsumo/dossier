@@ -4,15 +4,20 @@
 > Scope: `internal/tui/`, its tests, the CLI launch path, and the documented
 > TUI contract. This is the current remediation plan; `docs/tui-plan.md` is the
 > historical implementation plan.
+>
+> **Status: complete.** The remediation below is implemented and validated.
+> The minimum supported normal layout is `48x12`; smaller terminals show a
+> bounded resize screen instead of clipped controls.
 
 ## Review result
 
-The TUI is useful and coherent at a normal terminal size. The main dashboard,
+The baseline review found a TUI that was useful and coherent at a normal
+terminal size. The main dashboard,
 search, lead/interface filters, Kanban board, detail recall, Markdown scrolling,
 editing, links, artifacts, merge selection, and external refresh paths are
 implemented. The shared `core.Service` boundary is also the right foundation.
 
-It is not yet robust enough to call finished:
+The following findings were the reasons for this remediation:
 
 - At `40x10`, the dashboard and board lose their title and table/board context,
   leaving only a row and the footer.
@@ -40,7 +45,7 @@ It is not yet robust enough to call finished:
   `/tmp/dossier-tui-overlay-refresh.png`. It shows the overlay staying on
   screen after the underlying detail was refreshed.
 
-## Sequenced plan
+## Sequenced plan (completed)
 
 ### 1. Stabilize navigation and asynchronous state
 
@@ -182,3 +187,22 @@ screen height, cursor visibility, and reachable exit/save actions.
   labels, field order, and key semantics.
 - `go test ./...`, `go test -race ./...`, `go vet ./...`, `gofmt`, and
   `git diff --check` pass, followed by the live `tuistory` matrix above.
+
+## Completion record
+
+- Overlay navigation now derives from one stack, preserves the active modal
+  across refreshes, rejects late asynchronous responses, and restores home
+  selection by immutable Dossier ID.
+- List rows carry their current revision into the combined editor, so dashboard
+  and Kanban edits retain optimistic concurrency protection.
+- Every asynchronous Service result carries warnings and next actions into a
+  bounded shared status area; long status text cannot displace the action
+  footer.
+- Dashboard, board, filter, editor, artifact, link, contract, and conflict
+  surfaces use windowed or responsive layouts. The narrow-terminal fallback is
+  covered at `40x10`.
+- Detail metadata now follows the dashboard order and includes the token
+  estimate; ownerless work is labeled `Unassigned`.
+- Watcher errors are surfaced, bursts are coalesced, manual refresh is
+  available with `ctrl+r`, and model-owned watcher cleanup is available through
+  `Model.Close`.

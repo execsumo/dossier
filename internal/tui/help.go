@@ -31,27 +31,30 @@ func (m Model) searchHelpKeyMap() help.KeyMap {
 // obvious interaction. Escape/back navigation and routine cursor movement are
 // omitted; they are consistent across the TUI and do not need repeating in every modal.
 func modalHelpBindings(v View) []bubbleskey.Binding {
+	withBack := func(bindings ...bubbleskey.Binding) []bubbleskey.Binding {
+		return bindings
+	}
 	switch v {
 	case ViewLeadSelector:
-		return []bubbleskey.Binding{tuiHelpKey("←/→", "column"), tuiHelpKey("enter", "apply")}
+		return withBack(tuiHelpKey("←/→", "column"), tuiHelpKey("enter", "apply"))
 	case ViewLinkInput:
-		return []bubbleskey.Binding{tuiHelpKey("enter", "find target")}
+		return withBack(tuiHelpKey("enter", "find target"))
 	case ViewLinkSelector:
-		return []bubbleskey.Binding{tuiHelpKey("enter", "choose target")}
+		return withBack(tuiHelpKey("enter", "choose target"))
 	case ViewMergeSelector:
-		return []bubbleskey.Binding{tuiHelpKey("enter", "merge")}
+		return withBack(tuiHelpKey("enter", "merge"))
 	case ViewMergeConflictResolver:
-		return []bubbleskey.Binding{tuiHelpKey("tab", "choose action"), tuiHelpKey("enter", "apply")}
+		return withBack(tuiHelpKey("tab", "choose action"), tuiHelpKey("enter", "apply"))
 	case ViewRenameSlug:
-		return []bubbleskey.Binding{tuiHelpKey("tab", "next field"), tuiHelpKey("enter", "save")}
+		return withBack(tuiHelpKey("tab", "next field"), tuiHelpKey("enter", "save"))
 	case ViewEdit:
-		return []bubbleskey.Binding{tuiHelpKey("tab", "next field"), tuiHelpKey("↑/↓", "change option"), tuiHelpKey("space", "toggle interface")}
+		return withBack(tuiHelpKey("tab", "next field"), tuiHelpKey("↑/↓", "change option"), tuiHelpKey("space", "toggle interface"), tuiHelpKey("enter", "save"))
 	case ViewArtifactIndex:
-		return []bubbleskey.Binding{tuiHelpKey("enter", "view artifact")}
+		return withBack(tuiHelpKey("enter", "view artifact"))
 	case ViewLinks:
-		return []bubbleskey.Binding{tuiHelpKey("enter", "open link")}
+		return withBack(tuiHelpKey("enter", "open link"))
 	case ViewContracts:
-		return []bubbleskey.Binding{tuiHelpKey("↑/↓", "scroll")}
+		return withBack(tuiHelpKey("↑/↓", "scroll"))
 	}
 	return nil
 }
@@ -67,6 +70,7 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 
 	common := []bubbleskey.Binding{
 		tuiHelpKey("q", "quit"),
+		tuiHelpKey("ctrl+r", "refresh"),
 		tuiHelpKey("?", "more help"),
 	}
 

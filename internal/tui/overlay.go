@@ -64,6 +64,10 @@ func (m Model) hasOverlay() bool {
 }
 
 func (m *Model) pushOverlay(v View) {
+	if !isOverlayView(v) {
+		m.currentView = v
+		return
+	}
 	if len(m.overlayStack) == 0 {
 		m.overlayBase = m.currentView
 	}
@@ -73,13 +77,15 @@ func (m *Model) pushOverlay(v View) {
 
 func (m *Model) popOverlay() {
 	if len(m.overlayStack) == 0 {
-		switch m.currentView {
-		case ViewLeadSelector:
-			m.currentView = m.previousView
-		case ViewArtifactIndex, ViewArtifactContent, ViewLinks, ViewContracts:
-			m.currentView = ViewDetail
-		case ViewEdit:
-			m.currentView = m.previousView
+		// A view is never allowed to masquerade as an overlay without a stack
+		// entry. This fallback keeps Escape useful for models assembled directly
+		// by callers and prevents a stale modal from trapping navigation.
+		if isOverlayView(m.currentView) {
+			if isOverlayView(m.previousView) {
+				m.currentView = m.overlayBase
+			} else {
+				m.currentView = m.previousView
+			}
 		}
 		return
 	}
@@ -94,6 +100,21 @@ func (m *Model) popOverlay() {
 func (m *Model) dismissOverlays() {
 	m.overlayStack = nil
 	m.currentView = m.overlayBase
+}
+
+// replaceTopOverlay changes only the active overlay. It is used when an
+// asynchronous service result changes a selector into a conflict/details
+// surface, preserving the parent and the rest of the stack.
+func (m *Model) replaceTopOverlay(v View) {
+	if !isOverlayView(v) {
+		return
+	}
+	if len(m.overlayStack) == 0 {
+		m.pushOverlay(v)
+		return
+	}
+	m.overlayStack[len(m.overlayStack)-1] = v
+	m.currentView = v
 }
 
 // renderLayeredView renders the ordinary surface first, then applies each
@@ -113,12 +134,12 @@ func (m Model) renderLayeredView() string {
 
 func (m Model) renderOverlay(background string, v View) string {
 	content := m.renderOverlayContent(v)
-	if footer := renderModalFooter(v); footer != "" {
-		content += "\n\n" + footer
-	}
 	context := m.recallResult.Frontmatter.Name
 	if v == ViewEdit && m.targetName != "" {
 		context = m.targetName
+	}
+	if (v == ViewMergeSelector || v == ViewMergeConflictResolver) && m.mergeSourceName != "" {
+		context = m.mergeSourceName
 	}
 	if v == ViewLeadSelector {
 		context = "Dashboard"
@@ -129,7 +150,7 @@ func (m Model) renderOverlay(background string, v View) string {
 	if context == "" {
 		context = "Dossier"
 	}
-	title := fmt.Sprintf("%s · %s", context, m.overlayLabel(v))
+	title := fmt.Sprintf("%s · %s · Esc back", context, m.overlayLabel(v))
 
 	panelWidth := m.width - 8
 	if v == ViewEdit {
@@ -145,6 +166,21 @@ func (m Model) renderOverlay(background string, v View) string {
 	if panelWidth < 32 {
 		panelWidth = 32
 	}
+	footer := renderModalFooter(v)
+	if lipgloss.Width(footer) > panelWidth {
+		footer = compactModalFooter(v)
+	}
+	if footer != "" {
+		content += "\n\n" + footer
+	}
+	footerHeight := 0
+	if footer != "" {
+		footerHeight = lipgloss.Height(footer)
+	}
+	// A panel has a title, spacing, border, and padding outside its content.
+	// Budget the content before rendering rather than clipping the finished
+	// compositor, which used to remove the footer and trap the user.
+	content = fitScreen(content, panelWidth, m.height-6, footerHeight)
 	panel := overlayPanelStyle.Width(panelWidth).Render(
 		overlayTitleStyle.Render(title) + "\n\n" + content,
 	)
@@ -161,6 +197,35 @@ func (m Model) renderOverlay(background string, v View) string {
 	backgroundLayer := lipglossv2.NewLayer(background).X(0).Y(0).Z(0)
 	overlayLayer := lipglossv2.NewLayer(panel).X(x).Y(y).Z(1)
 	return clipScreenHeight(lipglossv2.NewCompositor(backgroundLayer, overlayLayer).Render(), m.height)
+}
+
+func compactModalFooter(v View) string {
+	var text string
+	switch v {
+	case ViewLeadSelector:
+		text = "enter apply · ←/→ column"
+	case ViewLinkInput:
+		text = "enter find target"
+	case ViewLinkSelector:
+		text = "enter choose target"
+	case ViewMergeSelector:
+		text = "enter merge"
+	case ViewMergeConflictResolver:
+		text = "enter apply · tab action"
+	case ViewRenameSlug:
+		text = "enter save · tab next"
+	case ViewEdit:
+		text = "enter save · tab next"
+	case ViewArtifactIndex:
+		text = "enter view artifact"
+	case ViewLinks:
+		text = "enter open link"
+	case ViewContracts:
+		text = "↑/↓ scroll"
+	default:
+		return ""
+	}
+	return overlayHintStyle.Render(text)
 }
 
 func clipScreenHeight(content string, height int) string {
@@ -281,15 +346,29 @@ func (m Model) renderFilterOverlay() string {
 		interfaceLabels[i] = option.label
 	}
 	columns := []string{
-		renderFilterColumn("Lead", leadLabels, m.leadCursor, m.filterColumn == 0, columnWidth),
-		renderFilterColumn("Interface", interfaceLabels, m.interfaceCursor, m.filterColumn == 1, columnWidth),
+		renderFilterColumn("Lead", leadLabels, m.leadCursor, m.filterColumn == 0, columnWidth, m.filterOptionRows()),
+		renderFilterColumn("Interface", interfaceLabels, m.interfaceCursor, m.filterColumn == 1, columnWidth, m.filterOptionRows()),
 	}
 	return joinModalColumns(columns...)
 }
 
-func renderFilterColumn(title string, options []string, cursor int, focused bool, width int) string {
+func (m Model) filterOptionRows() int {
+	rows := m.height - 18
+	if rows < 2 {
+		rows = 2
+	}
+	return rows
+}
+
+func renderFilterColumn(title string, options []string, cursor int, focused bool, width, visibleRows int) string {
 	var sb strings.Builder
-	for i, option := range options {
+	start, end := centeredWindow(len(options), cursor, visibleRows)
+	if start > 0 {
+		sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↑ %d more above", start)))
+		sb.WriteString("\n")
+	}
+	for i := start; i < end; i++ {
+		option := options[i]
 		marker := "( )"
 		if i == cursor {
 			marker = "(•)"
@@ -300,6 +379,10 @@ func renderFilterColumn(title string, options []string, cursor int, focused bool
 		} else {
 			sb.WriteString(line)
 		}
+		sb.WriteString("\n")
+	}
+	if end < len(options) {
+		sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↓ %d more below", len(options)-end)))
 		sb.WriteString("\n")
 	}
 	if len(options) == 0 {

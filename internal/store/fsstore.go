@@ -121,10 +121,12 @@ func (s *FSStore) List(statusFilter string) ([]core.ListedFrontmatter, error) {
 		if err != nil {
 			continue
 		}
+		artifacts, _ := s.listArtifactsInternal(fm.ID, dirPath)
 
 		if statusFilter == "all" || string(fm.Status) == statusFilter || fm.Status == core.NormalizeStatus(core.Status(statusFilter)) {
 			list = append(list, core.ListedFrontmatter{
 				Frontmatter:               *fm,
+				Revision:                  core.CalculateRevision(*fm, body, artifacts),
 				HasOpenDelegationContract: core.HasOpenDelegationContract(body),
 			})
 		}

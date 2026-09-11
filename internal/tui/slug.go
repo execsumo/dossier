@@ -42,6 +42,7 @@ func (m Model) renameSlugCmd() tea.Cmd {
 	field := m.renameField
 	slug := m.renameSlugInput.Value()
 	name := m.renameNameInput.Value()
+	requestID := m.nextRequestID()
 	return func() tea.Msg {
 		req := core.RenameReq{ID: id, BaseRevision: base}
 		if field == renameNameField {
@@ -49,8 +50,14 @@ func (m Model) renameSlugCmd() tea.Cmd {
 		} else {
 			req.NewSlug = slug
 		}
-		_, err := m.svc.Rename(context.Background(), req)
-		return renameSlugResultMsg{err: err, targetID: id}
+		res, err := m.svc.Rename(context.Background(), req)
+		return renameSlugResultMsg{
+			requestID:   requestID,
+			err:         err,
+			warnings:    res.Warnings,
+			nextActions: res.NextActions,
+			targetID:    id,
+		}
 	}
 }
 

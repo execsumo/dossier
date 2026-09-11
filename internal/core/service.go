@@ -80,6 +80,7 @@ type ListItem struct {
 	Priority    string   `json:"priority"`
 	DueDate     string   `json:"due_date,omitempty"`
 	Path        string   `json:"path"`
+	Revision    Revision `json:"revision,omitempty"`
 	// HasOpenDelegationContract reports whether any Delegation Contract block
 	// (guide.md §4) has a field that isn't yet [decided] — an attention signal
 	// a list surface can show without opening the dossier.
@@ -2104,7 +2105,8 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 	sortListedFrontmatters(filtered)
 
 	var items []ListItem
-	for _, fm := range filtered {
+	for _, listed := range filtered {
+		fm := listed.Frontmatter
 		dossierPath := filepath.Join(s.cfg.DossierHome, fm.Slug)
 		items = append(items, ListItem{
 			ID:                        fm.ID,
@@ -2118,7 +2120,8 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 			Priority:                  string(fm.Priority),
 			DueDate:                   fm.DueDate,
 			Path:                      dossierPath,
-			HasOpenDelegationContract: fm.HasOpenDelegationContract,
+			Revision:                  listed.Revision,
+			HasOpenDelegationContract: listed.HasOpenDelegationContract,
 		})
 	}
 

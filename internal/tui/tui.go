@@ -22,6 +22,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -228,57 +229,98 @@ var (
 )
 
 // Messages
-type listDossiersMsg []core.ListItem
+type listDossiersMsg struct {
+	requestID   uint64
+	items       []core.ListItem
+	warnings    []core.Warning
+	nextActions []core.NextAction
+	err         error
+}
 type recallDossierMsg struct {
-	id       string
-	result   core.RecallResult
-	err      error
-	warnings []core.Warning
+	requestID   uint64
+	id          string
+	result      core.RecallResult
+	err         error
+	warnings    []core.Warning
+	nextActions []core.NextAction
 }
 type mutationResultMsg struct {
+	requestID       uint64
 	err             error
+	warnings        []core.Warning
+	nextActions     []core.NextAction
 	prevView        View
 	targetID        string
 	addedLead       string
 	addedInterfaces []string
 }
 type renameSlugResultMsg struct {
-	err      error
-	targetID string
+	requestID   uint64
+	err         error
+	warnings    []core.Warning
+	nextActions []core.NextAction
+	targetID    string
 }
 type linkResultMsg struct {
-	err     error
-	result  core.Result
-	content string
+	requestID uint64
+	err       error
+	result    core.Result
+	content   string
 }
 type linkConfirmResultMsg struct {
-	err error
+	requestID uint64
+	id        string
+	err       error
+	result    core.Result
 }
 type mergeResultMsg struct {
-	err      error
-	result   core.Result
-	sourceID string
-	targetID string
+	requestID uint64
+	err       error
+	result    core.Result
+	sourceID  string
+	targetID  string
 }
 type artifactIndexMsg struct {
-	dossierID string
-	index     []core.ArtifactSummary
-	err       error
+	requestID   uint64
+	dossierID   string
+	index       []core.ArtifactSummary
+	warnings    []core.Warning
+	nextActions []core.NextAction
+	err         error
 }
 
 type artifactContentMsg struct {
-	content  core.ArtifactContent
-	warnings []core.Warning
-	err      error
+	requestID   uint64
+	dossierID   string
+	content     core.ArtifactContent
+	warnings    []core.Warning
+	nextActions []core.NextAction
+	err         error
 }
 
 type errMsg error
 
 type dossierUpdatedMsg struct{}
+type watcherErrorMsg struct{ err error }
 
-func waitForUpdate(updateChan <-chan string) tea.Cmd {
+type watcherEvent struct {
+	err error
+}
+
+func (m *Model) applyResultStatus(warnings []core.Warning, nextActions []core.NextAction) {
+	if len(warnings) == 0 && len(nextActions) == 0 {
+		return
+	}
+	m.warnings = warnings
+	m.nextActions = nextActions
+}
+
+func waitForUpdate(updateChan <-chan watcherEvent) tea.Cmd {
 	return func() tea.Msg {
-		<-updateChan
+		event := <-updateChan
+		if event.err != nil {
+			return watcherErrorMsg{err: event.err}
+		}
 		return dossierUpdatedMsg{}
 	}
 }
@@ -348,13 +390,17 @@ type Model struct {
 	width             int
 	height            int
 
-	// Error / Warning tracking
-	err      error
-	warnings []core.Warning
+	// Error / Warning tracking. These are the last complete Result envelope
+	// received by the TUI; adapters must not discard non-fatal guidance.
+	err         error
+	warnings    []core.Warning
+	nextActions []core.NextAction
+	watcherErr  error
+	requestSeq  *uint64
 
 	// View state helpers
 	loading        bool
-	suppressFooter bool // modal owns command help; parent warnings remain visible
+	suppressFooter bool // modal owns command help; parent status remains visible
 
 	// Mutation target cache
 	previousView       View
@@ -433,7 +479,7 @@ type Model struct {
 	openURL                    func(string) tea.Cmd
 
 	watcher      *fsnotify.Watcher
-	updateChan   chan string
+	updateChan   chan watcherEvent
 	watchedPaths map[string]bool
 }
 
@@ -494,9 +540,17 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 	renameNameInput.Width = 48
 
 	watcher, err := fsnotify.NewWatcher()
-	updateChan := make(chan string, 100)
+	updateChan := make(chan watcherEvent, 1)
 	if err == nil {
 		go func() {
+			notify := func(event watcherEvent) {
+				// A burst of writes only needs one refresh. Never let the
+				// watcher goroutine block behind the Bubble Tea event loop.
+				select {
+				case updateChan <- event:
+				default:
+				}
+			}
 			for {
 				select {
 				case event, ok := <-watcher.Events:
@@ -504,9 +558,13 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 						return
 					}
 					if event.Op.Has(fsnotify.Write) || event.Op.Has(fsnotify.Rename) || event.Op.Has(fsnotify.Create) {
-						updateChan <- "update"
+						notify(watcherEvent{})
 					}
-				case <-watcher.Errors:
+				case watchErr, ok := <-watcher.Errors:
+					if !ok {
+						return
+					}
+					notify(watcherEvent{err: fmt.Errorf("filesystem watcher: %w", watchErr)})
 				}
 			}
 		}()
@@ -520,7 +578,7 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 	helpView.Styles.FullDesc = lipgloss.NewStyle().Foreground(lightGray)
 	helpView.Styles.FullSeparator = lipgloss.NewStyle().Foreground(darkGray)
 
-	return Model{
+	m := Model{
 		svc:                  svc,
 		currentView:          ViewDashboard,
 		listView:             ViewDashboard,
@@ -540,6 +598,7 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		watcher:              watcher,
 		updateChan:           updateChan,
 		watchedPaths:         map[string]bool{},
+		requestSeq:           new(uint64),
 		openWith:             openWith,
 		planOpenWith:         harness.PlanOpenWith,
 		persistConfiguredLead: func(name string) error {
@@ -551,6 +610,22 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		execProcess: tea.ExecProcess,
 		openURL:     launchExternalURL,
 	}
+	if err != nil {
+		m.watcherErr = fmt.Errorf("filesystem watcher unavailable: %w", err)
+	}
+	return m
+}
+
+// Close releases the model-owned filesystem watcher. Callers that construct a
+// model outside Run, including headless tests, own this lifecycle explicitly.
+func (m *Model) Close() error {
+	if m.watcher == nil {
+		return nil
+	}
+	err := m.watcher.Close()
+	m.watcher = nil
+	m.watchedPaths = nil
+	return err
 }
 
 // persistLeadToConfig and persistInterfaceToConfig expand the machine-local
@@ -586,7 +661,8 @@ func persistVocabularyValue(path, name string, values func(*config.Config) *[]st
 }
 
 // syncWatches makes the fsnotify watch set exactly match paths, adding new ones
-// and dropping stale ones. Failures to add/remove a single path are non-fatal.
+// and dropping stale ones. Watch failures are surfaced in the TUI instead of
+// silently disabling hot refresh.
 func (m *Model) syncWatches(paths []string) {
 	if m.watcher == nil {
 		return
@@ -600,12 +676,16 @@ func (m *Model) syncWatches(paths []string) {
 		if !m.watchedPaths[p] {
 			if err := m.watcher.Add(p); err == nil {
 				m.watchedPaths[p] = true
+			} else {
+				m.watcherErr = fmt.Errorf("watch dossier directory %q: %w", p, err)
 			}
 		}
 	}
 	for p := range m.watchedPaths {
 		if !desired[p] {
-			_ = m.watcher.Remove(p)
+			if err := m.watcher.Remove(p); err != nil {
+				m.watcherErr = fmt.Errorf("remove dossier watch %q: %w", p, err)
+			}
 			delete(m.watchedPaths, p)
 		}
 	}
@@ -618,6 +698,8 @@ func (m *Model) ensureWatch(path string) {
 	}
 	if err := m.watcher.Add(path); err == nil {
 		m.watchedPaths[path] = true
+	} else {
+		m.watcherErr = fmt.Errorf("watch dossier directory %q: %w", path, err)
 	}
 }
 
@@ -626,38 +708,62 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.listDossiersCmd(), waitForUpdate(m.updateChan))
 }
 
+func (m Model) nextRequestID() uint64 {
+	if m.requestSeq == nil {
+		return 0
+	}
+	*m.requestSeq++
+	return *m.requestSeq
+}
+
+func (m Model) acceptsRequest(id uint64) bool {
+	return id == 0 || m.requestSeq == nil || id == *m.requestSeq
+}
+
 // listDossiersCmd fetches the dossier list asynchronously.
 func (m Model) listDossiersCmd() tea.Cmd {
+	requestID := m.nextRequestID()
 	return func() tea.Msg {
 		// Fetch every status so resolved/archived dossiers are available for meeting
 		// prep and can be surfaced when the dashboard's extras are expanded.
 		res, err := m.svc.List(context.Background(), core.ListReq{Status: "all"})
 		if err != nil {
-			return errMsg(err)
+			return listDossiersMsg{requestID: requestID, err: err}
 		}
 		items, ok := res.Data.([]core.ListItem)
 		if !ok {
-			return errMsg(fmt.Errorf("invalid list data type"))
+			return listDossiersMsg{
+				requestID: requestID,
+				err:       fmt.Errorf("invalid list data type"),
+			}
 		}
-		return listDossiersMsg(items)
+		return listDossiersMsg{
+			requestID:   requestID,
+			items:       items,
+			warnings:    res.Warnings,
+			nextActions: res.NextActions,
+		}
 	}
 }
 
 // recallDossierCmd fetches the details of a specific dossier.
 func (m Model) recallDossierCmd(id string) tea.Cmd {
+	requestID := m.nextRequestID()
 	return func() tea.Msg {
 		res, err := m.svc.Recall(context.Background(), core.RecallReq{ID: id})
 		if err != nil {
-			return recallDossierMsg{id: id, err: err}
+			return recallDossierMsg{requestID: requestID, id: id, err: err}
 		}
 		recallRes, ok := res.Data.(core.RecallResult)
 		if !ok {
-			return recallDossierMsg{id: id, err: fmt.Errorf("invalid recall data type")}
+			return recallDossierMsg{requestID: requestID, id: id, err: fmt.Errorf("invalid recall data type")}
 		}
 		return recallDossierMsg{
-			id:       id,
-			result:   recallRes,
-			warnings: res.Warnings,
+			requestID:   requestID,
+			id:          id,
+			result:      recallRes,
+			warnings:    res.Warnings,
+			nextActions: res.NextActions,
 		}
 	}
 }
@@ -665,58 +771,69 @@ func (m Model) recallDossierCmd(id string) tea.Cmd {
 // listArtifactsCmd fetches a dossier's evidence index, mirroring
 // `dossier artifact <slug>`.
 func (m Model) listArtifactsCmd(dossierID string) tea.Cmd {
+	requestID := m.nextRequestID()
 	return func() tea.Msg {
 		res, err := m.svc.ListArtifacts(context.Background(), core.ListArtifactsReq{DossierID: dossierID})
 		if err != nil {
-			return artifactIndexMsg{dossierID: dossierID, err: err}
+			return artifactIndexMsg{requestID: requestID, dossierID: dossierID, err: err}
 		}
 		index, ok := res.Data.([]core.ArtifactSummary)
 		if !ok {
-			return artifactIndexMsg{dossierID: dossierID, err: fmt.Errorf("invalid artifact index data type")}
+			return artifactIndexMsg{requestID: requestID, dossierID: dossierID, err: fmt.Errorf("invalid artifact index data type")}
 		}
-		return artifactIndexMsg{dossierID: dossierID, index: index}
+		return artifactIndexMsg{
+			requestID:   requestID,
+			dossierID:   dossierID,
+			index:       index,
+			warnings:    res.Warnings,
+			nextActions: res.NextActions,
+		}
 	}
 }
 
 // readArtifactCmd fetches one artifact's line-numbered content, mirroring
 // `dossier artifact <slug> <artifact-id>`.
 func (m Model) readArtifactCmd(dossierID, artifactID string) tea.Cmd {
+	requestID := m.nextRequestID()
 	return func() tea.Msg {
 		res, err := m.svc.ReadArtifact(context.Background(), core.ReadArtifactReq{DossierID: dossierID, ArtifactID: artifactID})
 		if err != nil {
-			return artifactContentMsg{err: err}
+			return artifactContentMsg{requestID: requestID, dossierID: dossierID, err: err}
 		}
 		content, ok := res.Data.(core.ArtifactContent)
 		if !ok {
-			return artifactContentMsg{err: fmt.Errorf("invalid artifact content data type")}
+			return artifactContentMsg{requestID: requestID, dossierID: dossierID, err: fmt.Errorf("invalid artifact content data type")}
 		}
-		return artifactContentMsg{content: content, warnings: res.Warnings}
+		return artifactContentMsg{requestID: requestID, dossierID: dossierID, content: content, warnings: res.Warnings, nextActions: res.NextActions}
 	}
 }
 
 func (m Model) firstLinkCmd(content string) tea.Cmd {
+	requestID := m.nextRequestID()
 	return func() tea.Msg {
 		res, err := m.svc.Link(context.Background(), core.LinkReq{
 			ID:      "",
 			Content: content,
 			Title:   "TUI Interactive Link",
 		})
-		return linkResultMsg{err: err, result: res, content: content}
+		return linkResultMsg{requestID: requestID, err: err, result: res, content: content}
 	}
 }
 
 func (m Model) confirmLinkCmd(id string, content string) tea.Cmd {
+	requestID := m.nextRequestID()
 	return func() tea.Msg {
-		_, err := m.svc.Link(context.Background(), core.LinkReq{
+		res, err := m.svc.Link(context.Background(), core.LinkReq{
 			ID:      id,
 			Content: content,
 			Title:   "TUI Interactive Link",
 		})
-		return linkConfirmResultMsg{err: err}
+		return linkConfirmResultMsg{requestID: requestID, id: id, err: err, result: res}
 	}
 }
 
 func (m Model) mergeCmd(sourceID, targetID string, resolved []string) tea.Cmd {
+	requestID := m.nextRequestID()
 	return func() tea.Msg {
 		res, err := m.svc.Merge(context.Background(), core.MergeReq{
 			SourceID:          sourceID,
@@ -724,10 +841,11 @@ func (m Model) mergeCmd(sourceID, targetID string, resolved []string) tea.Cmd {
 			ResolvedConflicts: resolved,
 		})
 		return mergeResultMsg{
-			err:      err,
-			result:   res,
-			sourceID: sourceID,
-			targetID: targetID,
+			requestID: requestID,
+			err:       err,
+			result:    res,
+			sourceID:  sourceID,
+			targetID:  targetID,
 		}
 	}
 }
@@ -750,6 +868,69 @@ func (m Model) selectedListItem() (core.ListItem, bool) {
 	return m.visibleItems[itemIdx], true
 }
 
+// selectedHomeID returns the immutable identity of the selected dossier across
+// dashboard/board refreshes. It deliberately ignores row position, which can
+// change when an external save changes priority, stage, or filters.
+func (m Model) selectedHomeID() string {
+	if m.recallResult.Frontmatter.ID != "" && (m.currentView == ViewDetail ||
+		(m.hasOverlay() && m.overlayBase == ViewDetail)) {
+		return m.recallResult.Frontmatter.ID
+	}
+	base := m.currentView
+	if m.hasOverlay() {
+		base = m.overlayBase
+	}
+	if base == ViewDashboard {
+		itemIdx, isToggle := m.rowToItemIndex(m.table.Cursor())
+		if !isToggle && itemIdx >= 0 && itemIdx < len(m.visibleItems) {
+			return m.visibleItems[itemIdx].ID
+		}
+		return ""
+	}
+	if base == ViewKanban {
+		if item, ok := m.selectedKanbanItem(); ok {
+			return item.ID
+		}
+	}
+	return ""
+}
+
+func (m *Model) restoreHomeSelection(id string) {
+	if id == "" {
+		m.table.SetCursor(0)
+		m.clampKanbanCursor()
+		return
+	}
+	foundTable := false
+	for i, item := range m.visibleItems {
+		if item.ID != id {
+			continue
+		}
+		row := i
+		if i >= m.liveCount && m.extrasCount > 0 {
+			row++
+		}
+		m.table.SetCursor(row)
+		foundTable = true
+		break
+	}
+	for col, items := range m.kanbanColumns {
+		for row, candidate := range items {
+			if candidate.ID == id {
+				m.kanbanCol = col
+				m.kanbanRow = row
+				m.clampKanbanCursor()
+				return
+			}
+		}
+	}
+	if foundTable {
+		return
+	}
+	m.table.SetCursor(0)
+	m.clampKanbanCursor()
+}
+
 func targetFromListItem(item core.ListItem) targetDossier {
 	return targetDossier{
 		id:           item.ID,
@@ -761,7 +942,7 @@ func targetFromListItem(item core.ListItem) targetDossier {
 		nextAction:   item.NextAction,
 		lead:         item.Lead,
 		interfaces:   append([]string{}, item.Interfaces...),
-		baseRevision: "", // List rows do not carry a revision.
+		baseRevision: item.Revision,
 	}
 }
 
@@ -804,6 +985,7 @@ func (m Model) openInAgent(t targetDossier) (tea.Model, tea.Cmd) {
 		m.err = err
 		return m, nil
 	}
+	m.applyResultStatus(res.Warnings, res.NextActions)
 	dir, _ := res.Data.(string)
 	if dir == "" {
 		// Launching with an empty Dir would silently run the agent in the TUI's own
@@ -833,11 +1015,13 @@ func (m Model) openInAgent(t targetDossier) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if _, err := m.svc.Switch(ctx, core.SwitchReq{
+	switchRes, err := m.svc.Switch(ctx, core.SwitchReq{
 		ID:          t.id,
 		SessionID:   sessionID,
 		HarnessName: m.openWith,
-	}); err != nil {
+	})
+	m.applyResultStatus(switchRes.Warnings, switchRes.NextActions)
+	if err != nil {
 		m.err = err
 		return m, nil
 	}
@@ -1296,7 +1480,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// View-specific key overrides
-		if msg.String() == "?" && (m.isListView() || m.currentView == ViewDetail || m.currentView == ViewArtifactIndex || m.currentView == ViewArtifactContent || m.currentView == ViewLinks) {
+		if msg.String() == "?" && (m.isListView() || m.currentView == ViewDetail || (isOverlayView(m.currentView) && m.currentView != ViewLinkInput && m.currentView != ViewEdit && m.currentView != ViewRenameSlug)) {
 			m.toggleHelp()
 			return m, nil
 		}
@@ -1526,11 +1710,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "ctrl+r":
+			m.loading = true
+			m.err = nil
+			if m.recallResult.Frontmatter.ID != "" &&
+				(m.currentView == ViewDetail || (m.hasOverlay() && m.overlayBase == ViewDetail)) {
+				return m, m.recallDossierCmd(m.recallResult.Frontmatter.ID)
+			}
+			return m, m.listDossiersCmd()
 		case "esc", "backspace", "left":
 			switch m.currentView {
 			case ViewDetail:
 				m.currentView = m.listView
 				m.warnings = nil
+				m.nextActions = nil
 				m.err = nil
 				m.table.Focus()
 				return m, m.listDossiersCmd()
@@ -1657,6 +1850,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentView == ViewDetail {
 				m.currentView = m.listView
 				m.warnings = nil
+				m.nextActions = nil
 				m.err = nil
 				m.table.Focus()
 				return m, m.listDossiersCmd()
@@ -1695,21 +1889,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case listDossiersMsg:
+		if !m.acceptsRequest(msg.requestID) {
+			return m, nil
+		}
 		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		selectedID := m.selectedHomeID()
 
-		sort.Slice(msg, func(i, j int) bool {
+		sort.Slice(msg.items, func(i, j int) bool {
 			// Live work (active/waiting/blocked) always sorts above terminal work
 			// (resolved/archived). We fetch all statuses so a lead's finished
 			// dossiers are on hand for meeting prep, but that must never bury open
 			// work beneath a high-priority archived item.
-			if ti, tj := statusTier(msg[i].Status), statusTier(msg[j].Status); ti != tj {
+			if ti, tj := statusTier(msg.items[i].Status), statusTier(msg.items[j].Status); ti != tj {
 				return ti < tj
 			}
-			if msg[i].Priority != msg[j].Priority {
-				return priorityBefore(core.Priority(msg[i].Priority), core.Priority(msg[j].Priority))
+			if msg.items[i].Priority != msg.items[j].Priority {
+				return priorityBefore(core.Priority(msg.items[i].Priority), core.Priority(msg.items[j].Priority))
 			}
-			d1 := msg[i].DueDate
-			d2 := msg[j].DueDate
+			d1 := msg.items[i].DueDate
+			d2 := msg.items[j].DueDate
 			if d1 != d2 {
 				if d1 == "" {
 					return false
@@ -1722,7 +1924,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return false
 		})
 
-		m.setItems(msg)
+		m.setItems(msg.items)
+		m.applyResultStatus(msg.warnings, msg.nextActions)
 
 		// Re-derive lead options on every refresh so newly-assigned leads appear,
 		// while preserving the active filter (and the search box) across hot-reloads.
@@ -1737,40 +1940,51 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.applyFilters()
 		m.populateTableRows()
-		if len(m.visibleItems) > 0 {
-			m.table.SetCursor(0)
-		}
+		m.restoreHomeSelection(selectedID)
 
 		// Watch every dossier directory so the dashboard live-refreshes on
 		// external edits, plus the currently open dossier if it isn't listed.
 		var watchPaths []string
-		for _, item := range msg {
+		for _, item := range msg.items {
 			watchPaths = append(watchPaths, item.Path)
 		}
-		if m.currentView == ViewDetail {
+		if m.currentView == ViewDetail || (m.hasOverlay() && m.overlayBase == ViewDetail) {
 			watchPaths = append(watchPaths, m.recallResult.Path)
 		}
 		m.syncWatches(watchPaths)
 
 	case recallDossierMsg:
+		if !m.acceptsRequest(msg.requestID) {
+			return m, nil
+		}
 		m.loading = false
 		if msg.err != nil {
 			m.linksAfterRecall = false
 			m.err = msg.err
 		} else {
+			wasOverlay := m.hasOverlay()
+			activeView := m.currentView
 			m.recallResult = msg.result
 			if m.linksAfterRecall {
 				m.linksAfterRecall = false
 				m.currentView = m.linksReturnView
 				m.externalLinkCursor = 0
 				m.pushOverlay(ViewLinks)
+			} else if wasOverlay && isOverlayView(activeView) {
+				// Hot refresh updates the underlying detail without changing
+				// the active modal. Escape must still pop the same overlay.
+				m.currentView = activeView
 			} else {
 				m.currentView = ViewDetail
 			}
-			m.warnings = msg.warnings
+			m.applyResultStatus(msg.warnings, msg.nextActions)
 			m.viewport.SetContent(m.renderMarkdown(msg.result.DistilledState))
 			m.recalculateViewportLayout()
 			m.viewport.YOffset = 0
+			if m.currentView == ViewContracts {
+				m.contracts = core.ParseDelegationContracts(msg.result.DistilledState)
+				m.contractsViewport.SetContent(renderContractsChecklist(m.contracts))
+			}
 
 			// Recall returns the dossier's directory path; sync watches including
 			// the new path and any currently listed dashboard items to prevent leaks
@@ -1786,6 +2000,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case artifactIndexMsg:
+		if !m.acceptsRequest(msg.requestID) || msg.dossierID != m.recallResult.Frontmatter.ID {
+			return m, nil
+		}
 		m.loading = false
 		if msg.err != nil {
 			m.err = msg.err
@@ -1793,17 +2010,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pushOverlay(ViewArtifactIndex)
 			m.artifactIndex = msg.index
 			m.artifactCursor = 0
+			m.applyResultStatus(msg.warnings, msg.nextActions)
 			m.err = nil
 		}
 
 	case artifactContentMsg:
+		if !m.acceptsRequest(msg.requestID) || msg.dossierID != m.recallResult.Frontmatter.ID {
+			return m, nil
+		}
 		m.loading = false
 		if msg.err != nil {
 			m.err = msg.err
 		} else {
 			m.pushOverlay(ViewArtifactContent)
 			m.artifactContent = msg.content
-			m.warnings = msg.warnings
+			m.applyResultStatus(msg.warnings, msg.nextActions)
 			m.artifactViewport.SetContent(renderArtifactContent(msg.content))
 			m.recalculateArtifactViewportLayout()
 			m.artifactViewport.GotoTop()
@@ -1811,14 +2032,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case linkResultMsg:
+		if !m.acceptsRequest(msg.requestID) {
+			return m, nil
+		}
 		m.loading = false
+		m.applyResultStatus(msg.result.Warnings, msg.result.NextActions)
 		if msg.err != nil {
 			// Check if it's a domain error code for ambiguity
 			if dErr, ok := msg.err.(*core.DomainError); ok && dErr.Code == core.ErrAmbiguousTarget {
 				suggestions, ok := msg.result.Data.([]core.Suggestion)
 				if ok && len(suggestions) > 0 {
-					m.overlayStack[len(m.overlayStack)-1] = ViewLinkSelector
-					m.currentView = ViewLinkSelector
+					m.replaceTopOverlay(ViewLinkSelector)
 					m.linkSuggestions = suggestions
 					m.linkContent = msg.content
 					m.linkCursor = 0
@@ -1829,28 +2053,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dismissOverlays()
 		} else {
 			m.dismissOverlays()
+			m.applyResultStatus(msg.result.Warnings, msg.result.NextActions)
 			m.err = nil
 			return m, m.listDossiersCmd()
 		}
 
 	case linkConfirmResultMsg:
+		if !m.acceptsRequest(msg.requestID) {
+			return m, nil
+		}
 		m.loading = false
 		m.dismissOverlays()
 		if msg.err != nil {
 			m.err = msg.err
 		} else {
+			m.applyResultStatus(msg.result.Warnings, msg.result.NextActions)
 			m.err = nil
 			return m, m.listDossiersCmd()
 		}
 
 	case mergeResultMsg:
+		if !m.acceptsRequest(msg.requestID) {
+			return m, nil
+		}
 		m.loading = false
+		m.applyResultStatus(msg.result.Warnings, msg.result.NextActions)
 		if msg.err != nil {
 			if dErr, ok := msg.err.(*core.DomainError); ok && dErr.Code == core.ErrConflictDetected {
 				conflict, ok := msg.result.Data.(*core.Conflict)
 				if ok {
-					m.overlayStack[len(m.overlayStack)-1] = ViewMergeConflictResolver
-					m.currentView = ViewMergeConflictResolver
+					m.replaceTopOverlay(ViewMergeConflictResolver)
 					m.mergeConflict = conflict
 					diffMd := fmt.Sprintf("```diff\n%s\n```", conflict.DiffAgainstCurrent)
 					m.conflictViewport.SetContent(m.renderMarkdown(diffMd))
@@ -1863,13 +2095,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dismissOverlays()
 		} else {
 			m.dismissOverlays()
+			m.applyResultStatus(msg.result.Warnings, msg.result.NextActions)
 			m.err = nil
 			// Show success info
 			return m, m.listDossiersCmd()
 		}
 
 	case renameSlugResultMsg:
+		if !m.acceptsRequest(msg.requestID) || (m.targetID != "" && msg.targetID != m.targetID) {
+			return m, nil
+		}
 		m.loading = false
+		m.applyResultStatus(msg.warnings, msg.nextActions)
 		if msg.err != nil {
 			m.err = msg.err
 			m.currentView = ViewRenameSlug
@@ -1883,7 +2120,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case mutationResultMsg:
+		if !m.acceptsRequest(msg.requestID) || (m.targetID != "" && msg.targetID != m.targetID) {
+			return m, nil
+		}
 		m.loading = false
+		m.applyResultStatus(msg.warnings, msg.nextActions)
 		if m.currentView == ViewEdit && m.hasOverlay() {
 			m.popOverlay()
 		}
@@ -1933,9 +2174,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.err = msg
 
+	case watcherErrorMsg:
+		m.loading = false
+		m.watcherErr = msg.err
+
 	case dossierUpdatedMsg:
 		cmds = append(cmds, waitForUpdate(m.updateChan))
-		if (m.currentView == ViewDetail || m.currentView == ViewLinks) && m.recallResult.Frontmatter.ID != "" {
+		if m.recallResult.Frontmatter.ID != "" &&
+			(m.currentView == ViewDetail || (m.hasOverlay() && m.overlayBase == ViewDetail)) {
 			m.loading = true
 			cmds = append(cmds, m.recallDossierCmd(m.recallResult.Frontmatter.ID))
 		} else if m.isListView() || m.currentView == ViewLeadSelector {
@@ -2485,7 +2731,7 @@ func (m Model) renderDetailMetadata() string {
 
 	leadLabel := fm.Lead
 	if leadLabel == "" {
-		leadLabel = "Unassigned (Me)"
+		leadLabel = "Unassigned"
 	}
 
 	sb.WriteString(renderRow("Dossier:", fm.Name))
@@ -2494,16 +2740,15 @@ func (m Model) renderDetailMetadata() string {
 		sb.WriteString(renderRow("Summary:", fm.Description))
 	}
 	sb.WriteString(renderTwoCols(
-		"Stage:", string(fm.Status),
 		"Priority:", string(fm.Priority),
+		"Stage:", string(fm.Status),
 	))
 	sb.WriteString(renderTwoCols(
 		"Lead:", leadLabel,
-		"Interfaces:", strings.Join(fm.Interfaces, ", "),
+		"Due:", fm.DueDate,
 	))
-	if fm.DueDate != "" {
-		sb.WriteString(renderRow("Due:", fm.DueDate))
-	}
+	sb.WriteString(renderRow("Interfaces:", strings.Join(fm.Interfaces, ", ")))
+	sb.WriteString(renderRow("Tokens:", fmt.Sprintf("%d estimated", m.recallResult.TokenEstimate)))
 	sb.WriteString(renderRow("Next:", fm.NextAction))
 
 	w := m.width
@@ -2516,14 +2761,67 @@ func (m Model) renderDetailMetadata() string {
 }
 
 func (m Model) footerWarnings() string {
-	if len(m.warnings) == 0 {
+	lines := m.statusLines()
+	if len(lines) == 0 {
 		return ""
 	}
-	parts := make([]string, 0, len(m.warnings))
-	for _, w := range m.warnings {
-		parts = append(parts, warningStyle.Render(fmt.Sprintf("⚠ %s", w)))
+	parts := make([]string, 0, len(lines))
+	for _, line := range lines {
+		parts = append(parts, line)
 	}
 	return strings.Join(parts, "\n")
+}
+
+// statusLines is the one bounded status area for the complete core.Result
+// envelope. It deliberately keeps the action footer below it and summarizes
+// excess guidance rather than pushing quit/save controls off-screen.
+func (m Model) statusLines() []string {
+	if len(m.warnings) == 0 && len(m.nextActions) == 0 {
+		if m.watcherErr == nil {
+			return nil
+		}
+	}
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	if width > 2 {
+		width -= 2 // footerStyle adds one cell of padding on each side
+	}
+	maxLines := 4
+	if m.height > 0 && m.height/5 < maxLines {
+		maxLines = m.height / 5
+	}
+	if maxLines < 2 {
+		maxLines = 2
+	}
+
+	var lines []string
+	appendMessage := func(prefix, text string, style lipgloss.Style) {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return
+		}
+		for _, line := range wrapCell(prefix+text, width) {
+			lines = append(lines, style.Render(line))
+		}
+	}
+	for _, warning := range m.warnings {
+		appendMessage("⚠ ", string(warning), warningStyle)
+	}
+	if m.watcherErr != nil {
+		appendMessage("⚠ ", m.watcherErr.Error(), warningStyle)
+	}
+	for _, action := range m.nextActions {
+		appendMessage("→ ", string(action), metaValueStyle)
+	}
+	if len(lines) <= maxLines {
+		return lines
+	}
+	remaining := len(lines) - (maxLines - 1)
+	lines = lines[:maxLines-1]
+	lines = append(lines, overlayMutedStyle.Render(fmt.Sprintf("… %d more status message(s)", remaining)))
+	return lines
 }
 
 func (m Model) footerContent(v View) string {
@@ -2536,14 +2834,25 @@ func (m Model) footerContent(v View) string {
 	if w <= 0 {
 		w = 80
 	}
-	m.help.Width = w
+	contentWidth := w
+	if contentWidth > 2 {
+		contentWidth -= 2
+	}
+	m.help.Width = contentWidth
 	if m.searchActive && m.isListView() {
 		footerParts = append(footerParts, m.help.View(m.searchHelpKeyMap()))
 	} else {
 		footerParts = append(footerParts, m.help.View(m.helpKeyMap(v)))
 	}
 
-	return footerStyle.Width(w).Render(strings.Join(footerParts, "\n"))
+	footer := strings.Join(footerParts, "\n")
+	lines := strings.Split(footer, "\n")
+	for i, line := range lines {
+		if ansi.StringWidth(line) > contentWidth {
+			lines[i] = ansi.Truncate(line, contentWidth, "…")
+		}
+	}
+	return footerStyle.Width(contentWidth).Render(strings.Join(lines, "\n"))
 }
 
 // toggleHelp changes the Bubbles help mode and immediately refits every
@@ -2648,6 +2957,9 @@ func pinEmptyNotice(view, notice string, headerLines int) string {
 
 // View renders the base screen and any contextual overlays based on state.
 func (m Model) View() string {
+	if terminalTooSmall(m.width, m.height) {
+		return renderTooSmall(m.width, m.height, m.hasOverlay())
+	}
 	if m.hasOverlay() {
 		return m.renderLayeredView()
 	}
@@ -2681,8 +2993,11 @@ func (m Model) renderNormalView() string {
 
 	case ViewDashboard:
 		archivedNote := ""
-		if m.extrasCount > 0 && !m.extrasExpanded {
+		extrasVisible := m.extrasExpanded || !m.searchQuery.IsEmpty()
+		if m.extrasCount > 0 && !extrasVisible {
 			archivedNote = " · resolved/archived hidden"
+		} else if m.extrasCount > 0 {
+			archivedNote = " · resolved/archived shown"
 		}
 		sb.WriteString(m.renderListSubtitle(fmt.Sprintf(" %s — Dashboard%s", subheadline, archivedNote)))
 		sb.WriteString("\n\n")
@@ -2813,7 +3128,11 @@ func (m Model) renderNormalView() string {
 		sb.WriteString(footerStyle.Width(w).Render(warnings))
 	}
 
-	return sb.String()
+	footerHeight := 0
+	if !m.suppressFooter {
+		footerHeight = m.footerHeight(m.currentView)
+	}
+	return fitScreen(sb.String(), m.width, m.height, footerHeight)
 }
 
 // Run sets up the program, enters the alt-screen, and executes.
@@ -2827,9 +3146,7 @@ func Run(ctx context.Context, svc *core.Service, openWith ...string) error {
 		configured = openWith[0]
 	}
 	m := NewModelWithOpenWith(svc, configured)
-	if m.watcher != nil {
-		defer m.watcher.Close()
-	}
+	defer m.Close()
 	p := tea.NewProgram(
 		m,
 		tea.WithAltScreen(),

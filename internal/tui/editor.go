@@ -330,14 +330,15 @@ func (m Model) editUpdates() map[string]any {
 // the combined form: a triage pass that used to cost three revisions and three
 // audit entries is now one of each.
 func (m Model) saveEditCmd(id string, baseRev core.Revision, updates map[string]any) tea.Cmd {
+	requestID := m.nextRequestID()
 	return func() tea.Msg {
 		addedLead := ""
 		if lead, changed := updates["lead"].(string); changed && lead != "" && !m.isConfiguredLead(lead) {
 			if m.persistConfiguredLead == nil {
-				return mutationResultMsg{err: fmt.Errorf("cannot persist new lead %q: config persistence is unavailable", lead), prevView: m.previousView, targetID: id}
+				return mutationResultMsg{requestID: requestID, err: fmt.Errorf("cannot persist new lead %q: config persistence is unavailable", lead), prevView: m.previousView, targetID: id}
 			}
 			if err := m.persistConfiguredLead(lead); err != nil {
-				return mutationResultMsg{err: fmt.Errorf("add lead %q to config: %w", lead, err), prevView: m.previousView, targetID: id}
+				return mutationResultMsg{requestID: requestID, err: fmt.Errorf("add lead %q to config: %w", lead, err), prevView: m.previousView, targetID: id}
 			}
 			m.svc.AddLead(lead)
 			addedLead = lead
@@ -349,21 +350,30 @@ func (m Model) saveEditCmd(id string, baseRev core.Revision, updates map[string]
 					continue
 				}
 				if m.persistConfiguredInterface == nil {
-					return mutationResultMsg{err: fmt.Errorf("cannot persist new interface %q: config persistence is unavailable", iface), prevView: m.previousView, targetID: id}
+					return mutationResultMsg{requestID: requestID, err: fmt.Errorf("cannot persist new interface %q: config persistence is unavailable", iface), prevView: m.previousView, targetID: id}
 				}
 				if err := m.persistConfiguredInterface(iface); err != nil {
-					return mutationResultMsg{err: fmt.Errorf("add interface %q to config: %w", iface, err), prevView: m.previousView, targetID: id}
+					return mutationResultMsg{requestID: requestID, err: fmt.Errorf("add interface %q to config: %w", iface, err), prevView: m.previousView, targetID: id}
 				}
 				m.svc.AddInterface(iface)
 				addedInterfaces = append(addedInterfaces, iface)
 			}
 		}
-		_, err := m.svc.Save(context.Background(), core.SaveReq{
+		res, err := m.svc.Save(context.Background(), core.SaveReq{
 			ID:                 id,
 			BaseRevision:       baseRev,
 			FrontmatterUpdates: updates,
 		})
-		return mutationResultMsg{err: err, prevView: m.previousView, targetID: id, addedLead: addedLead, addedInterfaces: addedInterfaces}
+		return mutationResultMsg{
+			requestID:       requestID,
+			err:             err,
+			warnings:        res.Warnings,
+			nextActions:     res.NextActions,
+			prevView:        m.previousView,
+			targetID:        id,
+			addedLead:       addedLead,
+			addedInterfaces: addedInterfaces,
+		}
 	}
 }
 
@@ -602,6 +612,46 @@ func (m Model) renderEditor() string {
 	if width <= 0 {
 		width = 100
 	}
+	textWidth := width - 18
+	if textWidth < 12 {
+		textWidth = 12
+	}
+	if textWidth > 60 {
+		textWidth = 60
+	}
+	m.dueDateInput.Width = textWidth
+	m.nextActionInput.Width = textWidth
+
+	due := m.editTextValue(editFieldDue, m.dueDateInput.View(), m.dueDateInput.Value())
+	next := m.editTextValue(editFieldNextAction, m.nextActionInput.View(), m.nextActionInput.Value())
+
+	// Four side-by-side enum columns are useful on a wide terminal but become
+	// clipped controls below 90 cells. At that point show the active value for
+	// every field in a compact, vertically navigable form. Keyboard cycling is
+	// unchanged, and the modal footer remains reachable.
+	if width < 90 {
+		lead := m.selectedEditLead()
+		if m.editLeadCustom && m.editFocus == editFieldLead {
+			lead = m.editLeadCustomInput.View()
+		}
+		if lead == "" {
+			lead = "Unassigned"
+		}
+		interfaces := strings.Join(m.selectedEditInterfaces(), ", ")
+		if interfaces == "" {
+			interfaces = "(none)"
+		}
+		rows := []string{
+			renderEditTextRow("Due date", due, m.editFocus == editFieldDue),
+			renderEditTextRow("Next action", next, m.editFocus == editFieldNextAction),
+			renderEditTextRow("Stage", string(m.editStatus), m.editFocus == editFieldStage),
+			renderEditTextRow("Priority", string(m.editPriority), m.editFocus == editFieldPriority),
+			renderEditTextRow("Lead", lead, m.editFocus == editFieldLead),
+			renderEditTextRow("Interfaces", interfaces, m.editFocus == editFieldInterfaces),
+		}
+		return strings.Join(rows, "\n")
+	}
+
 	columnWidth := (width - 24) / 4
 	if columnWidth < 14 {
 		columnWidth = 14
@@ -610,8 +660,6 @@ func (m Model) renderEditor() string {
 		columnWidth = 22
 	}
 
-	due := m.editTextValue(editFieldDue, m.dueDateInput.View(), m.dueDateInput.Value())
-	next := m.editTextValue(editFieldNextAction, m.nextActionInput.View(), m.nextActionInput.Value())
 	columns := []string{
 		renderEnumColumn("Stage", core.CanonicalStatuses(), m.editStatus, m.editFocus == editFieldStage, columnWidth),
 		renderEnumColumn("Priority", priorityOptions, m.editPriority, m.editFocus == editFieldPriority, columnWidth),

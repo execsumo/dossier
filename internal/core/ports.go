@@ -15,6 +15,10 @@ type Revision string
 // implementation already had to read and parse to extract Frontmatter.
 type ListedFrontmatter struct {
 	Frontmatter
+	// Revision is the current content revision when the store can derive it
+	// during its frontmatter scan. List surfaces use it as the optimistic
+	// concurrency base when opening an editor without a second read.
+	Revision Revision
 	// HasOpenDelegationContract reports whether any `## Delegation Contracts`
 	// block in the body has a field that isn't yet [decided] (guide.md §4).
 	HasOpenDelegationContract bool
