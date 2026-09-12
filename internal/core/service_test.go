@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -184,6 +185,41 @@ type localFakeStore struct {
 	artifactFileIssues []string
 }
 
+type scanningStore struct {
+	*localFakeStore
+	scanned int
+	reads   int
+}
+
+func (s *scanningStore) ScanDossiers(statusFilter string, visit func(*Dossier) error) error {
+	for _, d := range s.dossiers {
+		s.scanned++
+		cp := *d
+		if err := visit(&cp); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *scanningStore) Read(id string) (*Dossier, Revision, error) {
+	s.reads++
+	return s.localFakeStore.Read(id)
+}
+
+type flakyListStore struct {
+	*localFakeStore
+	failures int
+}
+
+func (s *flakyListStore) List(filter string) ([]ListedFrontmatter, error) {
+	if s.failures > 0 {
+		s.failures--
+		return nil, errors.New("injected list failure")
+	}
+	return s.localFakeStore.List(filter)
+}
+
 func newLocalFakeStore() *localFakeStore {
 	return &localFakeStore{
 		dossiers:  make(map[string]*Dossier),
@@ -197,6 +233,105 @@ func newLocalFakeStore() *localFakeStore {
 			"guide.md":        "GUIDE BODY",
 			"instructions.md": "INSTRUCTIONS BODY",
 		},
+	}
+}
+
+func TestPromoteReturnsAmbiguityWithoutPlatformInteraction(t *testing.T) {
+	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+	base := newLocalFakeStore()
+	base.dossiers["dos_existing"] = &Dossier{
+		Frontmatter: Frontmatter{
+			ID: "dos_existing", Name: "Pricing review", Slug: "pricing-review",
+			Status: StatusExecute, Priority: PriorityHigh, UpdatedAt: now,
+		},
+		DistilledState: DistilledState{Body: "Pricing decisions"},
+	}
+	store := &scanningStore{localFakeStore: base}
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{},
+		&mockClock{now: now}, Config{}, nil)
+
+	res, err := svc.Promote(context.Background(), PromoteReq{Name: "Pricing review"})
+	var domainErr *DomainError
+	if !errors.As(err, &domainErr) || domainErr.Code != ErrAmbiguousTarget {
+		t.Fatalf("Promote() error = %v, want %s", err, ErrAmbiguousTarget)
+	}
+	if res.OK || len(res.Data.([]Suggestion)) != 1 || len(res.NextActions) != 3 {
+		t.Fatalf("Promote() ambiguity result = %+v", res)
+	}
+}
+
+func TestPromoteStreamingScanPreservesBodyOnlyMatches(t *testing.T) {
+	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+	base := newLocalFakeStore()
+	base.dossiers["dos_existing"] = &Dossier{
+		Frontmatter: Frontmatter{
+			ID: "dos_existing", Name: "Unrelated title", Slug: "unrelated-title",
+			Status: StatusExecute, Priority: PriorityMedium, UpdatedAt: now,
+		},
+		DistilledState: DistilledState{Body: "The quantum migration is active."},
+	}
+	store := &scanningStore{localFakeStore: base}
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{},
+		&mockClock{now: now}, Config{}, nil)
+
+	res, err := svc.Promote(context.Background(), PromoteReq{Name: "quantum"})
+	var domainErr *DomainError
+	if !errors.As(err, &domainErr) || domainErr.Code != ErrAmbiguousTarget {
+		t.Fatalf("Promote() error = %v, want body-only ambiguity", err)
+	}
+	if got := res.Data.([]Suggestion)[0].ID; got != "dos_existing" {
+		t.Fatalf("body-only candidate ID = %q", got)
+	}
+}
+
+func TestPromoteStreamingScanAvoidsNPlusOneReads(t *testing.T) {
+	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+	base := newLocalFakeStore()
+	for i := 0; i < 500; i++ {
+		id := fmt.Sprintf("dos_%03d", i)
+		base.dossiers[id] = &Dossier{
+			Frontmatter: Frontmatter{
+				ID: id, Name: fmt.Sprintf("Existing %03d", i), Slug: fmt.Sprintf("existing-%03d", i),
+				Status: StatusDone, Priority: PriorityLow, UpdatedAt: now.AddDate(-2, 0, 0),
+			},
+			DistilledState: DistilledState{Body: "Archived material"},
+		}
+	}
+	store := &scanningStore{localFakeStore: base}
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{},
+		&mockClock{now: now}, Config{}, nil)
+
+	start := time.Now()
+	if _, err := svc.Promote(context.Background(), PromoteReq{Name: "Novel target"}); err != nil {
+		t.Fatalf("Promote() error = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed >= 2*time.Second {
+		t.Fatalf("Promote() took %s, want <2s", elapsed)
+	}
+	if store.scanned != 500 {
+		t.Fatalf("scanned %d dossiers, want 500", store.scanned)
+	}
+	if store.reads != 0 {
+		t.Fatalf("Promote() issued %d point reads, want none", store.reads)
+	}
+}
+
+func TestPromoteSurfacesTransientAmbiguityScanFailure(t *testing.T) {
+	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+	store := &flakyListStore{localFakeStore: newLocalFakeStore(), failures: 1}
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{},
+		&mockClock{now: now}, Config{}, nil)
+
+	res, err := svc.Promote(context.Background(), PromoteReq{Name: "Visible degradation"})
+	if err != nil {
+		t.Fatalf("Promote() error = %v", err)
+	}
+	var found bool
+	for _, warning := range res.Warnings {
+		found = found || strings.Contains(string(warning), "Ambiguity check unavailable")
+	}
+	if !found {
+		t.Fatalf("Promote() warnings = %v", res.Warnings)
 	}
 }
 

@@ -11,6 +11,6 @@ owns that pointer record and the process-ancestry walk that finds it.
 Capabilities are reported as they actually are — a capability Dossier does not
 provide for a harness (Pi's lifecycle hooks, Pi's MCP) is reported unavailable so
 it is surfaced rather than silently skipped. session.go holds the session-id
-resolution ladder shared by the CLI and MCP adapters (ADR 0003, ADR 0005).
+resolution ladder shared by the CLI and MCP adapters (ADR 0003, ADR 0009).
 */
 package harness

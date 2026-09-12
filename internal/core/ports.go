@@ -69,6 +69,14 @@ type Store interface {
 	StaleContextAssets() []string
 }
 
+// DossierScanner is an optional bulk-read capability for use-cases that need
+// every Distilled State body. It lets a filesystem store parse each dossier
+// once without forcing the N+1 List-then-Read pattern. The callback keeps
+// bodies streaming rather than retaining the whole store in memory.
+type DossierScanner interface {
+	ScanDossiers(statusFilter string, visit func(*Dossier) error) error
+}
+
 // LibraryDossier represents a dossier summarized in the context library.
 type LibraryDossier struct {
 	Name        string `json:"name"`

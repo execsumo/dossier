@@ -4,6 +4,7 @@ import (
 	"context"
 	"dossier/internal/core"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,6 +45,44 @@ func TestFSStoreInit(t *testing.T) {
 	}
 	if !strings.Contains(string(guideBytes), "Dossier Distillation Guide") {
 		t.Errorf("expected guide.md to contain signature title")
+	}
+}
+
+func TestPromoteScans500DossiersUnderTwoSeconds(t *testing.T) {
+	tempHome := t.TempDir()
+	fs := NewFSStore(tempHome)
+	if err := fs.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	old := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < 500; i++ {
+		id := fmt.Sprintf("dos_scale_%03d", i)
+		slug := fmt.Sprintf("existing-%03d", i)
+		dir := filepath.Join(tempHome, slug)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		content, err := FormatDossierFile(core.Frontmatter{
+			ID: id, Name: fmt.Sprintf("Existing %03d", i), Slug: slug,
+			CreatedAt: old, UpdatedAt: old, Status: core.StatusDone, Priority: core.PriorityLow,
+		}, "# Archived\n\nHistorical material.")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "dossier.md"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	svc := core.NewService(fs, dummySearcher{}, dummyTok{}, dummyHreg{},
+		dummyClock{now: time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)},
+		core.Config{DossierHome: tempHome}, nil)
+	start := time.Now()
+	if _, err := svc.Promote(context.Background(), core.PromoteReq{Name: "Novel target"}); err != nil {
+		t.Fatalf("Promote() error = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed >= 2*time.Second {
+		t.Fatalf("Promote() took %s, want <2s", elapsed)
 	}
 }
 

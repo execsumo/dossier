@@ -1,6 +1,6 @@
 # Dossier — Architecture
 
-> Updated: 2026-08-05 · Language: Go (see `BUILD-DECISIONS.md` B1)
+> Updated: 2026-09-11 · Language: Go (see `BUILD-DECISIONS.md` B1)
 > Status: **implemented**. This documents the current structure and load-bearing decisions.
 
 This document describes **how** to build what `SPEC.md` specifies. The SPEC defines the seams (data model, tool/CLI contracts, file layout, acceptance criteria); this defines the internal shape behind those seams.
@@ -59,8 +59,13 @@ dossier/
       query.go           # Query: compiled frontmatter filter shared by CLI/MCP/TUI list surfaces
       result.go          # Result/Warning/NextAction value types (the §8.2 envelope, surface-agnostic)
       errors.go          # typed domain errors ↔ the §8.2 error codes
-      ports.go           # Store, Searcher, Tokenizer, HarnessRegistry, Clock, Syncer interfaces
-      service.go         # Service: orchestrates use-cases over the ports (incl. Sync/SyncStatus)
+      ports.go           # Store + optional capabilities, Searcher, Tokenizer, Harness, Clock, Syncer
+      service.go         # Service type/config plus Init and Doctor
+      service_dossier.go # Save/Rename/Link/Merge/Recall/artifacts/List/Search
+      service_promote.go # duplicate-safe promotion + transcript capture
+      service_session.go # context, binding, guide delivery, lifecycle
+      service_harness.go # capability reporting + integration installation
+      service_team.go    # TeamCreate/Join and Sync/SyncStatus
     store/               # driven adapter: filesystem (implements core.Store)
       fsstore.go         # layout, read/write, atomic write protocol (§5)
       auditlog.go        # append-only JSONL with O_APPEND + lock
@@ -74,9 +79,9 @@ dossier/
     harness/             # driven adapters (implement core.HarnessRegistry / Harness)
       harness.go         # Registry + shared hook-merge helpers
       claudecode.go      # Claude Code: hooks + MCP registration + skill install (B2)
-      pi.go              # Pi: detection + installs the bundled Pi extension (B2, ADR 0005)
+      pi.go              # Pi: detection + installs the bundled Pi extension (B2, ADR 0009)
       pisession.go       # Pi session pointer: location, record, process-ancestry walk
-      session.go         # session-id resolution ladder shared by CLI/MCP (ADR 0003/0005)
+      session.go         # session-id resolution ladder shared by CLI/MCP (ADR 0003/0009)
       launch.go          # Configured agent handoffs: profile normalization, bin lookup, launch plans
     sync/                # driven adapter: Team Sync go-git engine (implements core.Syncer)
       gitsync.go         # GitSync + Config/report types; sync.go: pull→resolve→commit→push
@@ -85,8 +90,7 @@ dossier/
       gitignore.go       # machine-local exclusion set (config.yaml, root + per-slug sessions/, context/) — B13
       adapter.go         # maps GitSync's internal types → core.Sync* DTOs (keeps core pure)
     config/              # config.yaml load/save/defaults (incl. open_with and team.remote / team.branch)
-    hooks/               # hook PAYLOAD builders + session-start/end handlers (call core)
-    cli/                 # cobra commands → core.Service → render (text/--json)
+    cli/                 # cobra commands, including `hook`, → core.Service → render
     mcp/                 # stdio MCP server → core.Service → §8.2 envelope
     tui/                 # bubbletea models/views (fsnotify hot-refresh, glamour markdown) → core.Service
                          #   two home surfaces over one filtered set: dashboard table + kanban.go stage board
@@ -106,7 +110,13 @@ dossier/
 
 Notes:
 - `internal/` so nothing is importable as a library — this is an application, not a SDK.
-- The dependency rule is enforced by direction: `core` imports none of its sibling packages. This is guarded in CI (`.github/workflows/ci.yml`, "Dependency direction" step) via a `go list` assertion over `./internal/core`'s imports, alongside `gofmt`/`go vet`/`go test`.
+- Hook handling never grew a dedicated package. The Cobra `hook` subcommand in
+  `internal/cli` parses harness payloads and calls the same Service lifecycle
+  methods as every other adapter.
+- The dependency rule is enforced by direction and effect: production `core`
+  imports neither sibling/third-party packages nor I/O-bearing `os`, `os/*`,
+  `net`, or `net/*` packages. `TestCorePackageIsPure` guards both constraints;
+  test files may use I/O to build fixtures.
 
 ---
 
@@ -121,11 +131,15 @@ type Service struct {
     tok    Tokenizer
     hreg   HarnessRegistry
     clock  Clock
+    cfgMu  sync.RWMutex
     cfg    Config
+    syncer Syncer
 }
 
 func (s *Service) Promote(ctx, PromoteReq) (Result, error)
 func (s *Service) Save(ctx, SaveReq) (Result, error)        // optimistic concurrency, §6
+func (s *Service) Rename(ctx, RenameReq) (Result, error)    // title and/or canonical slug
+func (s *Service) RenameSlug(ctx, RenameSlugReq) (Result, error)
 func (s *Service) Link(ctx, LinkReq) (Result, error)        // candidates if id omitted
 func (s *Service) Merge(ctx, MergeReq) (Result, error)      // conflict detection
 func (s *Service) Recall(ctx, RecallReq) (Result, error)    // returns revision + token estimate + evidence index
@@ -133,20 +147,34 @@ func (s *Service) ReadArtifact(ctx, ReadArtifactReq) (Result, error)   // resolv
 func (s *Service) ListArtifacts(ctx, ListArtifactsReq) (Result, error) // the evidence index alone
 func (s *Service) List(ctx, ListReq) (Result, error) // status + interface filters
 func (s *Service) Search(ctx, SearchReq) (Result, error)
+func (s *Service) ContextRefresh(ctx) (Result, error)
 func (s *Service) Switch(ctx, SwitchReq) (Result, error)
 func (s *Service) Active(ctx, ActiveReq) (Result, error)
-func (s *Service) Save(ctx, SaveReq) (Result, error)        // single write path: distilled state + frontmatter (name/status/lead/interfaces/next_action/priority/...) + artifacts, with optimistic-concurrency conflict handling. All metadata edits (status, lead, interfaces, etc.) route through here so CLI/MCP/TUI stay identical.
 func (s *Service) Archive(ctx, ArchiveReq) (Result, error)
 func (s *Service) Path(ctx, PathReq) (Result, error)
 func (s *Service) Doctor(ctx) (Result, error)
 func (s *Service) Init(ctx, InitReq) (Result, error)
 func (s *Service) HarnessStatus(ctx) (Result, error)                  // per-harness detection, read-only
 func (s *Service) InstallHarness(ctx, InstallHarnessReq) (Result, error) // one harness added after init
+func (s *Service) SessionStart(ctx, sessionID) (string, error)
+func (s *Service) SessionEnd(ctx, sessionID, distilledState, transcript) ([]Warning, error)
+func (s *Service) GetGuide() string
+func (s *Service) GuideForSession(sessionID) string
+func (s *Service) GetInstructions() string
+func (s *Service) EnsureContextAssets() ([]string, error)
 func (s *Service) TeamCreate(ctx, TeamCreateReq) (Result, error)
 func (s *Service) TeamJoin(ctx, TeamJoinReq) (Result, error)
+func (s *Service) Sync(ctx) (Result, error)
+func (s *Service) SyncStatus(ctx) (Result, error)
 ```
 
 `Result` carries `data any`, `warnings []Warning`, `next_actions []NextAction` — the exact §8.2 envelope, but surface-agnostic. The MCP adapter serializes it as JSON; the CLI adapter prints text or `--json`; the TUI renders it. **Warnings (e.g. over-token-target, transcript-unavailable) are produced once in core** and flow to every surface — never re-implemented per adapter.
+
+`Service` is safe to share between the MCP request loop and its background sync
+debouncer. Dependencies and scalar configuration are immutable after wiring.
+The only Service-owned mutable state is the configured lead/interface
+vocabulary; `cfgMu` guards its readers and `AddLead`/`AddInterface` writers.
+Driven ports remain responsible for their own concurrency guarantees.
 
 ---
 
@@ -154,15 +182,37 @@ func (s *Service) TeamJoin(ctx, TeamJoinReq) (Result, error)
 
 ```go
 type Store interface {
-    // CRUD over dossiers, artifacts, audit, sessions, conflicts, config.
-    // Returns current revision on reads; enforces atomic writes (§5).
+    Init() error
     Read(slugOrID string) (*Dossier, Revision, error)
-    List(statusFilter string) ([]Frontmatter, error)   // frontmatter scan only; service applies interface filters
-    Write(d *Dossier, base Revision) (Revision, error) // optimistic; see §6
+    ReadRevision(slugOrID string, rev Revision) (*Dossier, error)
+    List(statusFilter string) ([]ListedFrontmatter, error)
+    Write(d *Dossier, base Revision) (Revision, error)
+    RenameSlug(dossierID, newSlug string, base Revision) (*Dossier, Revision, error)
     WriteArtifact(dossierID string, a *Artifact) error
+    ReadArtifact(dossierID, artifactID string) (*Artifact, error)
+    ListArtifacts(dossierID string) ([]Artifact, error)
     AppendAudit(dossierID string, e AuditEvent) error
-    ValidateArtifactFiles(dossierID string) []string // files in artifacts/ that are not artifacts (§ namespaces)
-    // ... session bindings, conflicts, init/layout
+    ReadAuditLog(dossierID string) ([]AuditEvent, error)
+    ValidateAuditShards(dossierID string) []string
+    ValidateArtifactFiles(dossierID string) []string
+    EnsureAuditDir(dossierID string) error
+    WriteSessionStash(dossierID, author, sessionID, content string) error
+    SaveSessionBinding(binding *SessionBinding) error
+    GetSessionBinding(sessionID string) (*SessionBinding, error)
+    ClearSessionBinding(sessionID string) error
+    WriteConflict(conflict *Conflict) error
+    ReadConflict(conflictID string) (*Conflict, error)
+    ListConflicts() ([]Conflict, error)
+    WriteLibraryContext(data LibraryData) error
+    EnsureContextAssets() ([]string, error)
+    ReadContextAsset(name string) (string, error)
+    StaleContextAssets() []string
+}
+
+// Optional bulk-read capability. Promote uses this to score every body in one
+// pass without a List-then-Read N+1 scan.
+type DossierScanner interface {
+    ScanDossiers(statusFilter string, visit func(*Dossier) error) error
 }
 
 type Searcher interface {
@@ -179,6 +229,12 @@ type Harness interface {
     Install(InstallOpts) error        // idempotent, non-clobbering, backs up (B7/B8)
 }
 type HarnessRegistry interface{ All() []Harness; Get(name string) (Harness, error) }
+
+type PostInstallAdvisor interface { PostInstallNotes() []string }
+
+type Renamer interface {
+    Rename(dossierID, newSlug, newName string, base Revision) (*Dossier, Revision, error)
+}
 
 // Optional, implemented by internal/harness.Registry. Names the harness owning
 // the *current process*, which Detect() cannot answer: Detect is device-level
@@ -213,6 +269,11 @@ Why each is a port:
 - **Tokenizer** — B4; swappable, mockable (tests assert behavior, not exact counts).
 - **Harness** — isolates the **riskiest, most fragile code** (mutating other tools' config files) behind one interface, and makes the capability matrix a set of table tests against fixture config dirs. Two questions are deliberately kept apart: `Detect()` answers *"what can this device do"* (drives `init`, `doctor`, `dossier harness`), while `ActiveHarnessResolver` answers *"which harness owns this process"* (drives session-scoped reporting — `SessionStartText`, `ContextRefresh`, `Promote`'s transcript warning). Conflating them is what let a Pi session inherit Claude Code's capability map.
 - **Syncer** — isolates the go-git networking/merge engine (B12 Team Sync) behind one interface. `Service.Sync` orchestrates: it calls the port, then routes any both-modified `dossier.md` into the **existing** `conflicts/*.md` machinery via `store.WriteConflict` (`kind: sync_concurrent_edit`) — one conflict mechanism, two triggers (local edit + cross-machine sync). Remote wins the working tree; the local version is preserved; never last-write-wins, never git merge markers. The merge indexes `dossier.md` files by immutable ID before comparing paths, so a slug-directory rename and a concurrent edit reconcile to one canonical directory rather than producing duplicate copies. Remote wins concurrent different rename targets; losing slugs are not retained.
+- **Optional capabilities** — `DossierScanner` avoids N+1 point reads without
+  moving scoring into the adapter or imposing a lossy frontmatter shortlist;
+  `Renamer` provides atomic title/slug changes; `PostInstallAdvisor` and
+  `ActiveHarnessResolver` add adapter knowledge while lightweight test doubles
+  keep implementing only the base ports.
 
 **Auto-sync (Phase 3b) — lifecycle, not a daemon.** Sync becomes automatic at three trigger points, all best-effort and non-blocking: (1) `Service.SessionStart`/`SessionEnd` (short-lived hook processes) do a bounded pull/push, gated on a configured syncer; (2) the long-lived `mcp serve` process runs a **debounced background sync goroutine** (`internal/mcp/server.go`) triggered after `dossier_save`/`dossier_recall`, coalescing rapid edits and **drained (bounded) on stdin EOF** so the last change is never stranded; (3) short-lived CLI commands do NOT debounce — they rely on the session-boundary hooks and explicit `dossier sync`. There is no daemon and nothing survives the process. Concurrent pushes from these independent paths are safe because the Phase 2 store-wide `.sync.lock` serializes every `Sync()`. `dossier doctor` surfaces sync health (configured / ahead / behind / last-sync / unresolved conflicts) via `Syncer.Status`. **The fast-forward pull path stashes machine-local files (`config.yaml`, root `sessions/`, `context/`, stable locks, sync state, and per-Dossier session stashes keyed by immutable ID) across go-git's Force checkout**, which would otherwise delete these gitignored files and silently un-team a joined colleague. Restoring per-Dossier stashes by ID makes them follow a remotely renamed slug directory.
 
@@ -317,15 +378,16 @@ ts: 2026-06-14T16:10:00-07:00
 
 ## 7. Entry-point wiring
 
-`cmd/dossier/main.go`:
+`cmd/dossier/main.go` wires the Cobra adapter in `internal/cli`, which routes:
 - `dossier mcp serve` → builds the Service, runs the MCP stdio server (`internal/mcp`).
-- `dossier hook <session-start|session-end|pre-compaction>` → `internal/hooks` handler (reused by harness hook configs; same binary, same Service).
+- `dossier hook <session-start|session-end|pre-compaction>` → the hook handler
+  in `internal/cli` (reused by harness configs; same binary, same Service).
 - `dossier install [--dir <dir>]` → copies the binary to a stable PATH location (default `~/.local/bin/dossier`), ensuring idempotence and executable permissions.
 - everything else → cobra CLI (`internal/cli`); `--tui` or the bare `dossier` with no subcommand can launch the TUI.
 
 All three construct the Service identically via a small `wire()` that picks adapters (native vs ripgrep search, real vs fake store) — keep composition in one place.
 
-**Session resolution (adapter-side, see ADR 0003 and ADR 0005).** `core` stays pure: every session-scoped method takes an explicit `SessionID`. *Which* session an adapter is acting for is discovered at the edge by `harness.ResolveSessionID(explicit, allowDefault)` — or `harness.ResolveSession(...)`, which also names the harness the id came from — with precedence `explicit param/flag → CLAUDE_CODE_SESSION_ID (set by Claude Code in each session's env) → PI_SESSION_ID (Pi sets this for bash-tool children only) → Pi session pointer (published by the bundled Pi extension for the owning Pi process, found by walking this process's ancestry) → DOSSIER_SESSION → sess_default`. Adapters pass the resolved harness name into `SwitchReq.HarnessName` so a binding records the harness the session actually ran under rather than the first one configured on the machine. The MCP adapter calls it with `allowDefault=false` and **degrades visibly** (`harness_capability_unavailable`) rather than silently sharing the `sess_default` bucket across concurrent sessions; the CLI calls it with `allowDefault=true` for manual use. This is the bridge that lets an in-session agent call `dossier_session` with only a slug. The **TUI carries no session identity at all** (it does not expose `Switch`/`Active`/`Session` binding) — it is a read/edit viewer over the store; see [ADR 0004](docs/adr/0004-tui-no-session.md).
+**Session resolution (adapter-side, see ADR 0003 and ADR 0009).** `core` stays pure: every session-scoped method takes an explicit `SessionID`. *Which* session an adapter is acting for is discovered at the edge by `harness.ResolveSessionID(explicit, allowDefault)` — or `harness.ResolveSession(...)`, which also names the harness the id came from — with precedence `explicit param/flag → CLAUDE_CODE_SESSION_ID (set by Claude Code in each session's env) → PI_SESSION_ID (Pi sets this for bash-tool children only) → Pi session pointer (published by the bundled Pi extension for the owning Pi process, found by walking this process's ancestry) → DOSSIER_SESSION → sess_default`. Adapters pass the resolved harness name into `SwitchReq.HarnessName` so a binding records the harness the session actually ran under rather than the first one configured on the machine. The MCP adapter calls it with `allowDefault=false` and **degrades visibly** (`harness_capability_unavailable`) rather than silently sharing the `sess_default` bucket across concurrent sessions; the CLI calls it with `allowDefault=true` for manual use. This is the bridge that lets an in-session agent call `dossier_session` with only a slug. The **TUI carries no session identity at all** (it does not expose `Switch`/`Active`/`Session` binding) — it is a read/edit viewer over the store; see [ADR 0004](docs/adr/0004-tui-no-session.md).
 
 **MCP**: use the official Go MCP SDK over stdio. `dossier_rename` is the dedicated optimistic-concurrency surface for explicit title and/or canonical slug changes; generic `dossier_update` remains the general metadata editor. Each `dossier_*` tool (SPEC §8.1) is a ~10-line handler: parse input → call one Service method → marshal `Result` into the §8.2 envelope. Map typed errors → §8.2 codes in **one** place (`mcp/errors.go`).
 
@@ -337,7 +399,7 @@ All three construct the Service identically via a small `wire()` that picks adap
 
 The harness implements `Detect()` and `Install()`. `Install` is **idempotent, non-clobbering, and backs up** every file it touches (B7), and is **gated by confirmation** in `init` (B8). It registers both the lifecycle hooks and the MCP server (under name `"dossier"`) using the stable binary path passed via `InstallOpts.StableBinaryPath`. Claude Code keeps these in **distinct files**: hooks go to `~/.claude/settings.json` while the MCP server must go to `~/.claude.json` (the only location Claude Code reads user-scope MCP servers from). `Install` also appends a one-line instruction to Claude Code's `customInstructions` array in `settings.json` — directing the agent to `dossier_session` when starting work, and not to bypass MCP. That line is the whole of the auto-injected instruction; the Distillation Guide and Operating Instructions are delivered by the `dossier_session` response itself, not from here. `Install` additionally writes the `dossier-delegate` Claude Code Skill to `~/.claude/skills/dossier-delegate/SKILL.md`, which is explicit-invocation-only and deliberately *not* referenced from `customInstructions`. `Install` also migrates stale entries an older build wrote to the wrong file (e.g. a `dossier` MCP entry left in `settings.json`). Capability detection produces the booleans in SPEC §5.1.
 
-v1 supports **Claude Code and Pi** (B2). Claude Code provides the full capability set directly. **Pi does not**: its `PI_SESSION_ID`/`PI_SESSION_FILE` reach bash-tool children only, and it has no built-in MCP client, so Dossier ships a Pi extension of its own (ADR 0005) supplying identity and lifecycle bridging. MCP under Pi stays unclaimed by design. The `Harness` interface and `Registry` remain extensible, while Codex and Antigravity remain out of scope for v1. The product must still **degrade visibly** — a capability missing in a given session is a warning surfaced through `Result`, never a silent no-op.
+v1 supports **Claude Code and Pi** (B2). Claude Code provides the full capability set directly. **Pi does not**: its `PI_SESSION_ID`/`PI_SESSION_FILE` reach bash-tool children only, and it has no built-in MCP client, so Dossier ships a Pi extension of its own (ADR 0009) supplying identity and lifecycle bridging. MCP under Pi stays unclaimed by design. The `Harness` interface and `Registry` remain extensible, while Codex and Antigravity remain out of scope for v1. The product must still **degrade visibly** — a capability missing in a given session is a warning surfaced through `Result`, never a silent no-op.
 
 `Capabilities` (`internal/core/session.go`) therefore separates *what a harness offers* from *what it is*: `Installed` (present on this device, so its integration is installable ahead of first use) and `SessionIdentity` (Dossier can resolve a per-session id for it) sit alongside the MCP/hook/transcript booleans of SPEC §5.1. `LiveSession()` and `Present()` are the two predicates the service uses; `Present()` is what makes `init` install into a harness that is installed but idle.
 
@@ -387,7 +449,7 @@ Save emits the canonical value.
 
 **Programmatic Injection (Zero-Tax Architecture):** Instead of injecting the full `guide.md` into global prompts (`skill.md`) or passive lifecycle hooks where it wastes tokens on generic coding tasks, Dossier uses **active interception**. When an LLM invokes the `dossier_session` MCP tool to bind a topic, the MCP server dynamically wraps the `Service.Switch` or `Service.Active` state response in a payload that explicitly includes the full string contents of the Distillation Guide. This guarantees the LLM receives strict schema instructions *exactly* when it enters a dossier context, while maintaining zero overhead during non-dossier operations. Future iterations will apply this deterministic pattern to other operational instructions currently housed in `skill.md` to further compress global bloat.
 
-The `session-start` hook is the one injection point that fires unconditionally on *every* session, whether or not it has anything to do with Dossier — so it deliberately does not follow the "inline the heavy payload" pattern above for a session with no active binding. `Service.SessionStart` (`internal/core/service.go`) reduces that case to a single-line nudge (open-dossier names + a pointer to the three MCP tools that would act on them); the Distillation Guide and a bound Dossier's full Distilled State are still inlined in full when a session *does* have an active binding, since that binding is the explicit signal that this session is about Dossier work.
+The `session-start` hook is the one injection point that fires unconditionally on *every* session, whether or not it has anything to do with Dossier — so it deliberately does not follow the "inline the heavy payload" pattern above for a session with no active binding. `Service.SessionStart` (`internal/core/service_session.go`) reduces that case to a single-line nudge (open-dossier names + a pointer to the three MCP tools that would act on them); the Distillation Guide and a bound Dossier's full Distilled State are still inlined in full when a session *does* have an active binding, since that binding is the explicit signal that this session is about Dossier work.
 
 **The Guide is delivered once per context window, at the earliest point in it.** Two paths can inline it — this hook, and the `dossier_session` response — and on a resumed or post-compaction session both used to fire, spending ~3.5k tokens twice on identical text. `SessionBinding.GuideDeliveredAt` is the interlock: `Service.GuideForSession` returns the Guide on the session's first request and `""` afterwards, and `Service.SessionStart` resets the marker before asking, because a session start *is* a new context window (startup, resume, or the rebuild after compaction) and the copy the marker records is no longer in it. Ordering, not just volume, is the point: the hook is the earliest injection available, so the Guide lands ahead of any tool call rather than arriving attached to one — an instruction that arrives with the action it governs is an instruction the model has already acted without. `Switch` carries the marker across a rebind (the Guide is dossier-independent), and every failure mode — no session id, unreadable binding, unwritable marker — resolves to *deliver*, since a duplicate Guide costs tokens while a missing one costs correctness. When suppressed, the MCP response carries `distillation_guide_ref` instead, so an absent field never reads as "this store has no Guide" — and that field distinguishes *suppressed* (rules in force, already in context) from *unavailable* (no rules loaded at all), because telling an agent the former when the latter is true is worse than saying nothing. The once-per-window rule infers presence from session-start events, which cannot observe a long session evicting the Guide without a compaction; `dossier_session`'s `include_guide` argument is the recovery path for exactly that case, so an agent that notices it has lost the rules can ask for them back before it writes.
 

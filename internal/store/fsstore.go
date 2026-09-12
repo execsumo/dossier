@@ -89,15 +89,31 @@ func (s *FSStore) Init() error {
 
 // List scans the store for Dossier frontmatters.
 func (s *FSStore) List(statusFilter string) ([]core.ListedFrontmatter, error) {
+	var list []core.ListedFrontmatter
+	err := s.walkDossiers(statusFilter, false, func(_ string, dirPath string, fm *core.Frontmatter, body string) error {
+		artifacts, _ := s.listArtifactsInternal(fm.ID, dirPath)
+		list = append(list, core.ListedFrontmatter{
+			Frontmatter:               *fm,
+			Revision:                  core.CalculateRevision(*fm, body, artifacts),
+			HasOpenDelegationContract: core.HasOpenDelegationContract(body),
+		})
+		return nil
+	})
+	return list, err
+}
+
+// walkDossiers owns the root traversal, parsing, and status policy shared by
+// metadata listing and streaming full-state scans. Strict scans surface a bad
+// dossier because silently skipping it would weaken Promote's ambiguity check;
+// List retains its compatibility behavior of omitting malformed entries.
+func (s *FSStore) walkDossiers(statusFilter string, strict bool, visit func(name, dirPath string, fm *core.Frontmatter, body string) error) error {
 	entries, err := os.ReadDir(s.dossierHome)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil
 		}
-		return nil, err
+		return err
 	}
-
-	var list []core.ListedFrontmatter
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -111,27 +127,39 @@ func (s *FSStore) List(statusFilter string) ([]core.ListedFrontmatter, error) {
 		dossierPath := filepath.Join(dirPath, "dossier.md")
 		data, err := os.ReadFile(dossierPath)
 		if err != nil {
+			if strict {
+				return fmt.Errorf("scan dossier %s: %w", name, err)
+			}
 			continue
 		}
 
-		// The full file (frontmatter and body) is already read and parsed here
-		// just to extract fm, so deriving the open-delegation-ask signal from
-		// the same body costs no extra I/O over a second pass.
 		fm, body, err := ParseDossierFile(string(data))
 		if err != nil {
+			if strict {
+				return fmt.Errorf("scan dossier %s: %w", name, err)
+			}
 			continue
 		}
-		artifacts, _ := s.listArtifactsInternal(fm.ID, dirPath)
-
-		if statusFilter == "all" || string(fm.Status) == statusFilter || fm.Status == core.NormalizeStatus(core.Status(statusFilter)) {
-			list = append(list, core.ListedFrontmatter{
-				Frontmatter:               *fm,
-				Revision:                  core.CalculateRevision(*fm, body, artifacts),
-				HasOpenDelegationContract: core.HasOpenDelegationContract(body),
-			})
+		if statusFilter != "all" && string(fm.Status) != statusFilter && fm.Status != core.NormalizeStatus(core.Status(statusFilter)) {
+			continue
+		}
+		if err := visit(name, dirPath, fm, body); err != nil {
+			return err
 		}
 	}
-	return list, nil
+	return nil
+}
+
+// ScanDossiers implements core.DossierScanner for use-cases that need every
+// body. Each dossier file is read and parsed once, avoiding List followed by a
+// second Read of every candidate.
+func (s *FSStore) ScanDossiers(statusFilter string, visit func(*core.Dossier) error) error {
+	return s.walkDossiers(statusFilter, true, func(_ string, _ string, fm *core.Frontmatter, body string) error {
+		return visit(&core.Dossier{
+			Frontmatter:    *fm,
+			DistilledState: core.DistilledState{Body: body},
+		})
+	})
 }
 
 // Read reads a Dossier and its current Revision.

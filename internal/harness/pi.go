@@ -115,7 +115,7 @@ func PiExtensionInstalled() bool {
 // session is available, whether or not a session is running right now.
 //
 // MCP stays false regardless. Pi ships no MCP client, and Dossier's Pi surface
-// is the CLI (ADR 0005); an MCP adapter extension is the user's own choice and
+// is the CLI (ADR 0009); an MCP adapter extension is the user's own choice and
 // Dossier does not detect, install, or speak for it.
 func (p *PiHarness) Detect() (core.Capabilities, error) {
 	// A resolvable pointer means a live Pi process owns this one, which is proof

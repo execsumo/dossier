@@ -1,8 +1,10 @@
-# ADR 0005: Pi Session Identity via a Bundled Extension and a PID-Keyed Pointer
+# ADR 0009: Pi Session Identity via a Bundled Extension and a PID-Keyed Pointer
 
 ## Status
-Accepted (2026-08-04). Extends ADR 0003's precedence ladder; corrects the Pi
-assumptions recorded in `HANDOFF.md` (2026-08-03) and `BUILD-DECISIONS.md` B2.
+Accepted (2026-08-04). Renumbered from ADR 0005 on 2026-09-11 to resolve a
+collision with the earlier Team Sync ADR. Extends ADR 0003's precedence ladder;
+corrects the Pi assumptions recorded in `HANDOFF.md` (2026-08-03) and
+`BUILD-DECISIONS.md` B2.
 
 ## Context
 Dossier's Pi support assumed the user's own Claude-like hooks extension would

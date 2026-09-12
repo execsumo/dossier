@@ -404,7 +404,7 @@ v1 supports **Claude Code and Pi.** Claude Code provides the full capability set
 - Raw transcript capture works.
 
 **Pi does not provide that set natively** (verified against Pi 0.83.0, extended
-2026-09-09 against 0.85.1; ADR 0005). Pi has no built-in MCP client, its
+2026-09-09 against 0.85.1; ADR 0009). Pi has no built-in MCP client, its
 `PI_SESSION_ID`/`PI_SESSION_FILE` reach bash-tool children only, and it exposes
 in-process extension *events* rather than out-of-process hooks. Dossier
 therefore installs its own Pi extension (`assets/pi-extension.ts` → `<pi agent
