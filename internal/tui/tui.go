@@ -1977,15 +1977,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.currentView = ViewDetail
 			}
-			m.applyResultStatus(msg.warnings, msg.nextActions)
-			m.viewport.SetContent(m.renderMarkdown(msg.result.DistilledState))
-			m.recalculateViewportLayout()
-			m.viewport.YOffset = 0
-			if m.currentView == ViewContracts {
-				m.contracts = core.ParseDelegationContracts(msg.result.DistilledState)
-				m.contractsViewport.SetContent(renderContractsChecklist(m.contracts))
-			}
-
 			// Recall returns the dossier's directory path; sync watches including
 			// the new path and any currently listed dashboard items to prevent leaks
 			// from navigating deep into links.
@@ -1997,6 +1988,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			watchPaths = append(watchPaths, m.recallResult.Path)
 			m.syncWatches(watchPaths)
+
+			m.applyResultStatus(msg.warnings, msg.nextActions)
+			m.viewport.SetContent(m.renderMarkdown(msg.result.DistilledState))
+			m.recalculateViewportLayout()
+			m.viewport.YOffset = 0
+			if m.currentView == ViewContracts {
+				m.contracts = core.ParseDelegationContracts(msg.result.DistilledState)
+				m.contractsViewport.SetContent(renderContractsChecklist(m.contracts))
+			}
 		}
 
 	case artifactIndexMsg:
