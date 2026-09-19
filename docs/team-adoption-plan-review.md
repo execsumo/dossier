@@ -445,7 +445,7 @@ harness verification.
 | `team join` accepts a pre-written `~/.dossier/credentials` (the default store is `~/.dossier`, so the documented setup was refused as "existing store") | **Done** |
 | Merge-adopt join | **Dropped** (owner): nobody on the team has a store |
 | Background-sync warnings (Increment 1 item 1): SessionStart line, `dossier_session`/`dossier_recall` warnings, one-time warning after an MCP background sync, `open` health line; plus the pre-existing ~35 s offline SessionStart hang it exposed (`GitSync.divergence` ignored the context), now 5.1 s against an unroutable remote | **Done** (WS-F) |
-| Manual `dossier sync` against an unreachable remote takes ~30 s (OS connect timeout; no overall bound) | Open, low priority |
+| Manual `dossier sync` against an unreachable remote took ~90 s (three 30 s default dial timeouts) | **Done**: 10 s connect/TLS timeout on git HTTP(S); now ~10 s |
 
 ### Team MVP (before the pilot; owner decisions 2026-09-18, recorded as BUILD-DECISIONS B17)
 

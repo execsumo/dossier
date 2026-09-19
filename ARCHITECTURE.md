@@ -89,6 +89,7 @@ dossier/
       gitsync.go         # GitSync + Config/report types; sync.go: pull→resolve→commit→push
       merge.go/tree.go   # remote-wins 3-way merge (no git markers ever); DiffTree + MergeBase
       credentials.go     # PAT resolution (~/.dossier/credentials 0600, `gh auth token` fallback) + auth state; ErrNoCredentials for http(s)
+      transport.go       # git HTTP(S) client with a 10 s connect/TLS timeout (no overall cap)
       state.go           # .syncstate.json: last attempt / last successful pull & push / last error / auth state
       gitignore.go       # machine-local exclusion set (config.yaml, root + per-slug sessions/, context/, raw promote artifacts) — B13
       adapter.go         # maps GitSync's internal types → core.Sync* DTOs (keeps core pure)

@@ -566,7 +566,7 @@ dossier doctor
   - `dossier_session` and `dossier_recall` add the same line as an envelope warning, with each bound-Dossier conflict id and a hint to call `dossier_conflicts` with it. They never wait on the network.
   - After an MCP background (debounced) sync, a failure or new conflict is attached once to the next tool response: "Background team sync failed: <reason>. Your change is saved locally; it will be sent on the next successful sync." or "Background team sync found <n> conflict(s): <id> on <Dossier>. Both versions are kept; resolve it with dossier_conflicts." The same failure is not repeated; a success or a different failure re-arms it.
   - SessionEnd's push stays silent (its output is not visible to the user); its outcome is persisted and reported by the next SessionStart.
-  - The manual `dossier sync` itself has no overall time limit: against an unreachable remote it fails after the OS connect timeout (about 30 s).
+  - Every git HTTP(S) connection has a 10 s connect and TLS-handshake timeout, so a manual `dossier sync` against an unreachable remote fails in about 10 s. There is no overall time limit, so a large push on a slow but working link is not cut off.
 
 `dossier team create <url>` (Team Sync — implemented)
 
