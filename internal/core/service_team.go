@@ -164,7 +164,16 @@ func (s *Service) TeamCreate(ctx context.Context, req TeamCreateReq) (Result, er
 		}, nil
 	}
 
+	var rollback func() error
 	if rosterStore, ok := s.store.(RosterStore); ok {
+		if rollbackStore, ok := s.store.(RosterRollbackStore); ok {
+			snapshot, err := rollbackStore.SnapshotRoster()
+			if err != nil {
+				return Result{}, fmt.Errorf("snapshot team roster: %w", err)
+			}
+			rollback = func() error { return rollbackStore.RestoreRoster(snapshot) }
+		}
+
 		roster := &Roster{Manager: NormalizeUsername(s.cfg.Author), Members: map[string]string{}}
 		managerName := strings.TrimSpace(req.ManagerDisplayName)
 		if managerName == "" {
@@ -181,16 +190,34 @@ func (s *Service) TeamCreate(ctx context.Context, req TeamCreateReq) (Result, er
 
 	err := s.syncer.Create(ctx, req.RemoteURL, req.Branch)
 	if err != nil {
-		if strings.Contains(err.Error(), "already a team store") {
-			return Result{}, NewError(ErrConflictDetected, "store is already a team store")
+		mappedErr := teamCreateFailureError(err, req.RemoteURL)
+		if rollback != nil {
+			if rollbackErr := rollback(); rollbackErr != nil {
+				mappedErr = teamCreateRollbackError(mappedErr, rollbackErr)
+			}
 		}
-		if isHTTPRemote(req.RemoteURL) && (strings.Contains(err.Error(), "authentication required") || strings.Contains(err.Error(), "authorization failed") || strings.Contains(err.Error(), "insecure permissions")) {
-			return Result{}, NewError(ErrSyncAuthFailed, authFailedMessage(req.RemoteURL))
-		}
-		return Result{}, err // adapters prefix "Team create failed"
+		return Result{}, mappedErr
 	}
 
 	return Result{OK: true}, nil
+}
+
+func teamCreateFailureError(err error, remoteURL string) error {
+	if strings.Contains(err.Error(), "already a team store") {
+		return NewError(ErrConflictDetected, "store is already a team store")
+	}
+	if isHTTPRemote(remoteURL) && (strings.Contains(err.Error(), "authentication required") || strings.Contains(err.Error(), "authorization failed") || strings.Contains(err.Error(), "insecure permissions")) {
+		return NewError(ErrSyncAuthFailed, authFailedMessage(remoteURL))
+	}
+	return err
+}
+
+func teamCreateRollbackError(err, rollbackErr error) error {
+	const note = " (the team roster written for this attempt could not be rolled back: "
+	if domainErr, ok := err.(*DomainError); ok {
+		return NewError(domainErr.Code, domainErr.Message+note+rollbackErr.Error()+")")
+	}
+	return fmt.Errorf("%w%s%v)", err, note, rollbackErr)
 }
 
 // TeamJoinReq specifies parameters for joining an existing team store.

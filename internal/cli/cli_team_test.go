@@ -33,6 +33,49 @@ func setupTeamStore(t *testing.T, dir, author, remote string) *core.Service {
 	return svc
 }
 
+func TestService_TeamCreateFailureLeavesNoRoster(t *testing.T) {
+	ctx := context.Background()
+	remoteDir := t.TempDir()
+	bare, err := git.PlainInit(remoteDir, true)
+	if err != nil {
+		t.Fatalf("init bare: %v", err)
+	}
+	if err := bare.Storer.SetReference(plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName("main"))); err != nil {
+		t.Fatalf("set bare HEAD: %v", err)
+	}
+
+	dir := t.TempDir()
+	svc := setupTeamStore(t, dir, "alice", remoteDir)
+	if _, err := git.PlainInit(dir, false); err != nil {
+		t.Fatalf("init local git store: %v", err)
+	}
+	_, err = svc.TeamCreate(ctx, core.TeamCreateReq{RemoteURL: remoteDir, Branch: "main", Confirmed: true})
+	if err == nil {
+		t.Fatal("team create should fail for an existing local git store")
+	}
+	if dErr, ok := err.(*core.DomainError); !ok || dErr.Code != core.ErrConflictDetected {
+		t.Fatalf("team create error = %#v, want %s", err, core.ErrConflictDetected)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "team.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("team.yaml remains after failed create, err=%v", err)
+	}
+	// Non-destructive: the roster this attempt wrote is moved aside, not deleted.
+	matches, err := filepath.Glob(dir + ".failed-create-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("failed-create sidecars = %v, want one", matches)
+	}
+	moved, err := os.ReadFile(filepath.Join(matches[0], "team.yaml"))
+	if err != nil {
+		t.Fatalf("moved roster missing: %v", err)
+	}
+	if !strings.Contains(string(moved), "alice") {
+		t.Fatalf("moved roster = %q, want the attempt's manager", moved)
+	}
+}
+
 // TestService_TeamCreateJoin_RoundTrip is the committed regression test for the
 // Phase 3a onboarding commands: `team create` bootstraps + pushes a store, and
 // `team join` clones it into a fresh store — no phantom conflicts, and the two
