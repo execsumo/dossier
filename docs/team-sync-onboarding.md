@@ -38,7 +38,17 @@ The store owner should do this with the colleague, screen-shared:
 1. Install Dossier. Confirm `~/.dossier` does not exist yet. Joining requires an empty store location.
 2. Create a fine-grained GitHub token that can read and write contents on the team repo. Save it to `~/.dossier/credentials` and set its permissions to `0600`.
 3. Run `dossier team join <url>`, then `dossier ls` and `dossier doctor`. Check that the team's Dossiers are listed.
-4. Send the colleague the exact `dossier open <slug>` line for their first assignment.
+4. Have the colleague open Claude in their usual work folder and ask "what's assigned to <their name>?". Check that it finds their first assignment and binds it.
+
+### Starting work on an assignment (primary path)
+
+You don't need any Dossier commands or topic IDs.
+
+1. Open Claude the way you normally do, in the folder where the work files are.
+2. Ask for your work in plain words, for example "What's assigned to Priya?" or "Let's continue the pricing review." Claude finds the Dossier, loads its brief and starts from there. If more than one topic matches, it will ask you which one.
+3. As decisions and results come in, ask Claude to save them to the Dossier. The end of a session does not save anything on its own.
+
+Prefer a list? Run `dossier sync`, then `dossier tui`. Press `f` to show only your topics, and `c` to open one in Claude. The list shows only what has already reached your machine, which is why you sync first.
 
 ### About the sign-in token
 

@@ -157,6 +157,29 @@ concierge pilot with the manager sending the exact `dossier open <slug>` line;
 measure failures. Implementation decision, except "must the colleague never see
 a slug" (product).
 
+**Superseded by owner decision (2026-09-18): MCP is the colleague's primary
+path, and colleagues never handle slugs.** The colleague starts Claude as usual,
+in the folder where their work lives, and asks for their work in plain language
+("what's assigned to me?", "let's continue the pricing review"). This already
+works without new code:
+- every Claude start pulls first (`internal/core/service_session.go:215-219`);
+- `dossier_list` search matches name and `lead` (`internal/core/query.go:34`);
+- `dossier_session` binds by name or slug and returns the full state plus the
+  Guide.
+
+The dashboard (`dossier tui`, `f` for the lead filter, `c` to launch) is the
+visual alternative. It reads the local copy, so run `dossier sync` first.
+`dossier open <slug>` remains for the manager.
+
+Two conditions:
+- **"Me" must be resolvable.** Set `lead` to a name the colleague will say, and
+  have them say it; the agent doesn't know which lead is "me". `lead` isn't
+  linked to `author` (see step 4).
+- **Ambiguity must stop the agent.** If two Dossiers match, the agent must ask,
+  per the no-silent-link rule.
+
+This reframes `ls --mine` and `inbox` as optional.
+
 **B.3 Append-only Contributions?** **[rec]** Defer. With one colleague per
 Dossier (the plan's own pilot shape) multi-writer pressure is low, and
 contributions would add a reconciliation step whose owner is undefined. The
@@ -247,9 +270,17 @@ that would change it.
    **User-selected (launch from cwd) as a flag on `open`, mapped workspace
    later.** Wrong ⇒ Claude can't see the work files. Change if: most pilot work
    has no local files (then Dossier dir is fine).
+   *Effectively settled for colleagues by the MCP-primary decision:* Claude
+   starts wherever the colleague opens it. The question remains only for
+   `dossier open` and the dashboard, which still launch in the Dossier
+   directory.
 9. **Enforcement.** Warn / require Dossier launch. **Warn only.** Wrong ⇒ brittle
    adoption or offline lock-out. Change if: direct launches exceed ~50% and
    produce unattached work.
+   *Moot under the MCP-primary decision:* a direct Claude launch **is** the
+   supported path. What remains is detecting a session that did Dossier work
+   without binding. That is a pilot metric (unbound sessions), not an
+   enforcement mechanism.
 10. **Katana threshold.** **Adopt only when SSO identity *or* per-Dossier ACLs
     become a hard requirement** (e.g., a restricted topic must be shared with a
     subset). Wrong ⇒ approval/hosting cost for no user-visible gain. Change if:
@@ -386,7 +417,9 @@ harness verification.
 1 manager, 1 colleague, 3 Dossiers, Claude Code only. Everyone uses a **single
 store**, the team store at `~/.dossier` (decision #3). Before `team create`,
 the manager moves non-team-safe Dossiers out of the store. Manager assigns by setting
-`lead` and messaging `dossier open <slug>`. Manager runs `doctor` daily and
+`lead` to the colleague's name, syncing, and telling them the Dossier's *name*.
+The colleague opens Claude in their work folder and asks for it (MCP primary
+path, §B.2). Manager runs `doctor` daily and
 resolves conflicts. Transcripts: accept that compiled transcripts sync *only if*
 decision #2's prohibited categories are enforced by convention; otherwise wait
 for Increment 1 item 4.
@@ -395,9 +428,13 @@ assigned Dossier ends with a save, colleague interview answers decision #12.
 
 ### Increment 1 (after pilot)
 
-1. `open` pulls (bounded) and prints one health line before launch; SessionStart
-   injects the same line and any unresolved conflict for the bound Dossier.
-2. `ls --mine` (lead == author) and `open --here` (cwd workspace).
+1. The **`dossier_session` bind response** (the primary path) and SessionStart
+   carry one health line (last successful pull/push, pending changes) plus any
+   unresolved conflict for the bound Dossier. `open` pulls (bounded) and prints
+   the same line.
+2. Resolve "me": link `lead` to `author` (or a display name in config), so
+   "what's assigned to me?" needs no name. `open --here` (cwd workspace) for the
+   non-MCP launchers.
 3. A CLI `dossier save <slug> --distilled-file … --base-revision …` (Pi parity).
 4. Transcripts local-only by default in team stores (gitignore compiled
    transcript artifacts or store them outside `artifacts/`), with explicit
