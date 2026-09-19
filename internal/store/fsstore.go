@@ -141,10 +141,11 @@ func (s *FSStore) RestoreRoster(snap core.RosterSnapshot) error {
 		return err
 	}
 	failedDir := s.dossierHome + ".failed-create-" + time.Now().UTC().Format("20060102T150405.000000000Z")
-	if err := os.MkdirAll(failedDir, 0700); err != nil {
+	if err := os.Mkdir(failedDir, 0700); err != nil {
 		return err
 	}
 	if err := os.Rename(path, filepath.Join(failedDir, "team.yaml")); err != nil {
+		_ = os.Remove(failedDir)
 		return fmt.Errorf("move team.yaml aside: %w", err)
 	}
 	return nil

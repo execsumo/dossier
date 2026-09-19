@@ -578,7 +578,7 @@ dossier doctor
 - Initializes and pushes the existing store to an empty private repo.
 - Validates the target repo is empty before any local change: a remote with any refs is refused ("not empty") and nothing changes locally or remotely.
 - Lists every Dossier that will be published, archived ones included, warns that everything in the store directory syncs, and asks for confirmation. `--yes` skips the prompt; non-interactive input without `--yes` is refused.
-- Writes `team.remote` to config only after the push succeeded. A failed create moves the `.git/` it made (and a `.gitignore` it created) to a sibling `<DOSSIER_HOME>.failed-create-<UTC>/` directory, and the `team.yaml` roster it wrote for the attempt goes there too, so a retry starts clean. Nothing is deleted.
+- Writes `team.remote` to config only after the push succeeded. A failed create moves the `.git/` it made (and a `.gitignore` it created) to a sibling `<DOSSIER_HOME>.failed-create-<UTC>/` directory, and rolls back the roster: a `team.yaml` the attempt wrote is moved aside the same way, into its own `<DOSSIER_HOME>.failed-create-<UTC>/` sibling, while a roster the store already had is restored in place. A retry starts clean, and nothing is deleted.
 - Supports `--json`.
 
 `dossier team join <url>` (Team Sync — implemented)
