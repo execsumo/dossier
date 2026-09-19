@@ -164,17 +164,20 @@ in the folder where their work lives, and asks for their work in plain language
 works without new code:
 - every Claude start pulls first (`internal/core/service_session.go:215-219`);
 - `dossier_list` search matches name and `lead` (`internal/core/query.go:34`);
-- `dossier_session` binds by name or slug and returns the full state plus the
-  Guide.
+- `dossier_session` binds by slug or id (the agent gets the slug from
+  `dossier_list`; correction 2026-09-19, it does not bind by name) and returns
+  the full state plus the Guide.
 
 The dashboard (`dossier tui`, `f` for the lead filter, `c` to launch) is the
 visual alternative. It reads the local copy, so run `dossier sync` first.
 `dossier open <slug>` remains for the manager.
 
 Two conditions:
-- **"Me" must be resolvable.** Set `lead` to a name the colleague will say, and
+- ~~**"Me" must be resolvable.** Set `lead` to a name the colleague will say, and
   have them say it; the agent doesn't know which lead is "me". `lead` isn't
-  linked to `author` (see step 4).
+  linked to `author` (see step 4).~~ **Resolved by Team MVP M3–M5 (2026-09-19):**
+  `lead` stores the roster username, the agent is told "You are working as
+  <Name> (<username>)", and `dossier_list` accepts `lead: "me"`.
 - **Ambiguity must stop the agent.** If two Dossiers match, the agent must ask,
   per the no-silent-link rule.
 
@@ -463,8 +466,8 @@ Windows must work.
 | M1 | **Done in CI (2026-09-19, PR #18); real-machine smoke test pending.** **Platform spike: macOS and Windows first-class.** CI runs `go test ./...` on `ubuntu-latest`, `macos-latest`, `windows-latest`; the release workflow publishes `windows/amd64` (and `windows/arm64` if cheap) next to darwin/linux. Fix what Windows breaks, at least: the `0600` credentials check (Windows has no Unix modes; use an owner-only check or skip with a documented rationale); replacing the read-only (`0444`) `dossier.md` by rename; file locks; Claude Code config, hook and MCP paths on Windows (`%USERPROFILE%`); the `.dossier` home and `gh` lookup. | CI green on all three OSes. A real-machine smoke test on one Mac and one Windows PC (owner or a colleague): `init`, `promote`, `team join` against a sandbox repo, `sync`, a Claude session that binds by name and saves. Record results in `docs/harness-capabilities.md`. |
 | M2 | **Done 2026-09-19** (`core.NormalizeUsername`). **Identity = org username.** `author` defaults to the OS login name with any domain prefix (`DOMAIN\`, `AzureAD\`) stripped, lowercased; still overridable in `config.yaml`. | Table test of normalization for `ACME\PSmith`, `AzureAD\psmith`, `psmith`, `Priya.Shah`. Confirm on real machines what `id -un` (Mac) and `whoami` (Windows) return and that normalization yields the org username (owner provides the two outputs). **macOS confirmed 2026-09-18:** `id -un` on the owner's work laptop returns `hgill`, the org username, with no prefix. **Windows pending** (a colleague's `whoami`, expected within days). |
 | M3 | **Done 2026-09-19** (roster, `team add/remove/members`, `team create --name`, `dossier_team`, roster conflicts resolvable with all three choices). **Roster `team.yaml`** (synced, store root): `manager: <username>`, `members: {<username>: <Display Name>}`. Written by `team create` (manager = creator) and by `dossier team add <username> "<Display Name>"` / `team remove` (manager only, by convention; warn if the caller is not the manager). A concurrent edit is captured as a conflict (extend the `dossier.md` conflict path), never dropped. Core exposes `Service.Members()`; the per-machine `leads:` list is ignored when a roster exists. | Round-trip and conflict tests; `team add` on a non-manager machine warns; `doctor` flags a `lead` not in the roster. |
-| M4 | **Lead = username, shown as display name.** Lead pickers (TUI, CLI `lead`, MCP `dossier_update`) offer roster members; `lead` stores the username; list, detail, `ls` and MCP results render the display name. Matching "Priya", "Priya Shah" or "psmith" finds the same Dossiers. | Tests on all three surfaces; existing free-text leads keep working and are flagged by `doctor` when not in the roster. |
-| M5 | **"Me".** SessionStart context and the `dossier_session` / `dossier_list` responses state the current user ("You are working as Priya Shah (psmith)"); `dossier_list` accepts `lead: "me"`. | Test: the unbound SessionStart text names the user; `dossier_list` with `lead: me` returns only their Dossiers. Live check in Claude: "what's assigned to me?" binds without a name. |
+| M4 | **Done 2026-09-19.** **Lead = username, shown as display name.** Lead pickers (TUI, CLI `lead`, MCP `dossier_update`) offer roster members; `lead` stores the username; list, detail, `ls` and MCP results render the display name. Matching "Priya", "Priya Shah" or "psmith" finds the same Dossiers. | Tests on all three surfaces; existing free-text leads keep working and are flagged by `doctor` when not in the roster. |
+| M5 | **Done 2026-09-19.** **"Me".** SessionStart context and the `dossier_session` / `dossier_list` responses state the current user ("You are working as Priya Shah (psmith)"); `dossier_list` accepts `lead: "me"`. | Test: the unbound SessionStart text names the user; `dossier_list` with `lead: me` returns only their Dossiers. Live check in Claude: "what's assigned to me?" binds without a name. |
 | M6 | **`gh`-assisted join.** When `team join` or `team create` finds no credentials and `gh` is installed, it offers to run `gh auth login --web` (confirm first; never silently), then verifies it can list the remote before cloning; if `gh` is missing, it prints the install link and the token fallback. Join prints "You'll appear to teammates as <Display Name> (<username>)", or asks the colleague to have the manager add them if they're not in the roster. | Tests with a fake `gh` runner (logged out → offers login; declined → clean exit; logged in → proceeds). Owner runs it live in validation Part D. |
 | M7 | **Docs.** Onboarding rewritten for the new flow (install Dossier + `gh`, run one command, click Authorize); runbook entries for `gh` sign-in failures and roster conflicts; SPEC §7/§8/§14; validation Part C gains checks for M2–M6. | Onboarding followed end to end by a non-developer in the smoke test. |
 
