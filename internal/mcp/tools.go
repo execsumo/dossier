@@ -81,7 +81,7 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 					},
 					"lead": map[string]any{
 						"type":        "string",
-						"description": "Filter by lead; use me for the current user (also accepts a username or display name)",
+						"description": "Filter by lead: use me for the current user, or a teammate's username, display name, or unique first name. An ambiguous name returns ambiguous_target with the candidates.",
 					},
 					"interfaces": configuredStringListSchema(interfaces, "Filter by discussion interface; matches dossiers assigned to any supplied interface"),
 					"query": map[string]any{

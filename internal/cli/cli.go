@@ -37,6 +37,7 @@ var (
 	yesFlag             bool
 	statusFlag          string
 	queryFlag           string
+	listLeadFlag        string
 	mineFlag            bool
 	jsonFlag            bool
 	dossierSearchFlag   string
@@ -306,8 +307,8 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
-			leadFilter := ""
-			if mineFlag {
+			leadFilter := listLeadFlag
+			if leadFilter == "" && mineFlag {
 				leadFilter = "me"
 			}
 			res, err := svc.List(context.Background(), core.ListReq{Status: statusFlag, Lead: leadFilter, Interfaces: interfacesFlag, Query: queryFlag})
@@ -327,8 +328,15 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
+			printListWarnings := func() {
+				for _, w := range res.Warnings {
+					fmt.Printf("Warning: %s\n", w)
+				}
+			}
+
 			if len(items) == 0 {
 				fmt.Println("No dossiers found.")
+				printListWarnings()
 				return
 			}
 
@@ -357,11 +365,13 @@ func NewRootCmd() *cobra.Command {
 
 				fmt.Printf("%-30s %-15s %-11s %-8s %-5s %s\n", nameOrSlug, lead, item.Status, item.Priority, item.DueDate, nextAction)
 			}
+			printListWarnings()
 		},
 	}
 	lsCmd.Flags().StringVar(&statusFlag, "status", "", "Filter by status (spark|define|execute|review|blocked|done|all)")
 	lsCmd.Flags().StringSliceVar(&interfacesFlag, "interface", nil, "Filter by interface (repeat or comma-separate)")
 	lsCmd.Flags().StringVarP(&queryFlag, "query", "q", "", "Filter by name, description, lead, interface, or slug")
+	lsCmd.Flags().StringVar(&listLeadFlag, "lead", "", "Filter by lead (username, display name, or \"me\")")
 	lsCmd.Flags().BoolVar(&mineFlag, "mine", false, "Show dossiers assigned to the current user")
 	lsCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
