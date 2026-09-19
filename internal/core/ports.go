@@ -56,6 +56,7 @@ type Store interface {
 	WriteConflict(conflict *Conflict) error
 	ReadConflict(conflictID string) (*Conflict, error)
 	ListConflicts() ([]Conflict, error)
+	ResolveConflict(conflictID string, updated *Conflict) error
 
 	// Context library
 	WriteLibraryContext(data LibraryData) error

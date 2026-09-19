@@ -254,6 +254,26 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 			},
 		},
 		{
+			Name:        "dossier_conflicts",
+			Description: "List unresolved conflicts in the local store",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		},
+		{
+			Name:        "dossier_resolve_conflict",
+			Description: "Resolve one conflict while preserving its archived conflict file",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"conflict_id": map[string]any{"type": "string"},
+					"choice":      map[string]any{"type": "string", "enum": []string{core.ConflictChoiceKeepShared, core.ConflictChoiceRestoreMine, core.ConflictChoiceKeepBoth}},
+				},
+				"required": []string{"conflict_id", "choice"},
+			},
+		},
+		{
 			Name:        "dossier_rename",
 			Description: "Rename a dossier's title or canonical slug. The immutable ID stays fixed; slug changes move the complete directory; use the new slug after renaming.",
 			InputSchema: map[string]any{
@@ -584,6 +604,28 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			ID:                 params.ID,
 			FrontmatterUpdates: updates,
 		})
+
+	case "dossier_conflicts":
+		conflicts, listErr := s.svc.ListConflicts(ctx)
+		res = core.Result{OK: listErr == nil, Data: conflicts}
+		err = listErr
+
+	case "dossier_resolve_conflict":
+		var params struct {
+			ConflictID string `json:"conflict_id"`
+			Choice     string `json:"choice"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil || params.ConflictID == "" || params.Choice == "" {
+			s.sendError(id, -32602, "conflict_id and choice are required", nil)
+			return
+		}
+		res, err = s.svc.ResolveConflict(ctx, core.ResolveConflictReq{
+			ConflictID: params.ConflictID,
+			Choice:     params.Choice,
+		})
+		if err == nil {
+			s.triggerSync()
+		}
 
 	case "dossier_rename":
 		var params struct {

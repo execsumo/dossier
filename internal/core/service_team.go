@@ -134,6 +134,8 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 		}
 
 		confID := fmt.Sprintf("conf_%s_%s_%d", s.clock.Now().Format("20060102150405"), slug, i)
+		localBody := conflictBody(string(conf.LocalContent))
+		remoteBody := conflictBody(string(conf.RemoteContent))
 		conflict := &Conflict{
 			ID:                 confID,
 			DossierID:          targetID,
@@ -141,8 +143,8 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 			BaseRevision:       conf.LocalRevision,
 			AttemptedRevision:  conf.RemoteRevision,
 			TS:                 s.clock.Now(),
-			RejectedBody:       string(conf.LocalContent),
-			DiffAgainstCurrent: GenerateUnifiedDiff(string(conf.RemoteContent), string(conf.LocalContent)),
+			RejectedBody:       localBody,
+			DiffAgainstCurrent: GenerateUnifiedDiff(remoteBody, localBody),
 		}
 
 		writeErr := s.store.WriteConflict(conflict)
@@ -193,6 +195,20 @@ func (s *Service) SyncStatus(ctx context.Context) (Result, error) {
 		OK:   true,
 		Data: status,
 	}, nil
+}
+
+// conflictBody removes the dossier file envelope before storing a rejected
+// proposal. Sync conflicts carry complete dossier.md bytes; resolution operates
+// on Distilled State markdown only, never on a raw file overwrite.
+func conflictBody(content string) string {
+	if !strings.HasPrefix(content, "---\n") {
+		return content
+	}
+	end := strings.Index(content[4:], "\n---\n")
+	if end < 0 {
+		return content
+	}
+	return content[end+9:]
 }
 
 // authFailedMessage is the next step shown for sync_auth_failed on every surface.

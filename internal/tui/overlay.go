@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"dossier/internal/core"
 
@@ -52,7 +53,7 @@ type externalLinkRow struct {
 
 func isOverlayView(v View) bool {
 	switch v {
-	case ViewLeadSelector, ViewEdit, ViewLinkInput, ViewLinkSelector, ViewMergeSelector, ViewMergeConflictResolver, ViewRenameSlug, ViewArtifactIndex, ViewArtifactContent, ViewLinks, ViewContracts, ViewHealth:
+	case ViewLeadSelector, ViewEdit, ViewLinkInput, ViewLinkSelector, ViewMergeSelector, ViewMergeConflictResolver, ViewRenameSlug, ViewArtifactIndex, ViewArtifactContent, ViewLinks, ViewContracts, ViewConflicts, ViewHealth:
 		return true
 	default:
 		return false
@@ -222,6 +223,8 @@ func compactModalFooter(v View) string {
 		text = "enter open link"
 	case ViewContracts, ViewHealth:
 		text = "↑/↓ scroll"
+	case ViewConflicts:
+		text = "↑/↓ select · 1 shared · 2 mine · 3 both"
 	default:
 		return ""
 	}
@@ -266,6 +269,8 @@ func modalTitle(v View) string {
 		return "View Artifact"
 	case ViewContracts:
 		return "Delegation Contracts"
+	case ViewConflicts:
+		return "Resolve Conflicts"
 	case ViewHealth:
 		return "Doctor Report"
 	default:
@@ -317,6 +322,8 @@ func (m Model) renderOverlayContent(v View) string {
 		return m.renderExternalLinks()
 	case ViewContracts:
 		return m.contractsViewport.View()
+	case ViewConflicts:
+		return m.renderConflicts()
 	case ViewHealth:
 		return m.healthViewport.View()
 	case ViewArtifactIndex:
@@ -544,6 +551,29 @@ func (m Model) renderArtifactIndexBody() string {
 	}
 	if end < len(m.artifactIndex) {
 		sb.WriteString(overlayHintStyle.Render(fmt.Sprintf("↓ %d more below", len(m.artifactIndex)-end)))
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func (m Model) renderConflicts() string {
+	if len(m.conflicts) == 0 {
+		return overlayEmptyStyle.Render("No unresolved conflicts.")
+	}
+	var sb strings.Builder
+	sb.WriteString(overlayMutedStyle.Render("Select a conflict, then choose: 1 keep shared · 2 restore mine · 3 keep both."))
+	sb.WriteString("\n\n")
+	for i, conflict := range m.conflicts {
+		marker := "  "
+		if i == m.conflictCursor {
+			marker = "> "
+		}
+		line := fmt.Sprintf("%s%s  %s  %s  %s", marker, conflict.ID, conflict.DossierID, conflict.Kind, conflict.TS.Format(time.RFC3339))
+		if i == m.conflictCursor {
+			sb.WriteString(focusedItemStyle.Render(line))
+		} else {
+			sb.WriteString(line)
+		}
+		sb.WriteString("\n")
 	}
 	return strings.TrimRight(sb.String(), "\n")
 }

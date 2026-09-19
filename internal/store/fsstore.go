@@ -1053,6 +1053,50 @@ func (s *FSStore) ListConflicts() ([]core.Conflict, error) {
 	return list, nil
 }
 
+// ResolveConflict moves an active conflict into the resolved archive and then
+// rewrites its frontmatter with the resolution metadata. The rename happens
+// first so the original active conflict is never deleted or overwritten.
+func (s *FSStore) ResolveConflict(conflictID string, updated *core.Conflict) error {
+	if conflictID == "" || filepath.Base(conflictID) != conflictID {
+		return core.NewError(core.ErrNotFound, fmt.Sprintf("conflict %q not found", conflictID))
+	}
+	lock, err := s.lockDossier(updated.DossierID)
+	if err != nil {
+		return fmt.Errorf("failed to acquire dossier lock: %w", err)
+	}
+	defer lock.Unlock()
+
+	dossierDir, err := s.findDossierDir(updated.DossierID)
+	if err != nil {
+		return err
+	}
+	conflictsDir := filepath.Join(dossierDir, "conflicts")
+	activePath := filepath.Join(conflictsDir, conflictID+".md")
+	if _, err := os.Stat(activePath); err != nil {
+		if os.IsNotExist(err) {
+			return core.NewError(core.ErrNotFound, fmt.Sprintf("conflict %q not found", conflictID))
+		}
+		return err
+	}
+
+	resolvedDir := filepath.Join(conflictsDir, "resolved")
+	if err := os.MkdirAll(resolvedDir, 0755); err != nil {
+		return err
+	}
+	resolvedPath := filepath.Join(resolvedDir, conflictID+".md")
+	if err := os.Rename(activePath, resolvedPath); err != nil {
+		return fmt.Errorf("archive conflict %q: %w", conflictID, err)
+	}
+	serialized, err := formatConflictFile(updated)
+	if err != nil {
+		return fmt.Errorf("format resolved conflict %q: %w", conflictID, err)
+	}
+	if err := os.WriteFile(resolvedPath, []byte(serialized), 0644); err != nil {
+		return fmt.Errorf("write resolved conflict %q: %w", conflictID, err)
+	}
+	return nil
+}
+
 // Private helper methods
 
 func slugMatches(fm *core.Frontmatter, value string) bool {
@@ -1389,14 +1433,15 @@ func parseConflictFile(content string) (*core.Conflict, error) {
 		return nil, err
 	}
 
-	subparts := strings.Split(body, "## Diff against current")
-	if len(subparts) > 1 {
-		c.DiffAgainstCurrent = strings.TrimSpace(subparts[1])
-		proposalPart := subparts[0]
-		proposalPart = strings.TrimPrefix(proposalPart, "## Rejected proposal\n")
-		c.RejectedBody = strings.TrimSpace(proposalPart)
+	body = strings.TrimPrefix(body, "\n")
+	const proposalHeading = "## Rejected proposal\n"
+	body = strings.TrimPrefix(body, proposalHeading)
+	const diffHeading = "\n\n## Diff against current"
+	if diffIdx := strings.Index(body, diffHeading); diffIdx >= 0 {
+		c.RejectedBody = body[:diffIdx]
+		c.DiffAgainstCurrent = strings.TrimPrefix(body[diffIdx+len(diffHeading):], "\n")
 	} else {
-		c.RejectedBody = strings.TrimSpace(body)
+		c.RejectedBody = body
 	}
 
 	return &c, nil

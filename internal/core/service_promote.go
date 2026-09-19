@@ -89,6 +89,10 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 		// audit write failure still cannot destroy the only lossless copy.
 		if compiled != req.Content {
 			raw := Artifact{
+				// The suffix is part of the local-only filename contract. The
+				// artifact still uses the normal art_ namespace and remains fully
+				// readable locally, while the team .gitignore excludes it.
+				ID:            fmt.Sprintf("art_%d_raw", now.UnixNano()),
 				DossierID:     newID,
 				Type:          ArtifactTypeTranscript,
 				Title:         "Raw Captured Session Transcript (JSONL)",
