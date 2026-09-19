@@ -34,14 +34,17 @@ func TestDossierTeamToolReturnsRoster(t *testing.T) {
 	}
 	var result struct {
 		Data struct {
-			Manager string            `json:"manager"`
-			Members map[string]string `json:"members"`
+			Manager string `json:"manager"`
+			Members []struct {
+				Username    string `json:"username"`
+				DisplayName string `json:"display_name"`
+			} `json:"members"`
 		} `json:"data"`
 	}
 	if len(toolResult.Content) != 1 || json.Unmarshal([]byte(toolResult.Content[0].Text), &result) != nil {
 		t.Fatalf("invalid team tool response: %+v", toolResult)
 	}
-	if result.Data.Manager != "hgill" || result.Data.Members["psmith"] != "Priya Shah" {
+	if result.Data.Manager != "hgill" || len(result.Data.Members) != 2 || result.Data.Members[0].Username != "hgill" || result.Data.Members[1].DisplayName != "Priya Shah" {
 		t.Fatalf("team response = %+v", result.Data)
 	}
 }

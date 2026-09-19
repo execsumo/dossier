@@ -86,6 +86,18 @@ func TestConflictsOverlayFitsTerminalSizes(t *testing.T) {
 	}
 }
 
+func TestConflictsOverlayNamesRosterConflictTeamRoster(t *testing.T) {
+	m := dashboardModel(t, newTestStore(), 100, 30)
+	m.conflicts = []core.Conflict{{ID: "conf_roster", DossierID: core.RosterConflictDossierID, Kind: "sync_concurrent_roster_edit"}}
+	m.conflictDetails = map[string]core.ConflictDetail{
+		"conf_roster": {DossierName: "Team roster", DossierSlug: "team", Shared: "manager: alice\n", Mine: "manager: bob\n"},
+	}
+	m.conflictCursor = 0
+	if got := stripANSI(m.renderConflicts()); !strings.Contains(got, "Team roster") {
+		t.Fatalf("roster conflict overlay = %s", got)
+	}
+}
+
 func TestConflictsOverlayShowsCurrentAndMine(t *testing.T) {
 	makeModel := func(t *testing.T, width int, shared, mine string) (Model, *testStore) {
 		t.Helper()

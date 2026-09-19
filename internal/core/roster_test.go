@@ -21,6 +21,15 @@ func TestNormalizeUsername(t *testing.T) {
 	}
 }
 
+func TestRosterViewOrdersManagerAndDisplayNames(t *testing.T) {
+	view := (Roster{Manager: "bob", Members: map[string]string{
+		"alice": "Zoe", "bob": "Bob", "carol": "alice",
+	}}).View()
+	if got := []string{view.Members[0].Username, view.Members[1].Username, view.Members[2].Username}; got[0] != "bob" || got[1] != "carol" || got[2] != "alice" {
+		t.Fatalf("member order = %v", got)
+	}
+}
+
 func TestRosterResolvePerson(t *testing.T) {
 	roster := Roster{
 		Manager: "hgill",

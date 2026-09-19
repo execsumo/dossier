@@ -33,6 +33,14 @@ type RosterStore interface {
 	WriteRoster(*Roster) error
 }
 
+// RosterConflictStore adds the raw YAML boundary needed to inspect and restore
+// a root-level team.yaml conflict without bringing serialization into core.
+type RosterConflictStore interface {
+	RosterStore
+	ReadRosterYAML() (string, error)
+	DecodeRosterYAML(string) (*Roster, error)
+}
+
 type Store interface {
 	Init() error
 	Read(slugOrID string) (*Dossier, Revision, error)

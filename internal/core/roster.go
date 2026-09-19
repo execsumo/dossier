@@ -49,6 +49,51 @@ type Roster struct {
 	Former  map[string]string `yaml:"former,omitempty" json:"former,omitempty"`
 }
 
+// RosterMember is the stable, display-oriented representation used by team
+// surfaces. It avoids exposing map iteration order to humans or JSON clients.
+type RosterMember struct {
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+}
+
+// RosterView is the ordered read-only team representation returned by adapters.
+type RosterView struct {
+	Manager string         `json:"manager"`
+	Members []RosterMember `json:"members"`
+	Former  []RosterMember `json:"former,omitempty"`
+}
+
+// View returns current members with the manager first, then case-insensitive
+// display-name order. Former members are sorted by the same stable rule.
+func (r Roster) View() RosterView {
+	return RosterView{
+		Manager: r.Manager,
+		Members: orderedRosterMembers(r.Members, r.Manager),
+		Former:  orderedRosterMembers(r.Former, ""),
+	}
+}
+
+func orderedRosterMembers(members map[string]string, manager string) []RosterMember {
+	ordered := make([]RosterMember, 0, len(members))
+	manager = NormalizeUsername(manager)
+	for username, displayName := range members {
+		ordered = append(ordered, RosterMember{Username: NormalizeUsername(username), DisplayName: displayName})
+	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		iManager := NormalizeUsername(ordered[i].Username) == manager && manager != ""
+		jManager := NormalizeUsername(ordered[j].Username) == manager && manager != ""
+		if iManager != jManager {
+			return iManager
+		}
+		left, right := strings.ToLower(strings.TrimSpace(ordered[i].DisplayName)), strings.ToLower(strings.TrimSpace(ordered[j].DisplayName))
+		if left != right {
+			return left < right
+		}
+		return ordered[i].Username < ordered[j].Username
+	})
+	return ordered
+}
+
 func (r *Roster) normalize() {
 	if r.Members == nil {
 		r.Members = map[string]string{}

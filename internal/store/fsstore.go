@@ -75,6 +75,37 @@ func (s *FSStore) ReadRoster() (*core.Roster, error) {
 	return &roster, nil
 }
 
+// ReadRosterYAML returns the complete synced team.yaml for conflict comparison.
+func (s *FSStore) ReadRosterYAML() (string, error) {
+	path := filepath.Join(s.dossierHome, "team.yaml")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		empty, marshalErr := yaml.Marshal(&core.Roster{Members: map[string]string{}, Former: map[string]string{}})
+		return string(empty), marshalErr
+	}
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// DecodeRosterYAML parses a preserved complete team.yaml conflict proposal.
+func (s *FSStore) DecodeRosterYAML(content string) (*core.Roster, error) {
+	var roster core.Roster
+	decoder := yaml.NewDecoder(bytes.NewReader([]byte(content)))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&roster); err != nil {
+		return nil, err
+	}
+	if roster.Members == nil {
+		roster.Members = map[string]string{}
+	}
+	if roster.Former == nil {
+		roster.Former = map[string]string{}
+	}
+	return &roster, nil
+}
+
 // WriteRoster atomically persists the manager-owned synced team roster.
 func (s *FSStore) WriteRoster(roster *core.Roster) error {
 	if roster == nil {

@@ -18,3 +18,13 @@ func TestSync_BothModifiedTeamYAMLConflicts(t *testing.T) {
 	}
 	assertFile(t, storeB, "team.yaml", "manager: alice\nmembers:\n  alice: Alice\n  bob: Bob\n")
 }
+
+func TestSync_RootRosterConflictFilesReachOtherStore(t *testing.T) {
+	bare, storeA, storeB := setupPair(t)
+	syncA := newSyncer(storeA, bare, "alice")
+	syncB := newSyncer(storeB, bare, "bob")
+	writeFile(t, storeB, "conflicts/conf_roster.md", "---\nid: conf_roster\ndossier_id: __team_roster__\nkind: sync_concurrent_roster_edit\n---\nteam roster conflict\n")
+	mustSync(t, syncB)
+	mustSync(t, syncA)
+	assertFile(t, storeA, "conflicts/conf_roster.md", "---\nid: conf_roster\ndossier_id: __team_roster__\nkind: sync_concurrent_roster_edit\n---\nteam roster conflict\n")
+}

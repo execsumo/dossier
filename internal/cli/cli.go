@@ -1697,6 +1697,7 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	var teamCreateYes, teamCreateJSON bool
+	var teamCreateName string
 	teamCreateCmd := &cobra.Command{
 		Use:   "create <url>",
 		Short: "Turn the current store into a team's shared store",
@@ -1746,7 +1747,18 @@ func NewRootCmd() *cobra.Command {
 					os.Exit(1)
 				}
 			}
-			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{RemoteURL: args[0], Branch: "main", Confirmed: true})
+			managerName := strings.TrimSpace(teamCreateName)
+			if managerName == "" && strings.TrimSpace(cfg.DisplayName) == "" && !teamCreateYes {
+				username := core.NormalizeUsername(cfg.Author)
+				fmt.Fprintf(cmd.OutOrStdout(), "Your name as teammates will see it [%s]: ", username)
+				answer, readErr := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+				managerName = strings.TrimSpace(answer)
+				if readErr != nil && managerName == "" {
+					fmt.Println("Team create refused: manager display name is required; use --name or --yes in non-interactive mode")
+					os.Exit(1)
+				}
+			}
+			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{RemoteURL: args[0], Branch: "main", Confirmed: true, ManagerDisplayName: managerName})
 			if err != nil {
 				fmt.Printf("Team create failed: %v\n", err)
 				os.Exit(1)
@@ -1763,6 +1775,7 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 	teamCreateCmd.Flags().BoolVarP(&teamCreateYes, "yes", "y", false, "Skip confirmation prompt")
+	teamCreateCmd.Flags().StringVar(&teamCreateName, "name", "", "Manager display name for teammates")
 	teamCreateCmd.Flags().BoolVar(&teamCreateJSON, "json", false, "Output results in JSON format")
 
 	var teamJoinJSON bool
@@ -1882,19 +1895,20 @@ func NewRootCmd() *cobra.Command {
 				fmt.Printf("Team members failed: %v\n", err)
 				os.Exit(1)
 			}
+			view := roster.View()
 			if teamMembersJSON {
-				printJSON(roster)
+				printJSON(view)
 				return
 			}
 			fmt.Printf("Manager: %s (%s)\n", roster.Manager, roster.DisplayName(roster.Manager))
 			fmt.Println("Members:")
-			for username, displayName := range roster.Members {
-				fmt.Printf("- %s (%s)\n", displayName, username)
+			for _, member := range view.Members {
+				fmt.Printf("- %s (%s)\n", member.DisplayName, member.Username)
 			}
-			if len(roster.Former) > 0 {
+			if len(view.Former) > 0 {
 				fmt.Println("Former members:")
-				for username, displayName := range roster.Former {
-					fmt.Printf("- %s (%s)\n", displayName, username)
+				for _, member := range view.Former {
+					fmt.Printf("- %s (%s)\n", member.DisplayName, member.Username)
 				}
 			}
 		},

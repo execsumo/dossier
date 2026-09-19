@@ -9,9 +9,10 @@ import (
 
 // TeamCreateReq specifies parameters for creating a new team store.
 type TeamCreateReq struct {
-	RemoteURL string
-	Branch    string
-	Confirmed bool
+	RemoteURL          string
+	Branch             string
+	Confirmed          bool
+	ManagerDisplayName string
 }
 
 // Members returns the current synced team roster. Stores without roster
@@ -158,7 +159,10 @@ func (s *Service) TeamCreate(ctx context.Context, req TeamCreateReq) (Result, er
 
 	if rosterStore, ok := s.store.(RosterStore); ok {
 		roster := &Roster{Manager: NormalizeUsername(s.cfg.Author), Members: map[string]string{}}
-		managerName := strings.TrimSpace(s.cfg.DisplayName)
+		managerName := strings.TrimSpace(req.ManagerDisplayName)
+		if managerName == "" {
+			managerName = strings.TrimSpace(s.cfg.DisplayName)
+		}
 		if managerName == "" {
 			managerName = roster.Manager
 		}
@@ -247,7 +251,7 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 		var targetID, targetName, conflictKind string
 		if conf.Path == "team.yaml" {
 			targetID = RosterConflictDossierID
-			targetName = "team roster"
+			targetName = "Team roster"
 			conflictKind = "sync_concurrent_roster_edit"
 		} else {
 			fms, listErr := s.store.List("all")
@@ -270,8 +274,12 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 		}
 
 		confID := fmt.Sprintf("conf_%s_%s_%d", s.clock.Now().Format("20060102150405"), strings.ReplaceAll(slug, "/", "-"), i)
-		localBody := conflictBody(string(conf.LocalContent))
-		remoteBody := conflictBody(string(conf.RemoteContent))
+		localBody := string(conf.LocalContent)
+		remoteBody := string(conf.RemoteContent)
+		if targetID != RosterConflictDossierID {
+			localBody = conflictBody(localBody)
+			remoteBody = conflictBody(remoteBody)
+		}
 		conflict := &Conflict{
 			ID:                 confID,
 			DossierID:          targetID,
@@ -297,11 +305,7 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 					Message:        fmt.Sprintf("Conflict %s created due to sync concurrent edit on %s", confID, conf.Path),
 				})
 			}
-			action := "resolve it with dossier_conflicts"
-			if targetID == RosterConflictDossierID {
-				action = "reconcile team.yaml manually; dossier_resolve_conflict does not overwrite rosters"
-			}
-			warnings = append(warnings, Warning(fmt.Sprintf("sync conflict: %s on %s; both versions are kept; %s", confID, targetName, action)))
+			warnings = append(warnings, Warning(fmt.Sprintf("sync conflict: %s on %s; both versions are kept; resolve it with dossier_conflicts", confID, targetName)))
 		} else {
 			warnings = append(warnings, Warning(fmt.Sprintf("failed to write conflict for %s: %v", conf.Path, writeErr)))
 		}
@@ -340,8 +344,8 @@ func (s *Service) SyncStatus(ctx context.Context) (Result, error) {
 }
 
 // conflictBody removes the dossier file envelope before storing a rejected
-// proposal. Sync conflicts carry complete dossier.md bytes; resolution operates
-// on Distilled State markdown only, never on a raw file overwrite.
+// proposal. Roster conflicts bypass this helper and retain the complete
+// team.yaml so restore/merge can parse the preserved roster.
 func conflictBody(content string) string {
 	if !strings.HasPrefix(content, "---\n") {
 		return content

@@ -647,7 +647,11 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 
 	case "dossier_team":
 		roster, rosterErr := s.svc.Members(ctx)
-		res = core.Result{OK: rosterErr == nil, Data: roster}
+		var data any
+		if rosterErr == nil {
+			data = roster.View()
+		}
+		res = core.Result{OK: rosterErr == nil, Data: data}
 		err = rosterErr
 
 	case "dossier_conflicts":

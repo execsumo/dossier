@@ -1,10 +1,13 @@
 package store
 
 import (
+	"bytes"
 	"dossier/assets"
 	"dossier/internal/core"
 	"fmt"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // FakeStore implements core.Store in-memory for core unit tests.
@@ -49,6 +52,27 @@ func (f *FakeStore) ReadRoster() (*core.Roster, error) {
 func (f *FakeStore) WriteRoster(roster *core.Roster) error {
 	f.Roster = roster
 	return nil
+}
+
+func (f *FakeStore) ReadRosterYAML() (string, error) {
+	data, err := yaml.Marshal(f.Roster)
+	return string(data), err
+}
+
+func (f *FakeStore) DecodeRosterYAML(content string) (*core.Roster, error) {
+	var roster core.Roster
+	decoder := yaml.NewDecoder(bytes.NewReader([]byte(content)))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&roster); err != nil {
+		return nil, err
+	}
+	if roster.Members == nil {
+		roster.Members = map[string]string{}
+	}
+	if roster.Former == nil {
+		roster.Former = map[string]string{}
+	}
+	return &roster, nil
 }
 
 func cloneDossier(d *core.Dossier) *core.Dossier {
