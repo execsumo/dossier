@@ -56,6 +56,9 @@ func (s *Service) normalizeLeadUpdate(updates map[string]any) (map[string]any, e
 		}
 		return updates, NewError(ErrInvalidFrontmatter, fmt.Sprintf("unknown team member %q", lead))
 	}
+	if !roster.Has(username) {
+		return updates, NewError(ErrInvalidFrontmatter, fmt.Sprintf("lead %q is a former team member and cannot receive new assignments", lead))
+	}
 	copy := make(map[string]any, len(updates))
 	for key, item := range updates {
 		copy[key] = item

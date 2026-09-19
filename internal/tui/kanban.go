@@ -354,7 +354,11 @@ func renderCard(item core.ListItem, colWidth int, selected, showDescription bool
 		}
 	}
 	if lead := strings.Fields(item.Lead); len(lead) > 0 {
-		lines = append(lines, mutedStyle.Render(truncateCell(lead[0], inner)))
+		label := lead[0]
+		if item.LeadFormer {
+			label += " (former)"
+		}
+		lines = append(lines, mutedStyle.Render(truncateCell(label, inner)))
 	}
 
 	style := kanbanCardStyle

@@ -121,6 +121,8 @@ type SearchScope struct {
 type Hit struct {
 	DossierID   string `json:"dossier_id"`
 	DossierName string `json:"dossier_name"`
+	Lead        string `json:"lead,omitempty"`
+	LeadFormer  bool   `json:"lead_former,omitempty"`
 	ArtifactID  string `json:"artifact_id,omitempty"`
 	Title       string `json:"title"`
 	Path        string `json:"path"`

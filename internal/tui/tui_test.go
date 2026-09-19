@@ -14,6 +14,7 @@ import (
 	"dossier/internal/config"
 	"dossier/internal/core"
 	"dossier/internal/harness"
+	dossierstore "dossier/internal/store"
 
 	"github.com/charmbracelet/bubbles/help"
 	tea "github.com/charmbracelet/bubbletea"
@@ -456,6 +457,34 @@ func setupTestService(store core.Store) *core.Service {
 		core.Config{DossierHome: "/tmp/dossier_home"},
 		nil,
 	)
+}
+
+func TestTUIRosterLeadUsesDisplayNameAndStoresUsername(t *testing.T) {
+	store := dossierstore.NewFakeStore()
+	store.Roster = &core.Roster{Manager: "hgill", Members: map[string]string{"hgill": "Herwin Gill", "psmith": "Priya Shah"}}
+	store.Dossiers["dos1"] = &core.Dossier{Frontmatter: core.Frontmatter{
+		ID: "dos1", Name: "Assigned", Slug: "assigned", Status: core.StatusExecute, Priority: core.PriorityHigh,
+	}, DistilledState: core.DistilledState{Body: "# Assigned"}}
+	store.Revisions["dos1"] = "rev_1"
+	m := NewModel(setupTestService(store))
+	if got := m.configuredLeads; len(got) != 2 || got[0] != "Herwin Gill" || got[1] != "Priya Shah" {
+		t.Fatalf("configured lead labels = %v", got)
+	}
+	m.startEdit(targetDossier{id: "dos1", name: "Assigned", lead: ""})
+	m.editLead = "Priya Shah"
+	msg := m.saveEditCmd("dos1", "rev_1", map[string]any{"lead": "Priya Shah"})()
+	if result, ok := msg.(mutationResultMsg); !ok || result.err != nil {
+		t.Fatalf("lead save result = %#v", msg)
+	}
+	if got := store.Dossiers["dos1"].Frontmatter.Lead; got != "psmith" {
+		t.Fatalf("stored TUI lead = %q, want psmith", got)
+	}
+
+	m.recallResult = core.RecallResult{Frontmatter: core.Frontmatter{ID: "dos1", Lead: "Priya Shah"}}
+	m.width = 100
+	if detail := stripANSI(m.renderDetailMetadata()); !strings.Contains(detail, "Priya Shah") {
+		t.Fatalf("detail omitted display lead: %s", detail)
+	}
 }
 
 func TestTUI_Dashboard(t *testing.T) {
