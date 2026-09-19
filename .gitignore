@@ -25,3 +25,6 @@ go.work.sum
 # Agent/tooling state
 /.agtx/
 /.claude/
+
+# td
+.todos/
