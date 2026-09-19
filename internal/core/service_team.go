@@ -9,9 +9,124 @@ import (
 
 // TeamCreateReq specifies parameters for creating a new team store.
 type TeamCreateReq struct {
-	RemoteURL string
-	Branch    string
-	Confirmed bool
+	RemoteURL          string
+	Branch             string
+	Confirmed          bool
+	ManagerDisplayName string
+}
+
+// Members returns the current synced team roster. Stores without roster
+// support behave as an empty local roster for backwards-compatible tests.
+func (s *Service) Members(ctx context.Context) (Roster, error) {
+	store, ok := s.store.(RosterStore)
+	if !ok {
+		return Roster{Members: map[string]string{}, Former: map[string]string{}}, nil
+	}
+	roster, err := store.ReadRoster()
+	if err != nil {
+		return Roster{}, err
+	}
+	if roster == nil {
+		roster = &Roster{}
+	}
+	roster.normalize()
+	return *roster, nil
+}
+
+func (s *Service) normalizeLeadUpdate(updates map[string]any) (map[string]any, error) {
+	if updates == nil {
+		return nil, nil
+	}
+	value, ok := updates["lead"]
+	if !ok {
+		return updates, nil
+	}
+	lead, ok := value.(string)
+	if !ok {
+		return updates, nil
+	}
+	roster, hasRoster := s.currentRoster()
+	if !hasRoster || strings.TrimSpace(lead) == "" {
+		return updates, nil
+	}
+	username, resolved, candidates := roster.ResolvePerson(lead)
+	if !resolved {
+		if len(candidates) > 1 {
+			return updates, NewError(ErrAmbiguousTarget, fmt.Sprintf("lead %q is ambiguous; candidates: %s", lead, strings.Join(candidates, ", ")))
+		}
+		return updates, NewError(ErrInvalidFrontmatter, fmt.Sprintf("unknown team member %q", lead))
+	}
+	copy := make(map[string]any, len(updates))
+	for key, item := range updates {
+		copy[key] = item
+	}
+	copy["lead"] = username
+	return copy, nil
+}
+
+func (s *Service) rosterWarning(roster Roster) []Warning {
+	if roster.Manager == "" || NormalizeUsername(s.cfg.Author) == NormalizeUsername(roster.Manager) {
+		return nil
+	}
+	return []Warning{Warning(fmt.Sprintf("You are not the roster's manager (%s); roster changes are conventionally manager-owned.", roster.Manager))}
+}
+
+// TeamAdd adds or restores a roster member. Usernames are stored normalized.
+func (s *Service) TeamAdd(ctx context.Context, username, displayName string) (Result, error) {
+	store, ok := s.store.(RosterStore)
+	if !ok {
+		return Result{OK: false}, NewError(ErrInternal, "team roster storage is not configured")
+	}
+	username = NormalizeUsername(username)
+	displayName = strings.TrimSpace(displayName)
+	if username == "" || displayName == "" {
+		return Result{OK: false}, NewError(ErrInvalidFrontmatter, "username and display name are required")
+	}
+	roster, err := s.Members(ctx)
+	if err != nil {
+		return Result{OK: false}, err
+	}
+	if roster.Members == nil {
+		roster.Members = map[string]string{}
+	}
+	if roster.Former == nil {
+		roster.Former = map[string]string{}
+	}
+	roster.Members[username] = displayName
+	delete(roster.Former, username)
+	if err := store.WriteRoster(&roster); err != nil {
+		return Result{OK: false}, err
+	}
+	return Result{OK: true, Data: roster, Warnings: s.rosterWarning(roster)}, nil
+}
+
+// TeamRemove moves a member to former rather than deleting their identity.
+func (s *Service) TeamRemove(ctx context.Context, username string) (Result, error) {
+	store, ok := s.store.(RosterStore)
+	if !ok {
+		return Result{OK: false}, NewError(ErrInternal, "team roster storage is not configured")
+	}
+	username = NormalizeUsername(username)
+	if username == "" {
+		return Result{OK: false}, NewError(ErrInvalidFrontmatter, "username is required")
+	}
+	roster, err := s.Members(ctx)
+	if err != nil {
+		return Result{OK: false}, err
+	}
+	displayName, exists := roster.Members[username]
+	if !exists {
+		return Result{OK: false}, NewError(ErrNotFound, fmt.Sprintf("team member %q not found", username))
+	}
+	delete(roster.Members, username)
+	if roster.Former == nil {
+		roster.Former = map[string]string{}
+	}
+	roster.Former[username] = displayName
+	if err := store.WriteRoster(&roster); err != nil {
+		return Result{OK: false}, err
+	}
+	return Result{OK: true, Data: roster, Warnings: s.rosterWarning(roster)}, nil
 }
 
 // TeamCreate initializes the current store as a team store and pushes to the remote.
@@ -40,6 +155,21 @@ func (s *Service) TeamCreate(ctx context.Context, req TeamCreateReq) (Result, er
 				"everything in the store directory syncs, including archived Dossiers",
 			},
 		}, nil
+	}
+
+	if rosterStore, ok := s.store.(RosterStore); ok {
+		roster := &Roster{Manager: NormalizeUsername(s.cfg.Author), Members: map[string]string{}}
+		managerName := strings.TrimSpace(req.ManagerDisplayName)
+		if managerName == "" {
+			managerName = strings.TrimSpace(s.cfg.DisplayName)
+		}
+		if managerName == "" {
+			managerName = roster.Manager
+		}
+		roster.Members[roster.Manager] = managerName
+		if err := rosterStore.WriteRoster(roster); err != nil {
+			return Result{}, fmt.Errorf("write team roster: %w", err)
+		}
 	}
 
 	err := s.syncer.Create(ctx, req.RemoteURL, req.Branch)
@@ -117,33 +247,43 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 	var createdConflicts []string
 	for i, conf := range report.Conflicts {
 		slugParts := strings.Split(filepath.ToSlash(conf.Path), "/")
-		slug := slugParts[0] // always the dossier slug
-		var targetID, targetName string
-		fms, listErr := s.store.List("all")
-		if listErr == nil {
-			for _, fm := range fms {
-				if fm.Slug == slug {
-					targetID = fm.ID
-					targetName = fm.Name
-					break
+		slug := slugParts[0] // dossier slug for dossier.md; team.yaml is root-level
+		var targetID, targetName, conflictKind string
+		if conf.Path == "team.yaml" {
+			targetID = RosterConflictDossierID
+			targetName = "Team roster"
+			conflictKind = "sync_concurrent_roster_edit"
+		} else {
+			fms, listErr := s.store.List("all")
+			if listErr == nil {
+				for _, fm := range fms {
+					if fm.Slug == slug {
+						targetID = fm.ID
+						targetName = fm.Name
+						break
+					}
 				}
 			}
-		}
-		if targetID == "" {
-			// If we couldn't resolve the dossier ID by slug, just use the slug as ID fallback.
-			targetID = slug
-		}
-		if targetName == "" {
-			targetName = slug
+			if targetID == "" {
+				targetID = slug
+			}
+			if targetName == "" {
+				targetName = slug
+			}
+			conflictKind = "sync_concurrent_edit"
 		}
 
-		confID := fmt.Sprintf("conf_%s_%s_%d", s.clock.Now().Format("20060102150405"), slug, i)
-		localBody := conflictBody(string(conf.LocalContent))
-		remoteBody := conflictBody(string(conf.RemoteContent))
+		confID := fmt.Sprintf("conf_%s_%s_%d", s.clock.Now().Format("20060102150405"), strings.ReplaceAll(slug, "/", "-"), i)
+		localBody := string(conf.LocalContent)
+		remoteBody := string(conf.RemoteContent)
+		if targetID != RosterConflictDossierID {
+			localBody = conflictBody(localBody)
+			remoteBody = conflictBody(remoteBody)
+		}
 		conflict := &Conflict{
 			ID:                 confID,
 			DossierID:          targetID,
-			Kind:               "sync_concurrent_edit",
+			Kind:               conflictKind,
 			BaseRevision:       conf.LocalRevision,
 			AttemptedRevision:  conf.RemoteRevision,
 			TS:                 s.clock.Now(),
@@ -154,15 +294,17 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 		writeErr := s.store.WriteConflict(conflict)
 		if writeErr == nil {
 			createdConflicts = append(createdConflicts, confID)
-			_ = s.store.AppendAudit(targetID, AuditEvent{
-				TS:             s.clock.Now(),
-				Event:          AuditEventConflictCreated,
-				Author:         s.cfg.Author,
-				DossierID:      targetID,
-				BeforeRevision: conf.LocalRevision,
-				AfterRevision:  conf.RemoteRevision,
-				Message:        fmt.Sprintf("Conflict %s created due to sync concurrent edit on %s", confID, conf.Path),
-			})
+			if targetID != RosterConflictDossierID {
+				_ = s.store.AppendAudit(targetID, AuditEvent{
+					TS:             s.clock.Now(),
+					Event:          AuditEventConflictCreated,
+					Author:         s.cfg.Author,
+					DossierID:      targetID,
+					BeforeRevision: conf.LocalRevision,
+					AfterRevision:  conf.RemoteRevision,
+					Message:        fmt.Sprintf("Conflict %s created due to sync concurrent edit on %s", confID, conf.Path),
+				})
+			}
 			warnings = append(warnings, Warning(fmt.Sprintf("sync conflict: %s on %s; both versions are kept; resolve it with dossier_conflicts", confID, targetName)))
 		} else {
 			warnings = append(warnings, Warning(fmt.Sprintf("failed to write conflict for %s: %v", conf.Path, writeErr)))
@@ -202,8 +344,8 @@ func (s *Service) SyncStatus(ctx context.Context) (Result, error) {
 }
 
 // conflictBody removes the dossier file envelope before storing a rejected
-// proposal. Sync conflicts carry complete dossier.md bytes; resolution operates
-// on Distilled State markdown only, never on a raw file overwrite.
+// proposal. Roster conflicts bypass this helper and retain the complete
+// team.yaml so restore/merge can parse the preserved roster.
 func conflictBody(content string) string {
 	if !strings.HasPrefix(content, "---\n") {
 		return content

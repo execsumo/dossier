@@ -22,6 +22,7 @@ type TeamConfig struct {
 type Config struct {
 	DossierHome string     `yaml:"dossier_home"`
 	Author      string     `yaml:"author"`
+	DisplayName string     `yaml:"display_name,omitempty"`
 	OpenWith    string     `yaml:"open_with,omitempty"`
 	Interfaces  []string   `yaml:"interfaces"`
 	Leads       []string   `yaml:"leads"`
@@ -34,6 +35,7 @@ type Config struct {
 type configFile struct {
 	DossierHome   string     `yaml:"dossier_home"`
 	Author        string     `yaml:"author"`
+	DisplayName   string     `yaml:"display_name,omitempty"`
 	OpenWith      string     `yaml:"open_with,omitempty"`
 	Interfaces    []string   `yaml:"interfaces"`
 	Leads         []string   `yaml:"leads"`
@@ -68,7 +70,7 @@ func Default() *Config {
 
 	return &Config{
 		DossierHome: homePath,
-		Author:      author,
+		Author:      core.NormalizeUsername(author),
 		OpenWith:    "claude-code",
 		Interfaces:  core.DefaultDiscussionInterfaces(),
 		Leads:       []string{},
@@ -89,6 +91,7 @@ func Load(path string) (*Config, error) {
 	wire := configFile{
 		DossierHome: cfg.DossierHome,
 		Author:      cfg.Author,
+		DisplayName: cfg.DisplayName,
 		OpenWith:    cfg.OpenWith,
 		Interfaces:  cfg.Interfaces,
 		Leads:       cfg.Leads,
@@ -100,7 +103,8 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	cfg.DossierHome = wire.DossierHome
-	cfg.Author = wire.Author
+	cfg.Author = strings.TrimSpace(wire.Author)
+	cfg.DisplayName = strings.TrimSpace(wire.DisplayName)
 	cfg.OpenWith = wire.OpenWith
 	cfg.Interfaces = wire.Interfaces
 	cfg.Leads = wire.Leads
@@ -198,6 +202,7 @@ func (c *Config) ToCoreConfig() core.Config {
 	return core.Config{
 		DossierHome: c.DossierHome,
 		Author:      c.Author,
+		DisplayName: c.DisplayName,
 		Interfaces:  append([]string{}, c.Interfaces...),
 		Leads:       append([]string{}, c.Leads...),
 		TokenLimit:  c.TokenLimit,

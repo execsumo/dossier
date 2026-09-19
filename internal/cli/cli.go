@@ -394,7 +394,11 @@ func NewRootCmd() *cobra.Command {
 			}
 			fmt.Printf("ID:             %s\n", recall.Frontmatter.ID)
 			fmt.Printf("Slug:           %s\n", recall.Frontmatter.Slug)
-			fmt.Printf("Lead:           %s\n", recall.Frontmatter.Lead)
+			lead := recall.Frontmatter.Lead
+			if roster, rosterErr := svc.Members(context.Background()); rosterErr == nil && lead != "" {
+				lead = roster.DisplayName(lead)
+			}
+			fmt.Printf("Lead:           %s\n", lead)
 			fmt.Printf("Interfaces:      %s\n", strings.Join(recall.Frontmatter.Interfaces, ", "))
 			fmt.Printf("Status:         %s\n", recall.Frontmatter.Status)
 			fmt.Printf("Priority:       %s\n", recall.Frontmatter.Priority)
@@ -1697,6 +1701,7 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	var teamCreateYes, teamCreateJSON bool
+	var teamCreateName string
 	teamCreateCmd := &cobra.Command{
 		Use:   "create <url>",
 		Short: "Turn the current store into a team's shared store",
@@ -1746,7 +1751,18 @@ func NewRootCmd() *cobra.Command {
 					os.Exit(1)
 				}
 			}
-			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{RemoteURL: args[0], Branch: "main", Confirmed: true})
+			managerName := strings.TrimSpace(teamCreateName)
+			if managerName == "" && strings.TrimSpace(cfg.DisplayName) == "" && !teamCreateYes {
+				username := core.NormalizeUsername(cfg.Author)
+				fmt.Fprintf(cmd.OutOrStdout(), "Your name as teammates will see it [%s]: ", username)
+				answer, readErr := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+				managerName = strings.TrimSpace(answer)
+				if readErr != nil && managerName == "" {
+					fmt.Println("Team create refused: manager display name is required; use --name or --yes in non-interactive mode")
+					os.Exit(1)
+				}
+			}
+			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{RemoteURL: args[0], Branch: "main", Confirmed: true, ManagerDisplayName: managerName})
 			if err != nil {
 				fmt.Printf("Team create failed: %v\n", err)
 				os.Exit(1)
@@ -1763,6 +1779,7 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 	teamCreateCmd.Flags().BoolVarP(&teamCreateYes, "yes", "y", false, "Skip confirmation prompt")
+	teamCreateCmd.Flags().StringVar(&teamCreateName, "name", "", "Manager display name for teammates")
 	teamCreateCmd.Flags().BoolVar(&teamCreateJSON, "json", false, "Output results in JSON format")
 
 	var teamJoinJSON bool
@@ -1810,8 +1827,103 @@ func NewRootCmd() *cobra.Command {
 	}
 	teamJoinCmd.Flags().BoolVar(&teamJoinJSON, "json", false, "Output results in JSON format")
 
+	var teamAddJSON bool
+	teamAddCmd := &cobra.Command{
+		Use:   "add <username> <display-name>",
+		Short: "Add a member to the team roster",
+		Args:  cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			res, err := svc.TeamAdd(context.Background(), args[0], args[1])
+			if err != nil {
+				fmt.Printf("Team add failed: %v\n", err)
+				os.Exit(1)
+			}
+			if teamAddJSON {
+				printJSON(res.Data)
+				return
+			}
+			fmt.Printf("Added %s to the team roster.\n", args[1])
+			for _, warning := range res.Warnings {
+				fmt.Printf("Warning: %s\n", warning)
+			}
+		},
+	}
+	teamAddCmd.Flags().BoolVar(&teamAddJSON, "json", false, "Output results in JSON format")
+
+	var teamRemoveJSON bool
+	teamRemoveCmd := &cobra.Command{
+		Use:   "remove <username>",
+		Short: "Move a member to the former team roster",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			res, err := svc.TeamRemove(context.Background(), args[0])
+			if err != nil {
+				fmt.Printf("Team remove failed: %v\n", err)
+				os.Exit(1)
+			}
+			if teamRemoveJSON {
+				printJSON(res.Data)
+				return
+			}
+			fmt.Printf("Moved %s to former team members.\n", core.NormalizeUsername(args[0]))
+			for _, warning := range res.Warnings {
+				fmt.Printf("Warning: %s\n", warning)
+			}
+		},
+	}
+	teamRemoveCmd.Flags().BoolVar(&teamRemoveJSON, "json", false, "Output results in JSON format")
+
+	var teamMembersJSON bool
+	teamMembersCmd := &cobra.Command{
+		Use:   "members",
+		Short: "List the team roster",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			roster, err := svc.Members(context.Background())
+			if err != nil {
+				fmt.Printf("Team members failed: %v\n", err)
+				os.Exit(1)
+			}
+			view := roster.View()
+			if teamMembersJSON {
+				printJSON(view)
+				return
+			}
+			fmt.Printf("Manager: %s (%s)\n", roster.Manager, roster.DisplayName(roster.Manager))
+			fmt.Println("Members:")
+			for _, member := range view.Members {
+				fmt.Printf("- %s (%s)\n", member.DisplayName, member.Username)
+			}
+			if len(view.Former) > 0 {
+				fmt.Println("Former members:")
+				for _, member := range view.Former {
+					fmt.Printf("- %s (%s)\n", member.DisplayName, member.Username)
+				}
+			}
+		},
+	}
+	teamMembersCmd.Flags().BoolVar(&teamMembersJSON, "json", false, "Output results in JSON format")
+
 	teamCmd.AddCommand(teamCreateCmd)
 	teamCmd.AddCommand(teamJoinCmd)
+	teamCmd.AddCommand(teamAddCmd)
+	teamCmd.AddCommand(teamRemoveCmd)
+	teamCmd.AddCommand(teamMembersCmd)
 	rootCmd.AddCommand(teamCmd)
 
 	return rootCmd

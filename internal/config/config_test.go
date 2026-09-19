@@ -8,6 +8,23 @@ import (
 	"testing"
 )
 
+func TestAuthorNormalization(t *testing.T) {
+	if got := Default().Author; got == "" {
+		t.Fatal("Default author is empty")
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("author:  ACME\\PSmith  \n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Author != `ACME\PSmith` {
+		t.Fatalf("explicit author = %q, want trimmed but otherwise unchanged", cfg.Author)
+	}
+}
+
 func TestLoadValueLists(t *testing.T) {
 	t.Run("missing file uses interface defaults", func(t *testing.T) {
 		cfg, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))

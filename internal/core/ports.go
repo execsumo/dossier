@@ -25,6 +25,22 @@ type ListedFrontmatter struct {
 }
 
 // Store defines the CRUD contract for persistence.
+// RosterStore is the optional store capability for the synced team roster.
+// Keeping it optional preserves lightweight in-memory stores used by older
+// callers while filesystem-backed services expose the full team API.
+type RosterStore interface {
+	ReadRoster() (*Roster, error)
+	WriteRoster(*Roster) error
+}
+
+// RosterConflictStore adds the raw YAML boundary needed to inspect and restore
+// a root-level team.yaml conflict without bringing serialization into core.
+type RosterConflictStore interface {
+	RosterStore
+	ReadRosterYAML() (string, error)
+	DecodeRosterYAML(string) (*Roster, error)
+}
+
 type Store interface {
 	Init() error
 	Read(slugOrID string) (*Dossier, Revision, error)

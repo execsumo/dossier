@@ -183,6 +183,7 @@ func (s *Service) validateConfiguredFrontmatterUpdates(updates map[string]any) e
 	if updates == nil {
 		return nil
 	}
+	roster, hasRoster := s.currentRoster()
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
 	if value, ok := updates["interfaces"]; ok {
@@ -201,8 +202,14 @@ func (s *Service) validateConfiguredFrontmatterUpdates(updates map[string]any) e
 		if !valid {
 			return fmt.Errorf("lead must be a string")
 		}
-		if lead != "" && len(s.cfg.Leads) > 0 && !configuredValueAllowed(lead, s.cfg.Leads) {
-			return fmt.Errorf("invalid lead: %q (configure available values in config.yaml)", lead)
+		if lead != "" {
+			if hasRoster {
+				if !roster.Has(lead) {
+					return fmt.Errorf("invalid lead: %q (choose a current team member)", lead)
+				}
+			} else if len(s.cfg.Leads) > 0 && !configuredValueAllowed(lead, s.cfg.Leads) {
+				return fmt.Errorf("invalid lead: %q (configure available values in config.yaml)", lead)
+			}
 		}
 	}
 	return nil
@@ -238,6 +245,11 @@ func (s *Service) Save(ctx context.Context, req SaveReq) (Result, error) {
 // save is the single write path. It additionally returns the immutable dossier
 // ID so internal creation workflows do not need a second full-store scan.
 func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error) {
+	if updates, err := s.normalizeLeadUpdate(req.FrontmatterUpdates); err != nil {
+		return Result{}, "", err
+	} else {
+		req.FrontmatterUpdates = updates
+	}
 	if _, ok := req.FrontmatterUpdates["slug"]; ok {
 		return Result{}, "", NewError(ErrInvalidFrontmatter, "slug cannot be changed through Save; use Rename")
 	}
@@ -1085,16 +1097,21 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 	}
 
 	var filtered []ListedFrontmatter
+	roster, hasRoster := s.currentRoster()
 	query := NewQuery(req.Query)
 	for _, fm := range fms {
 		if !matchesInterfaces(fm.Interfaces, req.Interfaces) {
 			continue
 		}
+		leadDisplay := fm.Lead
+		if hasRoster {
+			leadDisplay = roster.DisplayName(fm.Lead)
+		}
 		if !query.IsEmpty() && !query.Matches(Haystack(ListItem{
 			Name:        fm.Name,
 			Slug:        fm.Slug,
 			Description: fm.Description,
-			Lead:        fm.Lead,
+			Lead:        leadDisplay + " " + fm.Lead,
 			Interfaces:  fm.Interfaces,
 		})) {
 			continue
@@ -1114,13 +1131,17 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 	for _, listed := range filtered {
 		fm := listed.Frontmatter
 		dossierPath := filepath.Join(s.cfg.DossierHome, fm.Slug)
+		leadDisplay := fm.Lead
+		if hasRoster {
+			leadDisplay = roster.DisplayName(fm.Lead)
+		}
 		items = append(items, ListItem{
 			ID:                        fm.ID,
 			Name:                      fm.Name,
 			Slug:                      fm.Slug,
 			Status:                    string(fm.Status),
 			Description:               fm.Description,
-			Lead:                      fm.Lead,
+			Lead:                      leadDisplay,
 			Interfaces:                append([]string(nil), fm.Interfaces...),
 			NextAction:                fm.NextAction,
 			Priority:                  string(fm.Priority),

@@ -19,7 +19,7 @@ import (
 // .gitignore, author-namespaced audit/session shards) is single-writer or
 // managed and takes remote-wins silently.
 func isDossierConflictPath(path string) bool {
-	return path == "dossier.md" || strings.HasSuffix(path, "/dossier.md")
+	return path == "team.yaml" || path == "dossier.md" || strings.HasSuffix(path, "/dossier.md")
 }
 
 // remoteWinsMerge performs the 3-way remote-wins merge. For every file both
