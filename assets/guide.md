@@ -118,7 +118,7 @@ Immediate execution context. Active files, blockers, or configurations.
 - Return Expectations: [decided|proposed] <The status, validation result, output/evidence, and decisions the owner returns.>
 
 ## Next Steps
-Immediate required actions. Must align with `next_action` and the `## Open Questions` section in the Distilled State body.
+Immediate required actions. Must align with `next_action` and the `## Open Questions` section in the Distilled State body. On every explicit save of active work, keep `status` and the machine-visible `next_action` baton current; the body carries the supporting context for the next person or timezone.
 ```
 
 ### Work-shape rules
