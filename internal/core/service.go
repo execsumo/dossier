@@ -274,6 +274,9 @@ func (s *Service) TokenLimit() int {
 	return s.cfg.TokenLimit
 }
 
+// SyncConfigured reports whether a team syncer is wired into the service.
+func (s *Service) SyncConfigured() bool { return s.syncer != nil }
+
 // scanDossiers visits each dossier body through the store's streaming
 // capability when available, with a compatibility fallback for older stores.
 // Point-read failures in the fallback are warnings rather than silent skips.
