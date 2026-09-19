@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func mutationService(t *testing.T, syncer core.Syncer) (*core.Service, *store.FakeStore) {
@@ -140,6 +141,7 @@ func TestMCPReadsDoNotEnqueueMutationSync(t *testing.T) {
 	}{
 		{"dossier_list", `{}`},
 		{"dossier_search", `{"query":"test"}`},
+		{"dossier_artifact", `{"dossier_id":"dos_1","artifact_id":"art_1"}`},
 		{"dossier_artifacts", `{"dossier_id":"dos_1"}`},
 		{"dossier_team", `{}`},
 		{"dossier_conflicts", `{}`},
@@ -186,7 +188,69 @@ func TestMCPMutationSkipsSyncWhenTeamNotConfigured(t *testing.T) {
 	if fs.Dossiers["dos_1"].Frontmatter.Lead != "psmith" {
 		t.Fatal("unconfigured update did not persist")
 	}
-	if strings.Contains(strings.Join(env.Warnings, " "), "Background team sync failed") {
-		t.Fatalf("unconfigured update emitted sync warning: %v", env.Warnings)
+}
+
+// A single-user store has no syncer, so an enqueued sync would fail with "team
+// sync is not configured" and surface a warning about a feature the user never
+// enabled. Drive the real debouncer to prove nothing is enqueued: asserting on
+// the tool response alone cannot fail, because the warning is only ever set
+// from the debouncer goroutine.
+func TestMCPUnconfiguredStoreEmitsNoBackgroundSyncWarning(t *testing.T) {
+	svc, _ := mutationService(t, nil)
+	server := NewServer(svc, bytes.NewBuffer(nil), &safeWriter{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go server.syncDebouncer(ctx)
+
+	server.handleRequest(ctx, JSONRPCRequest{
+		JSONRPC: "2.0",
+		Method:  "tools/call",
+		Params:  []byte(`{"name":"dossier_update","arguments":{"id":"dos_1","lead":"psmith"}}`),
+		ID:      1,
+	})
+
+	close(server.syncChan)
+	select {
+	case <-server.doneChan:
+	case <-time.After(5 * time.Second):
+		t.Fatal("debouncer did not drain")
+	}
+	if w := server.takeBgWarning(); w != "" {
+		t.Fatalf("unconfigured store emitted background sync warning: %q", w)
+	}
+}
+
+// mcpNonMutatingTools is the other half of the classification. Every tool must
+// appear in exactly one of the two sets, so a newly added tool cannot ship
+// unclassified — which for a mutator means a silently stale teammate clone.
+var mcpNonMutatingTools = map[string]bool{
+	"dossier_list":      true,
+	"dossier_recall":    true,
+	"dossier_search":    true,
+	"dossier_artifact":  true,
+	"dossier_artifacts": true,
+	"dossier_session":   true,
+	"dossier_team":      true,
+	"dossier_conflicts": true,
+}
+
+func TestMCPEveryToolIsClassifiedForSync(t *testing.T) {
+	defined := map[string]bool{}
+	for _, def := range getToolDefinitions() {
+		defined[def.Name] = true
+		mutating, nonMutating := mcpMutatingTools[def.Name], mcpNonMutatingTools[def.Name]
+		if mutating == nonMutating {
+			t.Errorf("tool %s is classified as mutating=%t and non-mutating=%t; it must be exactly one (add it to mcpMutatingTools if a successful call writes shared state)", def.Name, mutating, nonMutating)
+		}
+	}
+	for name := range mcpMutatingTools {
+		if !defined[name] {
+			t.Errorf("mcpMutatingTools lists %s, which getToolDefinitions no longer defines", name)
+		}
+	}
+	for name := range mcpNonMutatingTools {
+		if !defined[name] {
+			t.Errorf("mcpNonMutatingTools lists %s, which getToolDefinitions no longer defines", name)
+		}
 	}
 }
