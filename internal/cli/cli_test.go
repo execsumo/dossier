@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -790,10 +791,12 @@ func TestCLIUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to stat: %v", err)
 	}
-	// Check permissions on Unix (should be executable)
-	mode := info.Mode()
-	if mode&0111 == 0 {
-		t.Errorf("expected file to be executable, got mode: %v", mode)
+	// Windows uses ACLs and does not expose Unix executable bits.
+	if runtime.GOOS != "windows" {
+		mode := info.Mode()
+		if mode&0111 == 0 {
+			t.Errorf("expected file to be executable, got mode: %v", mode)
+		}
 	}
 }
 

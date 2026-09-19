@@ -1989,8 +1989,9 @@ func assertHandoff(t *testing.T, store *testStore, spy *claudeSpy) {
 	if cmd.Path != spy.bin && cmd.Args[0] != spy.bin {
 		t.Errorf("expected launch of %q, got %v", spy.bin, cmd.Args)
 	}
-	if cmd.Dir != "/tmp/dossier_home/project-alpha" {
-		t.Errorf("cmd.Dir = %q, want the dossier directory", cmd.Dir)
+	wantDir := filepath.FromSlash("/tmp/dossier_home/project-alpha")
+	if cmd.Dir != wantDir {
+		t.Errorf("cmd.Dir = %q, want %q", cmd.Dir, wantDir)
 	}
 
 	args := cmd.Args[1:]

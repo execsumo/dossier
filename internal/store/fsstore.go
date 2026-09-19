@@ -411,7 +411,7 @@ func (s *FSStore) Rename(dossierID string, newSlug string, newName string, base 
 	}
 
 	// A directory rename must not race Team Sync's working-tree checkout.
-	syncLock, err := Lock(filepath.Join(s.dossierHome, ".sync.lock"))
+	syncLock, err := Lock(filepath.Clean(s.dossierHome) + ".sync.lock")
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to acquire sync lock: %w", err)
 	}
