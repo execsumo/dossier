@@ -266,7 +266,7 @@ Start the pilot only when all of these are true:
   compensation material, and no session that read such material is archived in
   it (transcripts sync). Anything else has been moved out of `~/.dossier`.
   Archiving is not enough.
-- The colleague's `~/.dossier` does not exist before joining.
+- The colleague's `~/.dossier` does not exist before joining, or holds only the `credentials` token file. (Joining into an existing store is not supported; requirement dropped by the owner, 2026-09-18.)
 - The colleague knows the one primary path: open Claude in the work folder, ask
   for their Dossier by name, and ask Claude to save as decisions land.
 

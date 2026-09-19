@@ -495,7 +495,7 @@ manifest, and they stay advisory until the transport enforces access.
 
 Revoked token mid-push; remote force-pushed; clock skew; two machines editing
 one body; offline week then reconnect; upgrade binary between two pilot
-machines; join from a machine with an existing `~/.dossier`; live Claude session
+machines; ~~join from a machine with an existing `~/.dossier`~~ (requirement dropped by the owner, 2026-09-18: no one on the team has a store); live Claude session
 ending without a save (confirm whether the warning is ever seen).
 
 ## 7. Open uncertainties and cheapest next tests

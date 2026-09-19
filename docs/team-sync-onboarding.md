@@ -35,7 +35,7 @@ Replace `<url>` with the link you were given. The command will:
 
 The store owner should do this with the colleague, screen-shared:
 
-1. Install Dossier. Confirm `~/.dossier` does not exist yet. Joining requires an empty store location.
+1. Install Dossier. Confirm `~/.dossier` does not exist yet, or holds nothing but the token file from step 2. Joining into a store that already has Dossiers is not supported.
 2. Create a fine-grained GitHub token that can read and write contents on the team repo. Save it to `~/.dossier/credentials` and set its permissions to `0600`.
 3. Run `dossier team join <url>`, then `dossier ls` and `dossier doctor`. Check that the team's Dossiers are listed.
 4. Have the colleague open Claude in their usual work folder and ask "what's assigned to <their name>?". Check that it finds their first assignment and binds it.

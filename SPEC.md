@@ -573,7 +573,7 @@ dossier doctor
 `dossier team join <url>` (Team Sync — implemented)
 
 - Clones the team repo into `DOSSIER_HOME`.
-- Refuses to clobber a non-empty unsynced store. *Not implemented:* the merge-adopt flow with confirmation.
+- Refuses to clobber a non-empty unsynced store: the store directory may hold only `config.yaml`, `.gitignore` and `credentials` (the token file lives in the default store and is written before joining). Joining into a store that already has Dossiers is not supported. *Requirement dropped (owner, 2026-09-18):* the merge-adopt flow with confirmation. Nobody on the team has an existing store; revisit if someone starts using Dossier on their own first.
 - Refuses a remote whose default branch is not `main`, naming the branch.
 - Writes `team.remote` to config only after the clone succeeded. A failed join moves whatever it created into a sibling `<DOSSIER_HOME>.failed-join-<UTC>/` directory, leaving pre-existing `config.yaml`/`.gitignore` in place, so a retry succeeds. Nothing is deleted.
 - *Not implemented (2026-09-18):* author confirmation and a PAT prompt. Credentials must pre-exist at `$HOME/.dossier/credentials` (mode `0600`; the path ignores `DOSSIER_HOME`) or come from `gh auth token`; see `dossier sync` for how their absence is reported.
