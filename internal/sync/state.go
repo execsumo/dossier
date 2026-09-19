@@ -17,8 +17,9 @@ type syncState struct {
 	LastError       string           `json:"last_error,omitempty"`
 	AuthState       string           `json:"auth_state,omitempty"`
 	Conflicts       []ConflictRecord `json:"conflicts,omitempty"`
-	// legacy
-	LastSync time.Time `json:"last_sync,omitempty"`
+	// LastSync is the pre-P0-3 field, which also advanced on failed runs. It is
+	// read once for migration and never written.
+	LastSync *time.Time `json:"last_sync,omitempty"`
 }
 
 func statePath(storeDir string) string {
@@ -30,10 +31,11 @@ func loadState(storeDir string) syncState {
 	if data, err := os.ReadFile(statePath(storeDir)); err == nil {
 		_ = json.Unmarshal(data, &st)
 	}
-	if !st.LastSync.IsZero() && st.LastSuccessPull.IsZero() && st.LastSuccessPush.IsZero() {
-		st.LastSuccessPull = st.LastSync
-		st.LastSuccessPush = st.LastSync
+	if st.LastSync != nil && st.LastSuccessPull.IsZero() && st.LastSuccessPush.IsZero() {
+		st.LastSuccessPull = *st.LastSync
+		st.LastSuccessPush = *st.LastSync
 	}
+	st.LastSync = nil
 	return st
 }
 

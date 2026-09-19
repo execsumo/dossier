@@ -50,7 +50,7 @@ func (s *Service) TeamCreate(ctx context.Context, req TeamCreateReq) (Result, er
 		if strings.Contains(err.Error(), "authentication required") || strings.Contains(err.Error(), "authorization failed") || strings.Contains(err.Error(), "insecure permissions") {
 			return Result{}, NewError(ErrSyncAuthFailed, authFailedMessage(req.RemoteURL))
 		}
-		return Result{}, fmt.Errorf("team create failed: %w", err)
+		return Result{}, err // adapters prefix "Team create failed"
 	}
 
 	return Result{OK: true}, nil
@@ -82,7 +82,7 @@ func (s *Service) TeamJoin(ctx context.Context, req TeamJoinReq) (Result, error)
 		if strings.Contains(err.Error(), "authentication required") || strings.Contains(err.Error(), "authorization failed") || strings.Contains(err.Error(), "insecure permissions") {
 			return Result{}, NewError(ErrSyncAuthFailed, authFailedMessage(req.RemoteURL))
 		}
-		return Result{}, fmt.Errorf("team join failed: %w", err)
+		return Result{}, err // adapters prefix "Team join failed"
 	}
 
 	initRes, initErr := s.Init(ctx, InitReq{})
