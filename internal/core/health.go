@@ -30,11 +30,17 @@ type HealthReport struct {
 }
 
 // HealthSummaryFromDoctor projects the Doctor result without performing I/O.
+// Doctor also records each unresolved conflict as an issue, so that duplicate
+// signal is excluded from the general issue count.
 func HealthSummaryFromDoctor(report DoctorReport) HealthSummary {
+	issues := len(report.Issues) - report.ConflictsFound
+	if issues < 0 {
+		issues = 0
+	}
 	h := HealthSummary{
 		TeamSyncConfigured: report.SyncConfigured,
 		Conflicts:          report.ConflictsFound,
-		Issues:             len(report.Issues),
+		Issues:             issues,
 	}
 	if report.SyncStatus == nil {
 		return h

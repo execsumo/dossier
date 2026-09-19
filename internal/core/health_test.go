@@ -21,7 +21,8 @@ func TestHealthSummaryLine(t *testing.T) {
 		{"never synced", core.HealthSummary{TeamSyncConfigured: true}, "Team sync · never synced"},
 		{"synced", core.HealthSummary{TeamSyncConfigured: true, LastSuccess: threeMinutesAgo, LocalChanges: 1, Conflicts: 1, Issues: 2}, "Team sync · synced 3m ago · 1 local change · 1 conflict · 2 issues"},
 		{"failed", core.HealthSummary{TeamSyncConfigured: true, LastAttemptFailed: true, LastAttempt: eighteenMinutesAgo, Conflicts: 1}, "Team sync · last sync failed 18m ago · work is safe locally · 1 conflict"},
-		{"missing credentials", core.HealthSummary{TeamSyncConfigured: true, AuthState: "missing"}, "Team sync · no credentials found"},
+		{"configured before first sync with missing auth", core.HealthSummary{TeamSyncConfigured: true, AuthState: "missing"}, "Team sync · no credentials found"},
+		{"failed with rejected auth", core.HealthSummary{TeamSyncConfigured: true, LastAttemptFailed: true, LastError: "401", AuthState: "rejected"}, "Team sync · last sync failed · work is safe locally"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -36,7 +37,7 @@ func TestHealthSummaryFromDoctor(t *testing.T) {
 	pull := time.Date(2026, 9, 18, 11, 0, 0, 0, time.UTC)
 	report := core.DoctorReport{
 		ConflictsFound: 1,
-		Issues:         []string{"bad dossier"},
+		Issues:         []string{"Unresolved conflict c1 for dossier dos_health"},
 		SyncConfigured: true,
 		SyncStatus: &core.SyncStatusData{
 			Ahead:           2,
@@ -46,7 +47,13 @@ func TestHealthSummaryFromDoctor(t *testing.T) {
 		},
 	}
 	h := core.HealthSummaryFromDoctor(report)
-	if h.LastSuccess != pull || h.LocalChanges != 3 || h.Conflicts != 1 || h.Issues != 1 {
+	if h.LastSuccess != pull || h.LocalChanges != 3 || h.Conflicts != 1 || h.Issues != 0 {
 		t.Fatalf("unexpected summary: %+v", h)
+	}
+
+	withOtherIssue := report
+	withOtherIssue.Issues = []string{"Unresolved conflict c1", "bad dossier"}
+	if got := core.HealthSummaryFromDoctor(withOtherIssue).Issues; got != 1 {
+		t.Fatalf("non-conflict issue count = %d, want 1", got)
 	}
 }
