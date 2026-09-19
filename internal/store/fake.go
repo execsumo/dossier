@@ -1,10 +1,13 @@
 package store
 
 import (
+	"bytes"
 	"dossier/assets"
 	"dossier/internal/core"
 	"fmt"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // FakeStore implements core.Store in-memory for core unit tests.
@@ -17,6 +20,7 @@ type FakeStore struct {
 	Conflicts         map[string]*core.Conflict
 	ResolvedConflicts map[string]*core.Conflict
 	History           map[core.Revision]*core.Dossier
+	Roster            *core.Roster
 }
 
 // NewFakeStore instantiates an in-memory FakeStore.
@@ -30,11 +34,45 @@ func NewFakeStore() *FakeStore {
 		Conflicts:         make(map[string]*core.Conflict),
 		ResolvedConflicts: make(map[string]*core.Conflict),
 		History:           make(map[core.Revision]*core.Dossier),
+		Roster:            &core.Roster{Members: map[string]string{}, Former: map[string]string{}},
 	}
 }
 
 func (f *FakeStore) Init() error {
 	return nil
+}
+
+func (f *FakeStore) ReadRoster() (*core.Roster, error) {
+	if f.Roster == nil {
+		f.Roster = &core.Roster{Members: map[string]string{}, Former: map[string]string{}}
+	}
+	return f.Roster, nil
+}
+
+func (f *FakeStore) WriteRoster(roster *core.Roster) error {
+	f.Roster = roster
+	return nil
+}
+
+func (f *FakeStore) ReadRosterYAML() (string, error) {
+	data, err := yaml.Marshal(f.Roster)
+	return string(data), err
+}
+
+func (f *FakeStore) DecodeRosterYAML(content string) (*core.Roster, error) {
+	var roster core.Roster
+	decoder := yaml.NewDecoder(bytes.NewReader([]byte(content)))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&roster); err != nil {
+		return nil, err
+	}
+	if roster.Members == nil {
+		roster.Members = map[string]string{}
+	}
+	if roster.Former == nil {
+		roster.Former = map[string]string{}
+	}
+	return &roster, nil
 }
 
 func cloneDossier(d *core.Dossier) *core.Dossier {

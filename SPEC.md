@@ -466,8 +466,12 @@ dossier recall <slug-or-id> [--json]
 dossier search <query> [--dossier <slug-or-id>] [--json]
 dossier artifact <slug-or-id> [<artifact-id>] [-L <a-b>] [--json]
 dossier sync [--status] [--json]
-dossier team create <url> [--yes] [--json]
+dossier team create <url> [--yes] [--name "<Display Name>"] [--json]
 dossier team join <url> [--json]
+dossier team add <username> "<Display Name>"
+dossier team remove <username>
+dossier team members [--json]
+dossier ls --mine
 dossier conflicts [<conflict-id>] [--json]
 dossier resolve <conflict-id> (--keep-shared|--restore-mine|--keep-both) [--json]
 dossier status <slug-or-id> <spark|define|execute|review|blocked|done>
@@ -586,6 +590,25 @@ dossier doctor
 - Runs capability detect and hook install (existing `init` path).
 - Supports `--json`.
 
+`dossier team add` / `remove` / `members` and `team.yaml` (Team MVP M2–M3, BUILD-DECISIONS B17)
+
+- **Identity.** `author` defaults to the OS login name normalized by `core.NormalizeUsername`: any domain prefix (`ACME\psmith`, `AzureAD\psmith`) or email suffix (`psmith@acme.com`) removed, lowercased. An explicit `author` in `config.yaml` is only trimmed; `doctor` advises when it contains characters the audit-shard name would change. Optional `display_name` in `config.yaml`.
+- **Roster.** `team.yaml` at the store root is synced:
+  ```yaml
+  manager: hgill
+  members:
+    hgill: Herwin Gill
+    psmith: Priya Shah
+  former:            # removed members; still resolve for old leads
+    jlee: Jordan Lee
+  ```
+  `team create` writes it with the creator as manager and first member; the display name comes from `--name`, else `display_name` in config, else an interactive prompt, else (with `--yes`) the username.
+- `team add <username> "<Display Name>"` adds or renames a member; `team remove <username>` moves the member to `former:` (never deleted). Usernames are normalized on input. Both work for anyone but warn when the caller is not the roster's manager ("You are not the roster's manager (hgill); roster changes are conventionally manager-owned.").
+- `team members [--json]` lists the manager, then members sorted by display name; the MCP read-only tool `dossier_team` returns the same.
+- **Leads with a roster.** A lead may be given as a username, a full display name, or a unique first name/prefix (`Priya` → `psmith`); the username is stored; ambiguous or unknown names are refused with the candidates. Former members are not assignable. The machine-local `leads:` list applies only to stores without a roster. `doctor` advises on leads that are not current members.
+- **Display and "me" (M4–M5).** With a roster, every surface (TUI dashboard, board, detail and filters; `show`, `ls`, `recall`; MCP `dossier_list`, `dossier_recall`, `dossier_search`, `dossier_session`; SessionStart) shows the lead's display name; a former member shows as `<Name> (former)`. Lead filters and queries match the username or the display name. The SessionStart context adds `You are working as <Display Name> (<username>).` when a roster exists. `dossier_list` and `dossier_session` return `current_user: {username, display_name}`. `dossier_list` accepts `lead: "me"`, and the CLI has `dossier ls --mine`. Tool descriptions tell the agent to use `lead: "me"` for "me/mine/assigned to me" and to ask when several Dossiers match.
+- **Roster conflicts.** A concurrent edit of `team.yaml` from two machines is captured like a `dossier.md` conflict (kind `sync_concurrent_roster_edit`, Dossier shown as "Team roster") with the full preserved YAML, listed by `conflicts`, counted by `doctor`, and resolved with the same three choices: keep shared, restore mine (writes the preserved roster), keep both (union of members and former; on a username with two display names the shared one wins and the clash is reported). The resolution is recorded in the archived conflict file's frontmatter (there is no Dossier audit shard for the roster).
+
 `dossier conflicts` / `dossier resolve` (P0-5, 2026-09-18)
 
 - `conflicts` lists unresolved conflicts (id, Dossier id, kind, timestamp) across the store: sync conflicts (`sync_concurrent_edit`) and local concurrent-edit conflicts alike.
@@ -636,6 +659,7 @@ Required tools:
 - `dossier_rename`
 - `dossier_conflicts`
 - `dossier_resolve_conflict`
+- `dossier_team` (read-only roster)
 
 > **Note on `dossier_conflicts` / `dossier_resolve_conflict` (P0-5):** `dossier_conflicts` without arguments returns the unresolved conflicts; with `conflict_id` it returns the same comparison as `dossier conflicts <id>` (shared, mine, diff). `dossier_resolve_conflict` takes `conflict_id` and `choice` (`keep_shared`, `restore_mine`, `keep_both`) and behaves exactly as `dossier resolve`; it returns the resulting revision. Error codes: `not_found`, `invalid_frontmatter`, `concurrent_edit`.
 

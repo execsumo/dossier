@@ -156,6 +156,14 @@ Nothing is lost; there are **never merge markers** in the store.
 
 **What to do:** treat anything pushed as disclosed to everyone with repo access, because git history is kept on every clone. Removing it needs a history rewrite on GitHub plus a re-clone on every machine. That is outside Dossier; escalate. To prevent it, follow the pre-create check in the status note at the top and read the list before answering yes.
 
+## 8. A `team.yaml` roster conflict
+
+**Symptom:** `dossier conflicts` lists a `sync_concurrent_roster_edit` conflict for "Team roster", and the health line shows a conflict.
+
+**What happened:** two machines changed the team roster (`team add`/`team remove`) before syncing. The shared roster won; the other version is preserved in `conflicts/`.
+
+**What to do (manager):** `dossier conflicts <id>` shows both rosters. Usually choose **keep both** (`dossier resolve <id> --keep-both`): members added on either side are kept; if one username got two different display names, the shared one wins and the clash is printed so you can fix it with `dossier team add`. To avoid this, only the manager edits the roster.
+
 ## Sources
 
 - `docs/team-sync-plan.md` — the 4-phase plan and Non-negotiables.

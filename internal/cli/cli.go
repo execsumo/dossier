@@ -37,6 +37,7 @@ var (
 	yesFlag             bool
 	statusFlag          string
 	queryFlag           string
+	mineFlag            bool
 	jsonFlag            bool
 	dossierSearchFlag   string
 	distilledFlag       string
@@ -305,7 +306,11 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
-			res, err := svc.List(context.Background(), core.ListReq{Status: statusFlag, Interfaces: interfacesFlag, Query: queryFlag})
+			leadFilter := ""
+			if mineFlag {
+				leadFilter = "me"
+			}
+			res, err := svc.List(context.Background(), core.ListReq{Status: statusFlag, Lead: leadFilter, Interfaces: interfacesFlag, Query: queryFlag})
 			if err != nil {
 				fmt.Printf("List failed: %v\n", err)
 				os.Exit(1)
@@ -357,6 +362,7 @@ func NewRootCmd() *cobra.Command {
 	lsCmd.Flags().StringVar(&statusFlag, "status", "", "Filter by status (spark|define|execute|review|blocked|done|all)")
 	lsCmd.Flags().StringSliceVar(&interfacesFlag, "interface", nil, "Filter by interface (repeat or comma-separate)")
 	lsCmd.Flags().StringVarP(&queryFlag, "query", "q", "", "Filter by name, description, lead, interface, or slug")
+	lsCmd.Flags().BoolVar(&mineFlag, "mine", false, "Show dossiers assigned to the current user")
 	lsCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
 	showCmd := &cobra.Command{
@@ -394,7 +400,11 @@ func NewRootCmd() *cobra.Command {
 			}
 			fmt.Printf("ID:             %s\n", recall.Frontmatter.ID)
 			fmt.Printf("Slug:           %s\n", recall.Frontmatter.Slug)
-			fmt.Printf("Lead:           %s\n", recall.Frontmatter.Lead)
+			lead := recall.Frontmatter.Lead
+			if recall.LeadFormer {
+				lead += " (former)"
+			}
+			fmt.Printf("Lead:           %s\n", lead)
 			fmt.Printf("Interfaces:      %s\n", strings.Join(recall.Frontmatter.Interfaces, ", "))
 			fmt.Printf("Status:         %s\n", recall.Frontmatter.Status)
 			fmt.Printf("Priority:       %s\n", recall.Frontmatter.Priority)
@@ -1298,7 +1308,7 @@ func NewRootCmd() *cobra.Command {
 					if isVolatilePath(targetPath) {
 						home, err := os.UserHomeDir()
 						if err == nil {
-							targetPath = filepath.Join(home, ".local", "bin", "dossier")
+							targetPath = filepath.Join(home, ".local", "bin", stableBinaryName())
 						} else {
 							fmt.Println("Error: could not determine stable installation path. Run 'dossier install' first.")
 							os.Exit(1)
@@ -1377,6 +1387,10 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
+			if runtime.GOOS == "windows" {
+				// Windows will not replace a read-only installed executable.
+				_ = os.Chmod(targetPath, 0644)
+			}
 			if err := os.Rename(tmpName, targetPath); err != nil {
 				fmt.Printf("Failed to install updated binary over %s: %v\n", targetPath, err)
 				os.Exit(1)
@@ -1693,6 +1707,7 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	var teamCreateYes, teamCreateJSON bool
+	var teamCreateName string
 	teamCreateCmd := &cobra.Command{
 		Use:   "create <url>",
 		Short: "Turn the current store into a team's shared store",
@@ -1742,7 +1757,18 @@ func NewRootCmd() *cobra.Command {
 					os.Exit(1)
 				}
 			}
-			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{RemoteURL: args[0], Branch: "main", Confirmed: true})
+			managerName := strings.TrimSpace(teamCreateName)
+			if managerName == "" && strings.TrimSpace(cfg.DisplayName) == "" && !teamCreateYes {
+				username := core.NormalizeUsername(cfg.Author)
+				fmt.Fprintf(cmd.OutOrStdout(), "Your name as teammates will see it [%s]: ", username)
+				answer, readErr := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+				managerName = strings.TrimSpace(answer)
+				if readErr != nil && managerName == "" {
+					fmt.Println("Team create refused: manager display name is required; use --name or --yes in non-interactive mode")
+					os.Exit(1)
+				}
+			}
+			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{RemoteURL: args[0], Branch: "main", Confirmed: true, ManagerDisplayName: managerName})
 			if err != nil {
 				fmt.Printf("Team create failed: %v\n", err)
 				os.Exit(1)
@@ -1759,6 +1785,7 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 	teamCreateCmd.Flags().BoolVarP(&teamCreateYes, "yes", "y", false, "Skip confirmation prompt")
+	teamCreateCmd.Flags().StringVar(&teamCreateName, "name", "", "Manager display name for teammates")
 	teamCreateCmd.Flags().BoolVar(&teamCreateJSON, "json", false, "Output results in JSON format")
 
 	var teamJoinJSON bool
@@ -1806,8 +1833,103 @@ func NewRootCmd() *cobra.Command {
 	}
 	teamJoinCmd.Flags().BoolVar(&teamJoinJSON, "json", false, "Output results in JSON format")
 
+	var teamAddJSON bool
+	teamAddCmd := &cobra.Command{
+		Use:   "add <username> <display-name>",
+		Short: "Add a member to the team roster",
+		Args:  cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			res, err := svc.TeamAdd(context.Background(), args[0], args[1])
+			if err != nil {
+				fmt.Printf("Team add failed: %v\n", err)
+				os.Exit(1)
+			}
+			if teamAddJSON {
+				printJSON(res.Data)
+				return
+			}
+			fmt.Printf("Added %s to the team roster.\n", args[1])
+			for _, warning := range res.Warnings {
+				fmt.Printf("Warning: %s\n", warning)
+			}
+		},
+	}
+	teamAddCmd.Flags().BoolVar(&teamAddJSON, "json", false, "Output results in JSON format")
+
+	var teamRemoveJSON bool
+	teamRemoveCmd := &cobra.Command{
+		Use:   "remove <username>",
+		Short: "Move a member to the former team roster",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			res, err := svc.TeamRemove(context.Background(), args[0])
+			if err != nil {
+				fmt.Printf("Team remove failed: %v\n", err)
+				os.Exit(1)
+			}
+			if teamRemoveJSON {
+				printJSON(res.Data)
+				return
+			}
+			fmt.Printf("Moved %s to former team members.\n", core.NormalizeUsername(args[0]))
+			for _, warning := range res.Warnings {
+				fmt.Printf("Warning: %s\n", warning)
+			}
+		},
+	}
+	teamRemoveCmd.Flags().BoolVar(&teamRemoveJSON, "json", false, "Output results in JSON format")
+
+	var teamMembersJSON bool
+	teamMembersCmd := &cobra.Command{
+		Use:   "members",
+		Short: "List the team roster",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			roster, err := svc.Members(context.Background())
+			if err != nil {
+				fmt.Printf("Team members failed: %v\n", err)
+				os.Exit(1)
+			}
+			view := roster.View()
+			if teamMembersJSON {
+				printJSON(view)
+				return
+			}
+			fmt.Printf("Manager: %s (%s)\n", roster.Manager, roster.DisplayName(roster.Manager))
+			fmt.Println("Members:")
+			for _, member := range view.Members {
+				fmt.Printf("- %s (%s)\n", member.DisplayName, member.Username)
+			}
+			if len(view.Former) > 0 {
+				fmt.Println("Former members:")
+				for _, member := range view.Former {
+					fmt.Printf("- %s (%s)\n", member.DisplayName, member.Username)
+				}
+			}
+		},
+	}
+	teamMembersCmd.Flags().BoolVar(&teamMembersJSON, "json", false, "Output results in JSON format")
+
 	teamCmd.AddCommand(teamCreateCmd)
 	teamCmd.AddCommand(teamJoinCmd)
+	teamCmd.AddCommand(teamAddCmd)
+	teamCmd.AddCommand(teamRemoveCmd)
+	teamCmd.AddCommand(teamMembersCmd)
 	rootCmd.AddCommand(teamCmd)
 
 	return rootCmd
@@ -2132,6 +2254,10 @@ func copyFile(src, dest string) error {
 		return err
 	}
 
+	if runtime.GOOS == "windows" {
+		// Reinstalling over a read-only executable otherwise fails on Windows.
+		_ = os.Chmod(dest, 0644)
+	}
 	if err := os.Rename(tmpName, dest); err != nil {
 		return err
 	}
@@ -2140,7 +2266,7 @@ func copyFile(src, dest string) error {
 }
 
 func isVolatilePath(path string) bool {
-	path = strings.ToLower(path)
+	path = strings.ToLower(filepath.ToSlash(path))
 	if strings.Contains(path, "/tmp/") ||
 		strings.Contains(path, "/temp/") ||
 		strings.Contains(path, "go-build") ||
@@ -2149,7 +2275,7 @@ func isVolatilePath(path string) bool {
 	}
 	wd, err := os.Getwd()
 	if err == nil {
-		if strings.HasPrefix(path, strings.ToLower(wd)) {
+		if strings.HasPrefix(path, strings.ToLower(filepath.ToSlash(wd))) {
 			return true
 		}
 	}
@@ -2163,7 +2289,7 @@ func runInstall(destDir string, yesToAll bool) error {
 	}
 
 	destDir = expandTilde(destDir)
-	destPath := filepath.Join(destDir, "dossier")
+	destPath := filepath.Join(destDir, stableBinaryName())
 
 	if !isDirOnPath(destDir) {
 		fmt.Printf("Warning: Target directory %s is not in your PATH.\n", destDir)
@@ -2173,8 +2299,8 @@ func runInstall(destDir string, yesToAll bool) error {
 			_, _ = fmt.Scanln(&resp)
 			resp = strings.ToLower(strings.TrimSpace(resp))
 			if resp == "y" || resp == "yes" {
-				destDir = "/usr/local/bin"
-				destPath = filepath.Join(destDir, "dossier")
+				destDir = filepath.Join(string(os.PathSeparator), "usr", "local", "bin")
+				destPath = filepath.Join(destDir, stableBinaryName())
 			}
 		}
 	}
@@ -2197,17 +2323,26 @@ func runInstall(destDir string, yesToAll bool) error {
 	return nil
 }
 
+func stableBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return "dossier.exe"
+	}
+	return "dossier"
+}
+
 func getStableBinaryPath() string {
 	home, err := os.UserHomeDir()
 	if err == nil {
-		p := filepath.Join(home, ".local", "bin", "dossier")
+		p := filepath.Join(home, ".local", "bin", stableBinaryName())
 		if info, err := os.Stat(p); err == nil && !info.IsDir() {
 			return p
 		}
 	}
-	p2 := "/usr/local/bin/dossier"
-	if info, err := os.Stat(p2); err == nil && !info.IsDir() {
-		return p2
+	if runtime.GOOS != "windows" {
+		p2 := filepath.Join(string(os.PathSeparator), "usr", "local", "bin", stableBinaryName())
+		if info, err := os.Stat(p2); err == nil && !info.IsDir() {
+			return p2
+		}
 	}
 	exec, err := os.Executable()
 	if err == nil {

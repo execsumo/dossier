@@ -30,6 +30,10 @@ jobs:
             goarch: arm64
           - goos: linux
             goarch: amd64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -47,16 +51,19 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
+        shell: bash
         run: |
+          output="dossier-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then output="$output.exe"; fi
           go build -trimpath -ldflags="-s -w -X main.version=${{ steps.version.outputs.value }}" \
-            -o dossier-${{ matrix.goos }}-${{ matrix.goarch }} \
+            -o "$output" \
             ./cmd/dossier
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: dossier-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dossier-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dossier-${{ matrix.goos }}-${{ matrix.goarch }}*
 
   release:
     needs: build

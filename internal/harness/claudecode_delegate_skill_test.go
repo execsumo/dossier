@@ -45,6 +45,7 @@ func sparkSkillAssetContent(t *testing.T) []byte {
 func TestClaudeCodeHarnessInstallsSkills(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
 	writeMinimalClaudeConfig(t, tempHome)
 
 	h := NewClaudeCodeHarness("/tmp/dossier")
@@ -80,6 +81,7 @@ func TestClaudeCodeHarnessInstallsSkills(t *testing.T) {
 func TestClaudeCodeHarnessDelegateSkillIdempotent(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
 	writeMinimalClaudeConfig(t, tempHome)
 
 	h := NewClaudeCodeHarness("/tmp/dossier")
@@ -133,6 +135,7 @@ func TestClaudeCodeHarnessDelegateSkillIdempotent(t *testing.T) {
 func TestClaudeCodeHarnessDelegateSkillOverwritesStaleContent(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
 	writeMinimalClaudeConfig(t, tempHome)
 
 	skillDir := filepath.Join(tempHome, ".claude", "skills", "dossier-delegate")
@@ -182,6 +185,7 @@ func TestClaudeCodeHarnessDelegateSkillOverwritesStaleContent(t *testing.T) {
 func TestClaudeCodeHarnessDelegateSkillNotInCustomInstructions(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
 	writeMinimalClaudeConfig(t, tempHome)
 
 	h := NewClaudeCodeHarness("/tmp/dossier")

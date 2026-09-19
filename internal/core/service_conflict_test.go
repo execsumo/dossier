@@ -128,6 +128,54 @@ func TestResolveConflictChoices(t *testing.T) {
 	}
 }
 
+func TestRosterConflictDetailAndResolutions(t *testing.T) {
+	choices := []string{ConflictChoiceKeepShared, ConflictChoiceRestoreMine, ConflictChoiceKeepBoth}
+	for _, choice := range choices {
+		t.Run(choice, func(t *testing.T) {
+			store := &rosterTestStore{
+				localFakeStore: newLocalFakeStore(),
+				roster: Roster{Manager: "alice", Members: map[string]string{
+					"alice": "Alice", "bob": "Bob",
+				}, Former: map[string]string{}},
+			}
+			store.conflicts["conf_roster"] = &Conflict{
+				ID: "conf_roster", DossierID: RosterConflictDossierID,
+				Kind: "sync_concurrent_roster_edit", RejectedBody: "manager: alice\nmembers:\n  alice: Alice\n  bob: Bobby\n  carol: Carol\nformer:\n  dave: Dave\n",
+			}
+			svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{Author: "reviewer"}, nil)
+			detail, err := svc.ConflictDetail(context.Background(), "conf_roster")
+			if err != nil || detail.DossierName != "Team roster" || !strings.Contains(detail.Shared, "bob: Bob") || !strings.Contains(detail.Mine, "bob: Bobby") {
+				t.Fatalf("roster detail = %+v, err=%v", detail, err)
+			}
+			result, err := svc.ResolveConflict(context.Background(), ResolveConflictReq{ConflictID: "conf_roster", Choice: choice})
+			if err != nil {
+				t.Fatalf("ResolveConflict: %v", err)
+			}
+			if _, ok := store.conflicts["conf_roster"]; ok {
+				t.Fatal("roster conflict was not archived")
+			}
+			resolved, ok := store.resolvedConflicts["conf_roster"]
+			if !ok || resolved.Choice != choice || resolved.ResolvedBy != "reviewer" {
+				t.Fatalf("resolved roster conflict = %+v", resolved)
+			}
+			switch choice {
+			case ConflictChoiceKeepShared:
+				if store.roster.Members["bob"] != "Bob" || len(result.Warnings) != 0 {
+					t.Fatalf("keep shared roster/result = %+v, %+v", store.roster, result)
+				}
+			case ConflictChoiceRestoreMine:
+				if store.roster.Members["bob"] != "Bobby" || store.roster.Members["carol"] != "Carol" {
+					t.Fatalf("restore mine roster = %+v", store.roster)
+				}
+			case ConflictChoiceKeepBoth:
+				if store.roster.Members["bob"] != "Bob" || store.roster.Members["carol"] != "Carol" || store.roster.Former["dave"] != "Dave" || len(result.Warnings) != 1 || !strings.Contains(string(result.Warnings[0]), "bob") {
+					t.Fatalf("keep both roster/result = %+v, %+v", store.roster, result)
+				}
+			}
+		})
+	}
+}
+
 func TestResolveConflictRejectsInvalidChoiceBeforeLookup(t *testing.T) {
 	store := newLocalFakeStore()
 	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{}, nil)

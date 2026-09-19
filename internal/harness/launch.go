@@ -35,7 +35,7 @@ func ClaudeBin() (string, error) {
 	if override := os.Getenv(ClaudeBinEnv); override != "" {
 		path, err := exec.LookPath(override)
 		if err != nil {
-			return "", fmt.Errorf("%s=%q is not an executable file: %w; set %s to the Claude Code executable or unset it to use PATH", ClaudeBinEnv, override, err, ClaudeBinEnv)
+			return "", fmt.Errorf("%s=%q (%s) is not an executable file: %w; set %s to the Claude Code executable or unset it to use PATH", ClaudeBinEnv, override, override, err, ClaudeBinEnv)
 		}
 		return path, nil
 	}
@@ -53,7 +53,7 @@ func CursorBin() (string, error) {
 	if override := os.Getenv(CursorBinEnv); override != "" {
 		path, err := exec.LookPath(override)
 		if err != nil {
-			return "", fmt.Errorf("%s=%q is not an executable file: %w; set %s to the Cursor Agent executable or unset it to use PATH", CursorBinEnv, override, err, CursorBinEnv)
+			return "", fmt.Errorf("%s=%q (%s) is not an executable file: %w; set %s to the Cursor Agent executable or unset it to use PATH", CursorBinEnv, override, override, err, CursorBinEnv)
 		}
 		return path, nil
 	}

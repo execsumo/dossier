@@ -59,6 +59,10 @@ func (c *ClaudeCodeHarness) Detect() (core.Capabilities, error) {
 	}, nil
 }
 
+func quoteCommandPath(path string) string {
+	return `"` + strings.ReplaceAll(path, `"`, `\"`) + `"`
+}
+
 // isClaudeCodeMCPConfigured checks if dossier is registered correctly in mcpServers.
 func isClaudeCodeMCPConfigured(configMap map[string]any, stablePath string) bool {
 	mcpServersVal, ok := configMap["mcpServers"]
@@ -131,7 +135,9 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 		}
 		stablePath = executable
 	}
-	execCmd := fmt.Sprintf("%s hook", stablePath)
+	// Hook commands are shell strings rather than argv arrays. Quote the
+	// executable so Windows paths (and Unix paths with spaces) stay one token.
+	execCmd := fmt.Sprintf("%s hook", quoteCommandPath(stablePath))
 
 	// 1. Read hooks configuration
 	hooksData, err := os.ReadFile(hooksPath)

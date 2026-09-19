@@ -16,6 +16,7 @@ const DefaultTokenLimit = 100000
 type Config struct {
 	DossierHome string
 	Author      string
+	DisplayName string
 	Interfaces  []string
 	Leads       []string
 	TokenLimit  int
@@ -45,6 +46,7 @@ type Service struct {
 type RecallResult struct {
 	DistilledState string         `json:"distilled_state"`
 	Frontmatter    Frontmatter    `json:"frontmatter"`
+	LeadFormer     bool           `json:"lead_former,omitempty"`
 	Revision       Revision       `json:"revision"`
 	TokenEstimate  int            `json:"token_estimate"`
 	Path           string         `json:"path"`
@@ -73,18 +75,20 @@ type ArtifactSummary struct {
 
 // ListItem represents a single summary item for dossier listings.
 type ListItem struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Slug        string   `json:"slug"`
-	Status      string   `json:"status"`
-	Lead        string   `json:"lead,omitempty"`
-	Interfaces  []string `json:"interfaces,omitempty"`
-	NextAction  string   `json:"next_action"`
-	Description string   `json:"description,omitempty"`
-	Priority    string   `json:"priority"`
-	DueDate     string   `json:"due_date,omitempty"`
-	Path        string   `json:"path"`
-	Revision    Revision `json:"revision,omitempty"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Slug         string   `json:"slug"`
+	Status       string   `json:"status"`
+	Lead         string   `json:"lead,omitempty"`
+	LeadUsername string   `json:"-"`
+	LeadFormer   bool     `json:"lead_former,omitempty"`
+	Interfaces   []string `json:"interfaces,omitempty"`
+	NextAction   string   `json:"next_action"`
+	Description  string   `json:"description,omitempty"`
+	Priority     string   `json:"priority"`
+	DueDate      string   `json:"due_date,omitempty"`
+	Path         string   `json:"path"`
+	Revision     Revision `json:"revision,omitempty"`
 	// HasOpenDelegationContract reports whether any Delegation Contract block
 	// (guide.md §4) has a field that isn't yet [decided] — an attention signal
 	// a list surface can show without opening the dossier.
@@ -150,6 +154,18 @@ func (s *Service) DossierHome() string {
 	return s.cfg.DossierHome
 }
 
+func (s *Service) currentRoster() (*Roster, bool) {
+	store, ok := s.store.(RosterStore)
+	if !ok {
+		return nil, false
+	}
+	roster, err := store.ReadRoster()
+	if err != nil || roster == nil || (roster.Manager == "" && len(roster.Members) == 0 && len(roster.Former) == 0) {
+		return nil, false
+	}
+	return roster, true
+}
+
 // AddLead updates the in-memory lead vocabulary after an adapter persists the
 // same change to config.yaml. This keeps subsequent Saves in this process
 // consistent with the newly expanded vocabulary.
@@ -186,9 +202,65 @@ func (s *Service) AddInterface(name string) {
 	s.cfg.Interfaces = append(s.cfg.Interfaces, name)
 }
 
-// Leads returns the configured lead vocabulary in display order. An empty list
+// LeadView is the display-oriented view of a stored lead. Username remains the
+// persisted identity; DisplayName is what every read surface should render.
+type LeadView struct {
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Former      bool   `json:"former,omitempty"`
+}
+
+// displayLead applies the shared mapping to a roster already loaded by a use-case.
+func (s *Service) displayLead(roster *Roster, hasRoster bool, username string) LeadView {
+	view := LeadView{Username: username, DisplayName: username}
+	if username == "" || !hasRoster || roster == nil {
+		return view
+	}
+	view.DisplayName = roster.DisplayName(username)
+	normalized := NormalizeUsername(username)
+	view.Username = normalized
+	for key := range roster.Former {
+		if NormalizeUsername(key) == normalized {
+			view.Former = true
+			break
+		}
+	}
+	return view
+}
+
+// DisplayLead maps a stored username to its roster display name. It is the one
+// core mapping used by list, recall, search, hooks, and adapters.
+func (s *Service) DisplayLead(username string) LeadView {
+	roster, ok := s.currentRoster()
+	return s.displayLead(roster, ok, username)
+}
+
+// CurrentUser returns the stable author username and its roster/config display name.
+func (s *Service) CurrentUser() (username, displayName string) {
+	username = NormalizeUsername(s.cfg.Author)
+	displayName = strings.TrimSpace(s.cfg.DisplayName)
+	if roster, ok := s.currentRoster(); ok {
+		if mapped := roster.DisplayName(username); mapped != "" {
+			displayName = mapped
+		}
+	}
+	if displayName == "" {
+		displayName = username
+	}
+	return username, displayName
+}
+
+// Leads returns roster display names in manager-first order. An empty list
 // preserves free-form lead assignment for backwards compatibility.
 func (s *Service) Leads() []string {
+	if roster, ok := s.currentRoster(); ok && len(roster.Members) > 0 {
+		members := roster.View().Members
+		leads := make([]string, 0, len(members))
+		for _, member := range members {
+			leads = append(leads, member.DisplayName)
+		}
+		return leads
+	}
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
 	return append([]string{}, s.cfg.Leads...)
@@ -320,6 +392,13 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 
 	report := DoctorReport{}
 	var warnings []Warning
+	if strings.TrimSpace(s.cfg.Author) == "" {
+		add := "author is empty; configure a stable organization username"
+		warnings = append(warnings, Warning(add))
+	} else if SanitizeAuthorString(s.cfg.Author) != s.cfg.Author {
+		warnings = append(warnings, Warning(fmt.Sprintf("author %q contains characters that will be sanitized in audit shard names", s.cfg.Author)))
+	}
+	roster, hasRoster := s.currentRoster()
 	// Advisories are surfaced but do not fail the check: an integration the user
 	// has not installed yet is worth saying out loud, and is not store damage.
 	addAdvisory := func(msg string) {
@@ -341,6 +420,15 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 		report.DossiersChecked++
 		if err := fm.Validate(); err != nil {
 			addIssue("Dossier %s has invalid frontmatter: %v", fm.ID, err)
+		}
+
+		if hasRoster && fm.Lead != "" {
+			leadView := s.displayLead(roster, hasRoster, fm.Lead)
+			if leadView.Former {
+				addAdvisory(fmt.Sprintf("Dossier %s lead %q is a former team member", fm.ID, leadView.DisplayName))
+			} else if _, ok, _ := roster.ResolvePerson(fm.Lead); !ok || !roster.Has(fm.Lead) {
+				addAdvisory(fmt.Sprintf("Dossier %s lead %q is not a member of the team roster", fm.ID, fm.Lead))
+			}
 		}
 
 		d, _, err := s.store.Read(fm.ID)

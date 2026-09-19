@@ -4,6 +4,34 @@ Dossier v1 has native integration support for **Claude Code and Pi**. It also pr
 
 Other harnesses (Codex, Cursor, Antigravity) remain out of scope for native lifecycle integration in v1. The `Harness` interface and registry remain extensible.
 
+## Windows and macOS
+
+CI verifies the Go build, `go vet ./...`, and `go test ./...` on
+`ubuntu-latest`, `macos-latest`, and `windows-latest`. The release workflow also
+cross-builds `windows/amd64` and `windows/arm64` alongside the existing Linux
+and macOS artifacts. Windows-specific file replacement, credential handling,
+path construction, executable lookup, and file locks are covered by the
+cross-platform code and tests.
+
+CI cannot verify the real harness boundary. In particular, Claude Code's
+Windows config discovery, hook execution, MCP startup, and transcript access
+still require a real Windows session; macOS should receive the same smoke test.
+Do not treat this section as a claim that those live integrations have fired.
+
+### Real-machine smoke test (run on both macOS and Windows)
+
+Use a throwaway Dossier home and a throwaway private repository or sandbox:
+
+1. Install Dossier and GitHub CLI (`gh`), then run `dossier init`.
+2. Run `promote` and confirm the Dossier can be recalled and edited.
+3. Run `team create` on the sandbox remote; on the second machine run `team join`.
+4. Run `dossier sync` on both machines and confirm changes and health status.
+5. Launch `dossier tui` and confirm the dashboard, detail view, and edits work.
+6. Start Claude Code, bind a Dossier by name, save a Distilled State change, and
+   confirm the change survives a fresh session and sync.
+7. Record the OS, Dossier version, Claude Code version, `gh` version, and any
+   hook/MCP or path failures here before calling the platform verified.
+
 ## 1. Capability Matrix (Claude Code)
 
 | Feature | Claude Code |

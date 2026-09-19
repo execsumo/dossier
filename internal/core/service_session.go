@@ -253,6 +253,10 @@ func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, e
 
 	var sb strings.Builder
 	sb.WriteString("# Dossier Library\n\n")
+	if _, hasRoster := s.currentRoster(); hasRoster {
+		username, displayName := s.CurrentUser()
+		sb.WriteString(fmt.Sprintf("You are working as %s (%s).\n\n", displayName, username))
+	}
 
 	if needsAttention {
 		if len(boundConflicts) > 0 {
@@ -296,6 +300,13 @@ func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, e
 			sb.WriteString("\nActive Dossier:\n")
 			sb.WriteString(fmt.Sprintf("ID: %s\n", recData.Frontmatter.ID))
 			sb.WriteString(fmt.Sprintf("Name: %s\n", recData.Frontmatter.Name))
+			if recData.Frontmatter.Lead != "" {
+				lead := recData.Frontmatter.Lead
+				if recData.LeadFormer {
+					lead += " (former)"
+				}
+				sb.WriteString(fmt.Sprintf("Lead: %s\n", lead))
+			}
 			sb.WriteString(fmt.Sprintf("Revision: %s\n\n", recData.Revision))
 			sb.WriteString("Distilled State:\n")
 			sb.WriteString(recData.DistilledState)

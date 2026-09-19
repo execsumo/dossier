@@ -31,7 +31,7 @@ func (q Query) Matches(haystack string) bool {
 
 // Haystack builds the lowercased searchable text for one item.
 func Haystack(item ListItem) string {
-	fields := []string{item.Name, item.Description, item.Lead}
+	fields := []string{item.Name, item.Description, item.Lead, item.LeadUsername}
 	fields = append(fields, item.Interfaces...)
 	fields = append(fields, item.Slug)
 	return strings.ToLower(strings.Join(fields, "\n"))
