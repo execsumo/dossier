@@ -237,3 +237,10 @@ type Syncer interface {
 	Create(ctx context.Context, url, branch string) error
 	Clone(ctx context.Context, url, dir string, depth int) error
 }
+
+// LocalSyncStatuser is the optional no-network status capability used by
+// session and MCP attention paths. A normal Status may fetch the remote, which
+// is not acceptable while returning an interactive response.
+type LocalSyncStatuser interface {
+	LocalStatus(ctx context.Context) (SyncStatus, error)
+}

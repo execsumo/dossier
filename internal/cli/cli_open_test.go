@@ -4,7 +4,9 @@ import (
 	"dossier/internal/core"
 	"dossier/internal/harness"
 	"dossier/internal/store"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -187,5 +189,76 @@ func TestOpenCommandMissingBinary(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(filepath.Join(tempHome, "sessions")); len(entries) != 0 {
 		t.Errorf("expected no session bindings written, got %v", entries)
+	}
+}
+
+func TestOpenCommandPrintsHealth(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("stub binary is a shell script")
+	}
+
+	tempHome := t.TempDir()
+	t.Setenv("DOSSIER_HOME", tempHome)
+
+	// Configure team sync so Health line prints.
+	remoteDir := filepath.Join(t.TempDir(), "remote.git")
+	cmdInit := exec.Command("git", "init", "--bare", "-b", "main", remoteDir)
+	if err := cmdInit.Run(); err != nil {
+		t.Fatalf("git init --bare failed: %v", err)
+	}
+	configYAML := fmt.Sprintf(`team:
+  remote: %q`, remoteDir)
+	if err := os.WriteFile(filepath.Join(tempHome, "config.yaml"), []byte(configYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Init git in store
+	if err := exec.Command("git", "init", "-q", "-b", "main", tempHome).Run(); err != nil {
+		t.Fatalf("git init store: %v", err)
+	}
+
+	dossierDir := filepath.Join(tempHome, "pricing-model-refresh")
+	if err := os.MkdirAll(dossierDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Truncate(time.Second)
+	fm := core.Frontmatter{
+		ID:        "dos_open123",
+		Name:      "Pricing model refresh",
+		Slug:      "pricing-model-refresh",
+		CreatedAt: now,
+		UpdatedAt: now,
+		Status:    core.StatusActive,
+		Priority:  core.PriorityHigh,
+	}
+	serialized, err := store.FormatDossierFile(fm, "# Pricing model refresh\n\n## Situation\nDraft.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dossierDir, "dossier.md"), []byte(serialized), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stub claude
+	binDir := t.TempDir()
+	stub := filepath.Join(binDir, "claude-stub")
+	script := "#!/bin/sh\nexit 0\n"
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(harness.ClaudeBinEnv, stub)
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"open", "pricing-model-refresh", "--home", tempHome})
+
+	var errOut strings.Builder
+	cmd.SetErr(&errOut)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("open failed: %v", err)
+	}
+
+	if !strings.Contains(errOut.String(), "Health: Team sync") {
+		t.Errorf("expected Health output, got %q", errOut.String())
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -40,6 +42,80 @@ type Server struct {
 	writer   io.Writer
 	syncChan chan struct{}
 	doneChan chan struct{}
+
+	bgMu        sync.Mutex
+	bgWarning   string
+	bgLastError string
+}
+
+func (s *Server) setBgWarning(err error, res core.Result) {
+	reason := ""
+	conflictWarning := ""
+	if err != nil {
+		reason = err.Error()
+	} else if report, ok := res.Data.(core.SyncReport); ok {
+		switch {
+		case report.Error != "":
+			reason = report.Error
+		case len(report.Conflicts) > 0:
+			details := conflictDetails(res.Warnings)
+			if len(details) == 0 {
+				details = make([]string, len(report.Conflicts))
+				for i, conflict := range report.Conflicts {
+					details[i] = conflict.Path
+				}
+			}
+			reason = strings.Join(details, "; ")
+			verb, action := "conflicts", "resolve them"
+			if len(details) == 1 {
+				verb, action = "conflict", "resolve it"
+			}
+			conflictWarning = fmt.Sprintf("Background team sync found %d %s: %s. Both versions are kept; %s with dossier_conflicts.", len(details), verb, reason, action)
+		}
+	}
+	if reason == "" && !res.OK {
+		reason = "sync did not complete"
+	}
+
+	s.bgMu.Lock()
+	defer s.bgMu.Unlock()
+	if reason == "" {
+		// A successful run clears both the delivered warning and the
+		// de-duplication key, so a later identical failure is visible again.
+		s.bgLastError = ""
+		s.bgWarning = ""
+		return
+	}
+	if reason == s.bgLastError {
+		return
+	}
+	s.bgLastError = reason
+	if conflictWarning != "" {
+		s.bgWarning = conflictWarning
+	} else {
+		s.bgWarning = fmt.Sprintf("Background team sync failed: %s. Your change is saved locally; it will be sent on the next successful sync.", reason)
+	}
+}
+
+func conflictDetails(warnings []core.Warning) []string {
+	const prefix = "sync conflict: "
+	const suffix = "; both versions are kept; resolve it with dossier_conflicts"
+	var details []string
+	for _, warning := range warnings {
+		text := string(warning)
+		if strings.HasPrefix(text, prefix) && strings.HasSuffix(text, suffix) {
+			details = append(details, strings.TrimSuffix(strings.TrimPrefix(text, prefix), suffix))
+		}
+	}
+	return details
+}
+
+func (s *Server) takeBgWarning() string {
+	s.bgMu.Lock()
+	defer s.bgMu.Unlock()
+	w := s.bgWarning
+	s.bgWarning = ""
+	return w
 }
 
 // NewServer creates a new Server instance.
@@ -74,7 +150,8 @@ func (s *Server) syncDebouncer(ctx context.Context) {
 			if !ok {
 				if pending {
 					syncCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					_, _ = s.svc.Sync(syncCtx)
+					res, err := s.svc.Sync(syncCtx)
+					s.setBgWarning(err, res)
 					cancel()
 				}
 				return
@@ -93,7 +170,8 @@ func (s *Server) syncDebouncer(ctx context.Context) {
 				if !ok {
 					timer.Stop()
 					syncCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					_, _ = s.svc.Sync(syncCtx)
+					res, err := s.svc.Sync(syncCtx)
+					s.setBgWarning(err, res)
 					cancel()
 					return
 				}
@@ -103,7 +181,8 @@ func (s *Server) syncDebouncer(ctx context.Context) {
 				timer.Reset(debounceInterval)
 			case <-timer.C:
 				syncCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				_, _ = s.svc.Sync(syncCtx)
+				res, err := s.svc.Sync(syncCtx)
+				s.setBgWarning(err, res)
 				cancel()
 				pending = false
 				break settle

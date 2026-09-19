@@ -1485,6 +1485,16 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			ctx := context.Background()
+			if cfg.Team.Remote != "" {
+				syncCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				_, _ = svc.Sync(syncCtx)
+				cancel()
+
+				if summary, herr := svc.LocalHealthSummary(ctx); herr == nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "Health: %s\n", summary.Line(time.Now()))
+				}
+			}
+
 			res, err := svc.Path(ctx, core.PathReq{ID: args[0]})
 			if err != nil {
 				return err

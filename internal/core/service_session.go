@@ -212,10 +212,14 @@ func (s *Service) Path(ctx context.Context, req PathReq) (Result, error) {
 
 // SessionStart returns the injected context payload for a harness session.
 func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, error) {
+	var syncResult *Result
+	var syncErr error
 	if s.syncer != nil {
 		syncCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		_, _ = s.Sync(syncCtx) // Best-effort bounded pull
+		res, err := s.Sync(syncCtx)
+		cancel()
+		syncResult = &res
+		syncErr = err
 	}
 
 	binding, err := s.store.GetSessionBinding(sessionID)
@@ -223,6 +227,8 @@ func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, e
 	if err == nil && binding != nil {
 		activeDossierID = binding.DossierID
 	}
+
+	attentionLine, boundConflicts, needsAttention := s.syncAttention(ctx, activeDossierID, syncResult, syncErr)
 
 	// Fetch open dossiers
 	fms, err := s.store.List("all")
@@ -247,6 +253,14 @@ func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, e
 
 	var sb strings.Builder
 	sb.WriteString("# Dossier Library\n\n")
+
+	if needsAttention {
+		if len(boundConflicts) > 0 {
+			sb.WriteString(attentionLine + " (Conflict IDs: " + strings.Join(boundConflicts, ", ") + ")\n\n")
+		} else {
+			sb.WriteString(attentionLine + "\n\n")
+		}
+	}
 
 	if activeHarness != nil && !activeCaps.TranscriptCapture {
 		sb.WriteString("Warning: Transcript archive is unavailable in this session.\n\n")
@@ -498,6 +512,8 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 	if s.syncer != nil {
 		syncCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
+		// Outcome is persisted via syncState and reported on the next SessionStart;
+		// do not add noise here, as this hook's output is likely invisible.
 		_, _ = s.Sync(syncCtx) // Best-effort bounded push
 	}
 
