@@ -13,6 +13,7 @@ import (
 	"dossier/internal/tokenizer"
 	"dossier/internal/tui"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1510,11 +1511,17 @@ func NewRootCmd() *cobra.Command {
 					return
 				}
 				st := res.Data.(core.SyncStatus)
-				fmt.Printf("Ahead:     %d\n", st.Ahead)
-				fmt.Printf("Behind:    %d\n", st.Behind)
-				fmt.Printf("Dirty:     %d\n", st.Dirty)
-				fmt.Printf("Conflicts: %d\n", len(st.Conflicts))
-				fmt.Printf("Last Sync: %s\n", st.LastSync.Format(time.RFC3339))
+				fmt.Printf("Last attempt:    %s\n", formatTime(st.LastAttempt))
+				fmt.Printf("Last pull:       %s\n", formatTime(st.LastSuccessPull))
+				fmt.Printf("Last push:       %s\n", formatTime(st.LastSuccessPush))
+				if st.LastError != "" {
+					fmt.Printf("Last error:      %s\n", st.LastError)
+				}
+				fmt.Printf("Auth state:      %s\n", st.AuthState)
+				fmt.Printf("Ahead:           %d\n", st.Ahead)
+				fmt.Printf("Behind:          %d\n", st.Behind)
+				fmt.Printf("Dirty:           %d\n", st.Dirty)
+				fmt.Printf("Conflicts:       %d\n", st.UnresolvedConflicts)
 				return
 			}
 
@@ -1590,7 +1597,11 @@ func NewRootCmd() *cobra.Command {
 				Branch:    "main",
 			})
 			if err != nil {
-				fmt.Printf("Team create failed: %v\n", err)
+				errStr := err.Error()
+				if dErr, ok := err.(*core.DomainError); ok {
+					errStr = dErr.Error()
+				}
+				fmt.Printf("Team create failed: %v\n", errStr)
 				os.Exit(1)
 			}
 
@@ -1634,7 +1645,11 @@ func NewRootCmd() *cobra.Command {
 				Branch:    "main",
 			})
 			if err != nil {
-				fmt.Printf("Team join failed: %v\n", err)
+				errStr := err.Error()
+				if dErr, ok := err.(*core.DomainError); ok {
+					errStr = dErr.Error()
+				}
+				fmt.Printf("Team join failed: %v\n", errStr)
 				os.Exit(1)
 			}
 
@@ -1767,6 +1782,13 @@ func printHarnessReports(reports []core.HarnessReport) {
 	}
 }
 
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	return t.Format(time.RFC3339)
+}
+
 func printJSON(data any) {
 	jsonBytes, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
@@ -1834,8 +1856,10 @@ func wireWithConfig(dossierHome string) (*core.Service, *config.Config, error) {
 
 	var syncerAdapter core.Syncer
 	if cfg.Team.Remote != "" {
-		auth, err := sync.GetAuth("")
-		if err != nil {
+		auth, authState, err := sync.GetAuth("", cfg.Team.Remote)
+		if errors.Is(err, sync.ErrNoCredentials) {
+			fmt.Fprintf(os.Stderr, "Warning: no credentials found for %s\n", cfg.Team.Remote)
+		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to load credentials: %v\n", err)
 		}
 		gs := sync.New(sync.Config{
@@ -1844,6 +1868,7 @@ func wireWithConfig(dossierHome string) (*core.Service, *config.Config, error) {
 			StoreDir:   dossierHome,
 			Branch:     cfg.Team.Branch,
 			Auth:       auth,
+			AuthState:  authState,
 		})
 		syncerAdapter = sync.NewAdapter(gs)
 	}

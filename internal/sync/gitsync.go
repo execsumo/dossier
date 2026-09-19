@@ -30,6 +30,8 @@ type Config struct {
 	LockTimeout time.Duration
 	// Auth is the optional transport credentials.
 	Auth transport.AuthMethod
+	// AuthState is the resolution result of Auth.
+	AuthState string
 }
 
 // GitSync is the Phase-2 spike git-sync adapter. It is NOT wired into
@@ -99,9 +101,13 @@ type ExcludedFile struct {
 
 // SyncStatus is a read-only snapshot (no push/pull mutation).
 type SyncStatus struct {
-	Ahead     int
-	Behind    int
-	LastSync  time.Time
-	Conflicts []ConflictRecord // pending conflicts from the last sync
-	Dirty     int              // uncommitted tracked changes
+	Ahead           int
+	Behind          int
+	LastAttempt     time.Time
+	LastSuccessPull time.Time
+	LastSuccessPush time.Time
+	LastError       string
+	AuthState       string
+	Conflicts       []ConflictRecord // pending conflicts from the last sync
+	Dirty           int              // uncommitted tracked changes
 }

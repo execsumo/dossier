@@ -16,7 +16,7 @@ func TestGetAuth_FileMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := GetAuth(path)
+	_, _, err := GetAuth(path, "https://github.com/foo/bar")
 	if !errors.Is(err, ErrInsecureCredentials) {
 		t.Fatalf("expected ErrInsecureCredentials for 0644, got %v", err)
 	}
@@ -26,7 +26,7 @@ func TestGetAuth_FileMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	auth, err := GetAuth(path)
+	auth, _, err := GetAuth(path, "https://github.com/foo/bar")
 	if err != nil {
 		t.Fatalf("expected success for 0600, got %v", err)
 	}
@@ -50,11 +50,26 @@ func TestGetAuth_FallbackGH(t *testing.T) {
 		return nil, errors.New("command failed")
 	}
 
-	auth, err := GetAuth(path)
+	auth, _, err := GetAuth(path, "https://github.com/foo/bar")
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
 	if auth == nil || auth.Password != "gh_pat_456" {
 		t.Fatalf("expected password gh_pat_456, got %v", auth)
+	}
+}
+
+func TestGetAuth_HTTPSNoCreds(t *testing.T) {
+	origRunner := runner
+	defer func() { runner = origRunner }()
+	runner = func(name string, arg ...string) ([]byte, error) {
+		return nil, errors.New("gh not found")
+	}
+	_, state, err := GetAuth("/does-not-exist", "https://github.com/foo/bar.git")
+	if !errors.Is(err, ErrNoCredentials) {
+		t.Errorf("expected ErrNoCredentials, got %v", err)
+	}
+	if state != "missing" {
+		t.Errorf("expected state missing, got %s", state)
 	}
 }

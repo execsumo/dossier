@@ -30,6 +30,9 @@ func (s *Service) TeamCreate(ctx context.Context, req TeamCreateReq) (Result, er
 		if strings.Contains(err.Error(), "already a team store") {
 			return Result{}, NewError(ErrConflictDetected, "store is already a team store")
 		}
+		if strings.Contains(err.Error(), "authentication required") || strings.Contains(err.Error(), "authorization failed") || strings.Contains(err.Error(), "insecure permissions") {
+			return Result{}, NewError(ErrSyncAuthFailed, "GitHub rejected the token. Create a fine-grained token with Contents read/write on <repo>, write it to ~/.dossier/credentials (chmod 600), or run `gh auth login`, then `dossier sync`.")
+		}
 		return Result{}, fmt.Errorf("team create failed: %w", err)
 	}
 
@@ -59,6 +62,9 @@ func (s *Service) TeamJoin(ctx context.Context, req TeamJoinReq) (Result, error)
 		if strings.Contains(err.Error(), "target directory is not empty") {
 			return Result{}, NewError(ErrConflictDetected, "target directory is not empty; cannot join into an existing store")
 		}
+		if strings.Contains(err.Error(), "authentication required") || strings.Contains(err.Error(), "authorization failed") || strings.Contains(err.Error(), "insecure permissions") {
+			return Result{}, NewError(ErrSyncAuthFailed, "GitHub rejected the token. Create a fine-grained token with Contents read/write on <repo>, write it to ~/.dossier/credentials (chmod 600), or run `gh auth login`, then `dossier sync`.")
+		}
 		return Result{}, fmt.Errorf("team join failed: %w", err)
 	}
 
@@ -82,7 +88,14 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 	}
 
 	var warnings []Warning
+	isAuthErr := func(msg string) bool {
+		return strings.Contains(msg, "authentication required") || strings.Contains(msg, "authorization failed") || strings.Contains(msg, "insecure permissions")
+	}
+
 	if report.Error != "" {
+		if isAuthErr(report.Error) {
+			return Result{OK: false}, NewError(ErrSyncAuthFailed, "GitHub rejected the token. Create a fine-grained token with Contents read/write on <repo>, write it to ~/.dossier/credentials (chmod 600), or run `gh auth login`, then `dossier sync`.")
+		}
 		warnings = append(warnings, Warning(fmt.Sprintf("Sync network error: %s", report.Error)))
 	}
 
@@ -154,6 +167,11 @@ func (s *Service) SyncStatus(ctx context.Context) (Result, error) {
 	status, err := s.syncer.Status(ctx)
 	if err != nil {
 		return Result{OK: false}, fmt.Errorf("status failed: %w", err)
+	}
+
+	conflicts, err := s.store.ListConflicts()
+	if err == nil {
+		status.UnresolvedConflicts = len(conflicts)
 	}
 
 	return Result{

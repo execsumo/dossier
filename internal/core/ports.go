@@ -207,11 +207,16 @@ type SyncReport struct {
 
 // SyncStatus is a read-only snapshot.
 type SyncStatus struct {
-	Ahead     int
-	Behind    int
-	LastSync  time.Time
-	Conflicts []SyncConflict
-	Dirty     int
+	Ahead               int
+	Behind              int
+	LastAttempt         time.Time
+	LastSuccessPull     time.Time
+	LastSuccessPush     time.Time
+	LastError           string
+	AuthState           string
+	Conflicts           []SyncConflict
+	UnresolvedConflicts int
+	Dirty               int
 }
 
 // Renamer is the optional atomic rename capability implemented by stores that

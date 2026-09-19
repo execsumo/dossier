@@ -109,6 +109,7 @@ func (g *GitSync) syncWithCtx(ctx context.Context) (SyncReport, error) {
 		return report, errors.New("sync: StoreDir is required")
 	}
 
+	st := loadState(storeDir)
 	// --- store-wide sync lock: serialize concurrent Sync calls on one store ---
 	lock := newSyncLock(storeDir)
 	lctx, cancel := context.WithTimeout(ctx, g.cfg.LockTimeout)
@@ -142,6 +143,7 @@ func (g *GitSync) syncWithCtx(ctx context.Context) (SyncReport, error) {
 
 	// --- PULL → RESOLVE (remote-wins): fetch + 3-way merge ---
 	pullReport, ferr, perr := g.pullRemoteWins(ctx, repo, wt, localHead)
+	pullSuccess := ferr == nil
 	if perr != nil {
 		return report, perr
 	}
@@ -157,17 +159,40 @@ func (g *GitSync) syncWithCtx(ctx context.Context) (SyncReport, error) {
 	report.Ahead, report.Behind = g.divergence(repo)
 
 	// --- PUSH ---
+	pushSuccess := false
 	if g.cfg.RemoteURL != "" {
-		pushed, perr := g.doPush(ctx, repo, g.cfg.Branch)
+		succ, pushed, perr := g.doPush(ctx, repo, g.cfg.Branch)
 		if perr != nil {
 			report.Error = appendErr(report.Error, perr.Error())
 		} else {
+			pushSuccess = succ
 			report.Pushed = pushed
 		}
 	}
 
 	// --- persist sync state for Status() ---
-	saveState(storeDir, syncState{LastSync: time.Now(), Conflicts: report.Conflicts})
+	now := time.Now()
+	st.LastAttempt = now
+	if pullSuccess {
+		st.LastSuccessPull = now
+	}
+	if pushSuccess {
+		st.LastSuccessPush = now
+	}
+	if report.Error != "" {
+		st.LastError = report.Error
+	} else {
+		st.LastError = ""
+	}
+	if g.cfg.AuthState != "" {
+		if report.Error != "" && (strings.Contains(report.Error, "authentication required") || strings.Contains(report.Error, "authorization failed") || strings.Contains(report.Error, "insecure permissions")) {
+			st.AuthState = "rejected"
+		} else {
+			st.AuthState = g.cfg.AuthState
+		}
+	}
+	st.Conflicts = report.Conflicts
+	saveState(storeDir, st)
 
 	return report, nil
 }

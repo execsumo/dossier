@@ -436,9 +436,9 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 			report.SyncStatus = &SyncStatusData{
 				Ahead:          status.Ahead,
 				Behind:         status.Behind,
-				LastSync:       status.LastSync,
+				LastSync:       status.LastAttempt,
 				Dirty:          status.Dirty,
-				ConflictsFound: len(status.Conflicts),
+				ConflictsFound: len(conflicts),
 			}
 		}
 	}

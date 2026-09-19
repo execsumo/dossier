@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,7 +156,7 @@ func TestStatus_ReportsAheadBehind(t *testing.T) {
 	writeFile(t, storeA, "pricing/dossier.md", "A1")
 	mustSync(t, syncA) // A pushes; B is now behind.
 
-	st, err := syncB.Status()
+	st, err := syncB.Status(context.Background())
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -164,11 +165,11 @@ func TestStatus_ReportsAheadBehind(t *testing.T) {
 	}
 
 	mustSync(t, syncB) // B pulls; now in sync.
-	st, _ = syncB.Status()
+	st, _ = syncB.Status(context.Background())
 	if st.Behind != 0 {
 		t.Fatalf("expected B behind 0 after pull, got %d", st.Behind)
 	}
-	if st.LastSync.IsZero() {
+	if st.LastSuccessPull.IsZero() {
 		t.Fatalf("expected last sync time populated")
 	}
 }
