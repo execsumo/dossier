@@ -587,6 +587,10 @@ full source retained, ownership, priorities, search, interface tagging with
 filtered views, and the delegation-contract skill described in Layer 3a. It runs
 locally on one person's machine.
 
+> *Status note (2026-09-18):* the list below is aspirational, not in progress.
+> Current direction: `docs/team-adoption-architecture-plan.md` and its review
+> (`docs/team-adoption-plan-review.md`).
+
 **Being built next:** proper timezone handling; the requirements model in
 Layer 2a, including acceptance and the committed-by date; three-level importance
 with time pressure computed rather than hand-maintained; identity, so the tool

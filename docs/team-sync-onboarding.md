@@ -6,7 +6,7 @@
 > **Status (Pilot): The team sync commands are built and work locally, but the shared GitHub flow is being piloted and is not yet validated against live GitHub.**
 > Treat this as an experimental feature.
 
-> **Status: operational but NOT ready for self-service (review 2026-09-18).** Do not hand this page to a colleague to follow alone. Several steps below describe behavior that is not built. Those claims are struck through, with the actual behavior next to them. The person who set up the store should do this setup *with* the colleague (see the "Concierge setup" section below). Evidence and fix list: [`team-adoption-plan-review.md`](team-adoption-plan-review.md).
+> **Status: operational but NOT ready for self-service (review 2026-09-18; updated after the P0 fixes, same day).** Do not hand this page to a colleague to follow alone. There is still no sign-in prompt, so the person who set up the store should do this setup *with* the colleague (see "Concierge setup" below). Claims that were untrue at review time and are now fixed have been restored. Claims that are still untrue stay struck through, with the actual behavior next to them. The fixes are checked in a sandbox, not yet against live GitHub. Evidence and fix list: [`team-adoption-plan-review.md`](team-adoption-plan-review.md) §6; validation: [`team-sync-validation.md`](team-sync-validation.md).
 
 ## What a shared Dossier store is
 
@@ -27,9 +27,9 @@ dossier team join <url>
 Replace `<url>` with the link you were given. The command will:
 
 1. ~~**Ask for your name.** This is how your contributions are attributed to you across the team.~~ **Actual:** it does not ask. Your name is your computer's login name (`internal/config/config.go:62`). To change it, edit `author:` in `~/.dossier/config.yaml`.
-2. ~~**Ask you to sign in once** with a **personal access token (PAT)** — a private, password-like code from GitHub that lets Dossier talk to the shared store on your behalf.~~ **Actual:** it never prompts (`internal/cli/cli.go:1606-1650`). Sign-in must be set up *before* running `join`: either a token saved at `~/.dossier/credentials` with permissions `0600`, or GitHub's `gh` tool already signed in. If neither is present, Dossier tries without credentials and does not say so (`internal/sync/credentials.go:59`).
+2. ~~**Ask you to sign in once** with a **personal access token (PAT)** — a private, password-like code from GitHub that lets Dossier talk to the shared store on your behalf.~~ **Actual:** it never prompts (`internal/cli/cli.go:1606-1650`). Sign-in must be set up *before* running `join`: either a token saved at `~/.dossier/credentials` with permissions `0600`, or GitHub's `gh` tool already signed in. If neither is present, every `dossier` command warns "no credentials found", and `dossier sync` fails with `sync_auth_failed` and tells you what to do.
 
-> **Superseded warning.** If `join` fails (wrong link, no sign-in, no network), do **not** run it again yet. A failed join leaves a partial setup behind, and the retry is refused with "target directory is not empty". Ask the person who set up the store to clean it up (runbook §6).
+> **If `join` fails** (wrong link, no sign-in, no network), it says why and changes nothing you need to clean up. Fix the cause and run the same command again. Anything the failed attempt created is moved to a folder next to your store, named like `~/.dossier.failed-join-<time>`. It is kept, not deleted, and you can remove it once you've joined.
 
 ### Concierge setup (use this for now)
 
@@ -69,7 +69,7 @@ dossier sync
 
 ~~A later phase makes syncing happen **automatically** around your saves and lookups, so you won't have to think about it (currently in pilot testing).~~ **Actual:** automatic sync is partly built. It runs when a Claude session starts and ends (`internal/core/service_session.go:215-219`, `:498-502`), and in the background after the agent reads, saves or renames a Dossier (`internal/mcp/tools.go:324,419,611`). It does **not** run after changes you make with `dossier` commands or in the dashboard. Run `dossier sync` after those.
 
-~~Either way, a flaky connection never loses your work. If a sync can't reach the team store right now, Dossier tells you plainly and keeps your changes safe until the next sync.~~ **Actual:** your work is kept safe on your machine; that part is true. But Dossier does **not** tell you plainly. Automatic syncs report nothing, and a failed `dossier sync` prints a `Warning:` line followed by "Sync successful" (`internal/cli/cli.go:1541`). Read the `Warning:` lines.
+Either way, a flaky connection never loses your work. If a sync can't reach the team store right now, Dossier tells you plainly and keeps your changes safe until the next sync. A failed `dossier sync` says "Sync failed" and why. Automatic syncs don't print anything, so the dashboard (`dossier tui`) shows a health line at the bottom, for example `Team sync · last sync failed 18m ago · work is safe locally`. It updates on its own about once a minute. Press `H` for the full report.
 
 ## If two of us edited the same thing
 
