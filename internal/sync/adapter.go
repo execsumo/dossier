@@ -52,12 +52,13 @@ func (a *Adapter) Sync(ctx context.Context) (core.SyncReport, error) {
 		Ahead:         report.Ahead,
 		Behind:        report.Behind,
 		Error:         report.Error,
+		AuthFailed:    report.AuthFailed,
 	}, nil
 }
 
 // Status returns a read-only snapshot mapped to the core DTO.
 func (a *Adapter) Status(ctx context.Context) (core.SyncStatus, error) {
-	st, err := a.gs.Status()
+	st, err := a.gs.Status(ctx)
 	if err != nil {
 		return core.SyncStatus{}, err
 	}
@@ -74,11 +75,15 @@ func (a *Adapter) Status(ctx context.Context) (core.SyncStatus, error) {
 	}
 
 	return core.SyncStatus{
-		Ahead:     st.Ahead,
-		Behind:    st.Behind,
-		LastSync:  st.LastSync,
-		Conflicts: conflicts,
-		Dirty:     st.Dirty,
+		Ahead:           st.Ahead,
+		Behind:          st.Behind,
+		LastAttempt:     st.LastAttempt,
+		LastSuccessPull: st.LastSuccessPull,
+		LastSuccessPush: st.LastSuccessPush,
+		LastError:       st.LastError,
+		AuthState:       st.AuthState,
+		Conflicts:       conflicts,
+		Dirty:           st.Dirty,
 	}, nil
 }
 

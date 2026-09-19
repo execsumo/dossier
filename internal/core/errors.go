@@ -20,6 +20,7 @@ const (
 	ErrConcurrentEdit               ErrorCode = "concurrent_edit"
 	ErrHarnessCapabilityUnavailable ErrorCode = "harness_capability_unavailable"
 	ErrInternal                     ErrorCode = "internal_error"
+	ErrSyncAuthFailed               ErrorCode = "sync_auth_failed"
 )
 
 // DomainError encapsulates typed errors for unified rendering across CLI, MCP, and TUI.

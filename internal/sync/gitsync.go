@@ -30,6 +30,8 @@ type Config struct {
 	LockTimeout time.Duration
 	// Auth is the optional transport credentials.
 	Auth transport.AuthMethod
+	// AuthState is the resolution result of Auth.
+	AuthState string
 }
 
 // GitSync is the Phase-2 spike git-sync adapter. It is NOT wired into
@@ -72,6 +74,8 @@ type SyncReport struct {
 	// the local commit still landed but the remote could not be reached. "" on
 	// success.
 	Error string
+	// AuthFailed is true if the error was a 401/403 or missing credentials.
+	AuthFailed bool
 }
 
 // ConflictRecord captures a both-modified file: remote content wins the working
@@ -99,9 +103,13 @@ type ExcludedFile struct {
 
 // SyncStatus is a read-only snapshot (no push/pull mutation).
 type SyncStatus struct {
-	Ahead     int
-	Behind    int
-	LastSync  time.Time
-	Conflicts []ConflictRecord // pending conflicts from the last sync
-	Dirty     int              // uncommitted tracked changes
+	Ahead           int
+	Behind          int
+	LastAttempt     time.Time
+	LastSuccessPull time.Time
+	LastSuccessPush time.Time
+	LastError       string
+	AuthState       string
+	Conflicts       []ConflictRecord // pending conflicts from the last sync
+	Dirty           int              // uncommitted tracked changes
 }

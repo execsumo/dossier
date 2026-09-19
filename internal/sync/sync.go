@@ -13,6 +13,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/storage/memory"
 )
 
@@ -183,6 +184,7 @@ func (g *GitSync) syncWithCtx(ctx context.Context) (SyncReport, error) {
 		return report, errors.New("sync: StoreDir is required")
 	}
 
+	st := loadState(storeDir)
 	// --- store-wide sync lock: serialize concurrent Sync calls on one store ---
 	lock := newSyncLock(storeDir)
 	lctx, cancel := context.WithTimeout(ctx, g.cfg.LockTimeout)
@@ -216,6 +218,10 @@ func (g *GitSync) syncWithCtx(ctx context.Context) (SyncReport, error) {
 
 	// --- PULL → RESOLVE (remote-wins): fetch + 3-way merge ---
 	pullReport, ferr, perr := g.pullRemoteWins(ctx, repo, wt, localHead)
+	pullSuccess := ferr == nil
+	if errors.Is(ferr, transport.ErrAuthenticationRequired) || errors.Is(ferr, transport.ErrAuthorizationFailed) || errors.Is(ferr, ErrInsecureCredentials) || errors.Is(ferr, ErrNoCredentials) {
+		report.AuthFailed = true
+	}
 	if perr != nil {
 		return report, perr
 	}
@@ -231,17 +237,43 @@ func (g *GitSync) syncWithCtx(ctx context.Context) (SyncReport, error) {
 	report.Ahead, report.Behind = g.divergence(repo)
 
 	// --- PUSH ---
+	pushSuccess := false
 	if g.cfg.RemoteURL != "" {
-		pushed, perr := g.doPush(ctx, repo, g.cfg.Branch)
+		succ, pushed, perr := g.doPush(ctx, repo, g.cfg.Branch)
 		if perr != nil {
 			report.Error = appendErr(report.Error, perr.Error())
+			if errors.Is(perr, transport.ErrAuthenticationRequired) || errors.Is(perr, transport.ErrAuthorizationFailed) || errors.Is(perr, ErrInsecureCredentials) || errors.Is(perr, ErrNoCredentials) {
+				report.AuthFailed = true
+			}
 		} else {
+			pushSuccess = succ
 			report.Pushed = pushed
 		}
 	}
 
 	// --- persist sync state for Status() ---
-	saveState(storeDir, syncState{LastSync: time.Now(), Conflicts: report.Conflicts})
+	now := time.Now()
+	st.LastAttempt = now
+	if pullSuccess {
+		st.LastSuccessPull = now
+	}
+	if pushSuccess {
+		st.LastSuccessPush = now
+	}
+	if report.Error != "" {
+		st.LastError = report.Error
+	} else {
+		st.LastError = ""
+	}
+	if g.cfg.AuthState != "" {
+		if report.AuthFailed {
+			st.AuthState = "rejected"
+		} else {
+			st.AuthState = g.cfg.AuthState
+		}
+	}
+	st.Conflicts = report.Conflicts
+	saveState(storeDir, st)
 
 	return report, nil
 }

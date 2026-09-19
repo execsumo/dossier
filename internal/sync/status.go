@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
@@ -37,12 +38,13 @@ func (g *GitSync) remoteHeadHash(ctx context.Context, repo *git.Repository, bran
 	return *remoteHash, nil
 }
 
-// doPush pushes the local branch to the remote. Returns pushed=true on success
-// (including "already up to date"), or an error if the push failed.
-func (g *GitSync) doPush(ctx context.Context, repo *git.Repository, branch string) (bool, error) {
+// doPush pushes the local branch to the remote. Returns (success, pushed, error).
+// success is true if it succeeded (including already up-to-date).
+// pushed is true only if changes were actually sent.
+func (g *GitSync) doPush(ctx context.Context, repo *git.Repository, branch string) (bool, bool, error) {
 	remote, err := repo.Remote(originName)
 	if err != nil {
-		return false, fmt.Errorf("remote: %w", err)
+		return false, false, fmt.Errorf("remote: %w", err)
 	}
 	branchRef := plumbing.NewBranchReferenceName(branch)
 	err = remote.PushContext(ctx, &git.PushOptions{
@@ -51,12 +53,12 @@ func (g *GitSync) doPush(ctx context.Context, repo *git.Repository, branch strin
 		Auth:       g.cfg.Auth,
 	})
 	if err == nil {
-		return true, nil
+		return true, true, nil
 	}
 	if errors.Is(err, git.NoErrAlreadyUpToDate) {
-		return true, nil
+		return true, false, nil
 	}
-	return false, fmt.Errorf("push: %w", err)
+	return false, false, fmt.Errorf("push: %w", err)
 }
 
 // Status returns a read-only snapshot: ahead/behind counts (via a best-effort
@@ -64,7 +66,7 @@ func (g *GitSync) doPush(ctx context.Context, repo *git.Repository, branch strin
 // time + pending conflicts (from the persisted sync state), and the count of
 // uncommitted tracked changes. Fetch failures degrade to zero counts rather
 // than erroring — Status is advisory.
-func (g *GitSync) Status() (SyncStatus, error) {
+func (g *GitSync) Status(ctx context.Context) (SyncStatus, error) {
 	var st SyncStatus
 	repo, err := git.PlainOpen(g.cfg.StoreDir)
 	if err != nil {
@@ -77,13 +79,25 @@ func (g *GitSync) Status() (SyncStatus, error) {
 	}
 	head, err := headHash(repo)
 	if err == nil && !head.IsZero() {
-		remote, ferr := g.remoteHeadHash(context.Background(), repo, g.cfg.Branch)
+		fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		remote, ferr := g.remoteHeadHash(fetchCtx, repo, g.cfg.Branch)
 		if ferr == nil {
 			st.Ahead, st.Behind = countDivergence(repo, head, remote)
 		}
 	}
 	s := loadState(g.cfg.StoreDir)
-	st.LastSync = s.LastSync
+	st.LastAttempt = s.LastAttempt
+	st.LastSuccessPull = s.LastSuccessPull
+	st.LastSuccessPush = s.LastSuccessPush
+	st.LastError = s.LastError
+	if s.AuthState == "rejected" {
+		st.AuthState = "rejected"
+	} else if g.cfg.AuthState != "" {
+		st.AuthState = g.cfg.AuthState
+	} else {
+		st.AuthState = s.AuthState
+	}
 	st.Conflicts = s.Conflicts
 	return st, nil
 }

@@ -19,6 +19,7 @@ const (
 	ErrCodeConcurrentEdit            MCPErrorCode = "concurrent_edit"
 	ErrCodeHarnessCapUnavailable     MCPErrorCode = "harness_capability_unavailable"
 	ErrCodeInternal                  MCPErrorCode = "internal_error"
+	ErrCodeSyncAuthFailed            MCPErrorCode = "sync_auth_failed"
 )
 
 // MapError converts a core.DomainError to its corresponding MCPErrorCode and message.
@@ -53,6 +54,8 @@ func MapError(err error) (MCPErrorCode, string) {
 		return ErrCodeConcurrentEdit, coreErr.Message
 	case core.ErrHarnessCapabilityUnavailable:
 		return ErrCodeHarnessCapUnavailable, coreErr.Message
+	case core.ErrSyncAuthFailed:
+		return ErrCodeSyncAuthFailed, coreErr.Message
 	default:
 		return ErrCodeInternal, coreErr.Message
 	}
