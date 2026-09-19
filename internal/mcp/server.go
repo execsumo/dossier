@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 )
 
@@ -40,6 +41,50 @@ type Server struct {
 	writer   io.Writer
 	syncChan chan struct{}
 	doneChan chan struct{}
+
+	bgMu        sync.Mutex
+	bgWarning   string
+	bgLastError string
+}
+
+func (s *Server) setBgWarning(err error, res core.Result) {
+	reason := ""
+	if err != nil {
+		reason = err.Error()
+	} else if report, ok := res.Data.(core.SyncReport); ok {
+		switch {
+		case len(report.Conflicts) > 0:
+			reason = fmt.Sprintf("%d conflict(s) created", len(report.Conflicts))
+		case report.Error != "":
+			reason = report.Error
+		}
+	}
+	if reason == "" && !res.OK {
+		reason = "sync did not complete"
+	}
+
+	s.bgMu.Lock()
+	defer s.bgMu.Unlock()
+	if reason == "" {
+		// A successful run clears both the delivered warning and the
+		// de-duplication key, so a later identical failure is visible again.
+		s.bgLastError = ""
+		s.bgWarning = ""
+		return
+	}
+	if reason == s.bgLastError {
+		return
+	}
+	s.bgLastError = reason
+	s.bgWarning = fmt.Sprintf("Background team sync failed: %s. Your change is saved locally; it will be sent on the next successful sync.", reason)
+}
+
+func (s *Server) takeBgWarning() string {
+	s.bgMu.Lock()
+	defer s.bgMu.Unlock()
+	w := s.bgWarning
+	s.bgWarning = ""
+	return w
 }
 
 // NewServer creates a new Server instance.
@@ -74,7 +119,8 @@ func (s *Server) syncDebouncer(ctx context.Context) {
 			if !ok {
 				if pending {
 					syncCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					_, _ = s.svc.Sync(syncCtx)
+					res, err := s.svc.Sync(syncCtx)
+					s.setBgWarning(err, res)
 					cancel()
 				}
 				return
@@ -93,7 +139,8 @@ func (s *Server) syncDebouncer(ctx context.Context) {
 				if !ok {
 					timer.Stop()
 					syncCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					_, _ = s.svc.Sync(syncCtx)
+					res, err := s.svc.Sync(syncCtx)
+					s.setBgWarning(err, res)
 					cancel()
 					return
 				}
@@ -103,7 +150,8 @@ func (s *Server) syncDebouncer(ctx context.Context) {
 				timer.Reset(debounceInterval)
 			case <-timer.C:
 				syncCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				_, _ = s.svc.Sync(syncCtx)
+				res, err := s.svc.Sync(syncCtx)
+				s.setBgWarning(err, res)
 				cancel()
 				pending = false
 				break settle

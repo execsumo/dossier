@@ -155,6 +155,57 @@ func TestMCPSwitchResolvesSessionFromEnv(t *testing.T) {
 	}
 }
 
+type attentionSyncer struct {
+	status core.SyncStatus
+}
+
+func (s *attentionSyncer) Sync(context.Context) (core.SyncReport, error) {
+	return core.SyncReport{}, nil
+}
+func (s *attentionSyncer) Status(context.Context) (core.SyncStatus, error) {
+	return s.status, nil
+}
+func (s *attentionSyncer) CheckRemoteEmpty(context.Context, string) error { return nil }
+func (s *attentionSyncer) Create(context.Context, string, string) error   { return nil }
+func (s *attentionSyncer) Clone(context.Context, string, string, int) error {
+	return nil
+}
+
+// TestMCPAttentionWarningsOnSessionAndRecall proves both primary MCP paths carry
+// health attention and actionable conflict hints.
+func TestMCPAttentionWarningsOnSessionAndRecall(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-attention")
+
+	fakeStore := store.NewFakeStore()
+	fakeStore.Dossiers["dos_1"] = &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID: "dos_1", Name: "Test", Slug: "test-dossier", Status: core.StatusActive, Priority: core.PriorityHigh,
+		},
+		DistilledState: core.DistilledState{Body: "# Test"},
+	}
+	fakeStore.Revisions["dos_1"] = "rev_1"
+	fakeStore.Conflicts["conf_1"] = &core.Conflict{ID: "conf_1", DossierID: "dos_1"}
+	syncer := &attentionSyncer{status: core.SyncStatus{LastError: "connection refused"}}
+	svc := core.NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, core.Config{}, syncer)
+
+	session := callTool(t, svc, "dossier_session", `{"id":"dos_1"}`)
+	if !session.OK || len(session.Warnings) == 0 {
+		t.Fatalf("session response warnings = %+v, result = %+v", session.Warnings, session)
+	}
+	sessionWarning := strings.Join(session.Warnings, " ")
+	if !strings.Contains(sessionWarning, "conf_1") || !strings.Contains(sessionWarning, "dossier_conflicts") {
+		t.Fatalf("session warning omitted conflict hint: %q", sessionWarning)
+	}
+
+	recall := callTool(t, svc, "dossier_recall", `{"id":"test-dossier"}`)
+	if !recall.OK || len(recall.Warnings) == 0 {
+		t.Fatalf("recall response warnings = %+v, result = %+v", recall.Warnings, recall)
+	}
+	if !strings.Contains(strings.Join(recall.Warnings, " "), "conf_1") {
+		t.Fatalf("recall warning omitted conflict id: %+v", recall.Warnings)
+	}
+}
+
 // TestMCPSwitchNoSessionDegradesVisibly proves the MCP path errors visibly (rather than
 // silently binding the shared sess_default bucket) when no session id is resolvable.
 func TestMCPSwitchNoSessionDegradesVisibly(t *testing.T) {

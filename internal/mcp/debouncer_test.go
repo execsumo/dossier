@@ -5,6 +5,7 @@ import (
 	"context"
 	"dossier/internal/core"
 	"dossier/internal/store"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,6 +18,7 @@ type blockingSyncer struct {
 	blockChan chan struct{}
 	entered   chan struct{}
 	doneChan  chan struct{}
+	err       error
 }
 
 func (b *blockingSyncer) Sync(ctx context.Context) (core.SyncReport, error) {
@@ -30,7 +32,7 @@ func (b *blockingSyncer) Sync(ctx context.Context) (core.SyncReport, error) {
 	if b.doneChan != nil {
 		b.doneChan <- struct{}{}
 	}
-	return core.SyncReport{}, nil
+	return core.SyncReport{}, b.err
 }
 func (b *blockingSyncer) Status(ctx context.Context) (core.SyncStatus, error) {
 	return core.SyncStatus{}, nil
@@ -204,4 +206,79 @@ func (s *safeWriter) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.buf.String()
+}
+
+func TestMCPServer_BackgroundWarningRearms(t *testing.T) {
+	server := NewServer(nil, bytes.NewBuffer(nil), &safeWriter{})
+	server.setBgWarning(fmt.Errorf("network timeout"), core.Result{})
+	if got := server.takeBgWarning(); !strings.Contains(got, "network timeout") {
+		t.Fatalf("first warning = %q", got)
+	}
+	server.setBgWarning(fmt.Errorf("network timeout"), core.Result{})
+	if got := server.takeBgWarning(); got != "" {
+		t.Fatalf("same failure repeated warning = %q", got)
+	}
+	server.setBgWarning(nil, core.Result{OK: true})
+	server.setBgWarning(fmt.Errorf("network timeout"), core.Result{})
+	if got := server.takeBgWarning(); !strings.Contains(got, "network timeout") {
+		t.Fatalf("warning after success = %q", got)
+	}
+
+	server.setBgWarning(nil, core.Result{OK: true, Data: core.SyncReport{Conflicts: []core.SyncConflict{{Path: "dossier.md"}}}})
+	if got := server.takeBgWarning(); !strings.Contains(got, "conflict") {
+		t.Fatalf("conflict warning = %q", got)
+	}
+}
+
+func TestMCPServer_Debouncer_Warning(t *testing.T) {
+	fakeStore := store.NewFakeStore()
+	hreg := &mockHarnessRegistry{}
+	clk := &mockClock{}
+	tok := &mockTokenizer{}
+	srch := &mockSearcher{}
+	cfg := core.Config{}
+
+	d := &core.Dossier{
+		Frontmatter:    core.Frontmatter{ID: "dos_1", Name: "Test Dossier"},
+		DistilledState: core.DistilledState{Body: "old"},
+	}
+	fakeStore.Dossiers["dos_1"] = d
+	fakeStore.Revisions["dos_1"] = "rev_1"
+
+	syncer := &blockingSyncer{
+		err: fmt.Errorf("network timeout"),
+	}
+	svc := core.NewService(fakeStore, srch, tok, hreg, clk, cfg, syncer)
+
+	outBuf := &safeWriter{}
+	// Empty reader to not block Run
+	server := NewServer(svc, bytes.NewBuffer(nil), outBuf)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go server.syncDebouncer(ctx)
+
+	// Trigger sync which will fail
+	server.triggerSync()
+	// Give debouncer time to run and set warning
+	time.Sleep(3 * time.Second) // default debounce is 2s
+
+	// Now send a request
+	req1 := JSONRPCRequest{JSONRPC: "2.0", Method: "tools/call", Params: []byte(`{"name":"dossier_recall","arguments":{"id":"dos_1"}}`), ID: 1}
+	server.handleRequest(ctx, req1)
+
+	if !strings.Contains(outBuf.String(), "Background team sync failed") {
+		t.Fatalf("expected warning on first response, got: %s", outBuf.String())
+	}
+
+	outBuf.buf.Reset()
+
+	// Send second request
+	req2 := JSONRPCRequest{JSONRPC: "2.0", Method: "tools/call", Params: []byte(`{"name":"dossier_recall","arguments":{"id":"dos_1"}}`), ID: 2}
+	server.handleRequest(ctx, req2)
+
+	if strings.Contains(outBuf.String(), "Background team sync failed") {
+		t.Fatalf("expected no warning on second response, got: %s", outBuf.String())
+	}
+
+	cancel()
 }

@@ -6,6 +6,7 @@ import (
 	"dossier/internal/harness"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // ToolDefinition represents an MCP tool definition.
@@ -27,6 +28,22 @@ type mcpErrorObject struct {
 	Code    MCPErrorCode   `json:"code"`
 	Message string         `json:"message"`
 	Details map[string]any `json:"details,omitempty"`
+}
+
+func (s *Server) addSyncAttentionWarning(ctx context.Context, res *core.Result, dossierID string) {
+	line, conflictIDs, ok := s.svc.SyncAttention(ctx, dossierID)
+	if !ok {
+		return
+	}
+	warning := line
+	if len(conflictIDs) > 0 {
+		hints := make([]string, len(conflictIDs))
+		for i, id := range conflictIDs {
+			hints[i] = fmt.Sprintf("%s (call dossier_conflicts with conflict_id %q)", id, id)
+		}
+		warning += " Conflict IDs: " + strings.Join(hints, ", ") + "."
+	}
+	res.Warnings = append(res.Warnings, core.Warning(warning))
 }
 
 func getToolDefinitions(configured ...[]string) []ToolDefinition {
@@ -342,6 +359,11 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		res, err = s.svc.Recall(ctx, core.RecallReq{ID: params.ID})
 		if err == nil {
 			s.triggerSync()
+			dossierID := params.ID
+			if recalled, ok := res.Data.(core.RecallResult); ok {
+				dossierID = recalled.Frontmatter.ID
+			}
+			s.addSyncAttentionWarning(ctx, &res, dossierID)
 		}
 
 	case "dossier_search":
@@ -516,6 +538,17 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 				res, err = s.svc.Active(ctx, core.ActiveReq{SessionID: sid})
 			}
 			if err == nil && res.OK {
+				var boundDossierID string
+				if recData, ok := res.Data.(core.RecallResult); ok {
+					boundDossierID = recData.Frontmatter.ID
+				} else if bindData, ok := res.Data.(*core.SessionBinding); ok {
+					boundDossierID = bindData.DossierID
+				}
+
+				if boundDossierID != "" {
+					s.addSyncAttentionWarning(ctx, &res, boundDossierID)
+				}
+
 				type SessionResponse struct {
 					State                 interface{} `json:"state"`
 					Guide                 string      `json:"distillation_guide,omitempty"`
@@ -683,6 +716,10 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		for _, na := range res.NextActions {
 			env.NextActions = append(env.NextActions, string(na))
 		}
+	}
+
+	if bgWarn := s.takeBgWarning(); bgWarn != "" {
+		env.Warnings = append(env.Warnings, bgWarn)
 	}
 
 	envBytes, marshalErr := json.Marshal(env)
