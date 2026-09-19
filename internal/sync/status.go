@@ -64,18 +64,12 @@ func (g *GitSync) doPush(ctx context.Context, repo *git.Repository, branch strin
 // Status returns a read-only snapshot: ahead/behind counts (via a best-effort
 // remote fetch into tracking refs — no change to the local branch), last sync
 // time + pending conflicts (from the persisted sync state), and the count of
-// uncommitted tracked changes. Fetch failures degrade to zero counts rather
+// uncommitted tracked changes. Fetch failures retain local ref counts rather
 // than erroring — Status is advisory.
 func (g *GitSync) Status(ctx context.Context) (SyncStatus, error) {
-	var st SyncStatus
-	repo, err := git.PlainOpen(g.cfg.StoreDir)
+	repo, st, err := g.localStatus()
 	if err != nil {
-		return st, fmt.Errorf("open repo: %w", err)
-	}
-	if wt, err := repo.Worktree(); err == nil {
-		if status, err := wt.Status(); err == nil {
-			st.Dirty = len(status)
-		}
+		return st, err
 	}
 	head, err := headHash(repo)
 	if err == nil && !head.IsZero() {
@@ -85,6 +79,31 @@ func (g *GitSync) Status(ctx context.Context) (SyncStatus, error) {
 		if ferr == nil {
 			st.Ahead, st.Behind = countDivergence(repo, head, remote)
 		}
+	}
+	return st, nil
+}
+
+// LocalStatus returns persisted sync state and working-tree/ref information
+// without contacting the remote. Background attention paths use this so a
+// failed or unreachable remote cannot block a tool response.
+func (g *GitSync) LocalStatus(context.Context) (SyncStatus, error) {
+	_, st, err := g.localStatus()
+	return st, err
+}
+
+func (g *GitSync) localStatus() (*git.Repository, SyncStatus, error) {
+	var st SyncStatus
+	repo, err := git.PlainOpen(g.cfg.StoreDir)
+	if err != nil {
+		return nil, st, fmt.Errorf("open repo: %w", err)
+	}
+	if wt, err := repo.Worktree(); err == nil {
+		if status, err := wt.Status(); err == nil {
+			st.Dirty = len(status)
+		}
+	}
+	if head, err := headHash(repo); err == nil && !head.IsZero() {
+		st.Ahead, st.Behind = g.localDivergence(repo)
 	}
 	s := loadState(g.cfg.StoreDir)
 	st.LastAttempt = s.LastAttempt
@@ -99,17 +118,34 @@ func (g *GitSync) Status(ctx context.Context) (SyncStatus, error) {
 		st.AuthState = s.AuthState
 	}
 	st.Conflicts = s.Conflicts
-	return st, nil
+	return repo, st, nil
 }
 
 // divergence returns ahead/behind vs the current remote HEAD (best-effort).
-func (g *GitSync) divergence(repo *git.Repository) (int, int) {
+// The caller controls the context so a failed pull never falls back to an
+// unbounded network call.
+func (g *GitSync) divergence(ctx context.Context, repo *git.Repository) (int, int) {
 	head, err := headHash(repo)
 	if err != nil || head.IsZero() {
 		return 0, 0
 	}
-	remote, _ := g.remoteHeadHash(context.Background(), repo, g.cfg.Branch)
+	remote, err := g.remoteHeadHash(ctx, repo, g.cfg.Branch)
+	if err != nil {
+		return g.localDivergence(repo)
+	}
 	return countDivergence(repo, head, remote)
+}
+
+func (g *GitSync) localDivergence(repo *git.Repository) (int, int) {
+	head, err := headHash(repo)
+	if err != nil || head.IsZero() {
+		return 0, 0
+	}
+	remote, err := repo.ResolveRevision(plumbing.Revision(plumbing.NewRemoteReferenceName(originName, g.cfg.Branch)))
+	if err != nil {
+		return countDivergence(repo, head, plumbing.ZeroHash)
+	}
+	return countDivergence(repo, head, *remote)
 }
 
 // countDivergence returns (#commits reachable from local but not remote,

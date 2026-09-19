@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 )
@@ -49,14 +50,27 @@ type Server struct {
 
 func (s *Server) setBgWarning(err error, res core.Result) {
 	reason := ""
+	conflictWarning := ""
 	if err != nil {
 		reason = err.Error()
 	} else if report, ok := res.Data.(core.SyncReport); ok {
 		switch {
-		case len(report.Conflicts) > 0:
-			reason = fmt.Sprintf("%d conflict(s) created", len(report.Conflicts))
 		case report.Error != "":
 			reason = report.Error
+		case len(report.Conflicts) > 0:
+			details := conflictDetails(res.Warnings)
+			if len(details) == 0 {
+				details = make([]string, len(report.Conflicts))
+				for i, conflict := range report.Conflicts {
+					details[i] = conflict.Path
+				}
+			}
+			reason = strings.Join(details, "; ")
+			verb, action := "conflicts", "resolve them"
+			if len(details) == 1 {
+				verb, action = "conflict", "resolve it"
+			}
+			conflictWarning = fmt.Sprintf("Background team sync found %d %s: %s. Both versions are kept; %s with dossier_conflicts.", len(details), verb, reason, action)
 		}
 	}
 	if reason == "" && !res.OK {
@@ -76,7 +90,24 @@ func (s *Server) setBgWarning(err error, res core.Result) {
 		return
 	}
 	s.bgLastError = reason
-	s.bgWarning = fmt.Sprintf("Background team sync failed: %s. Your change is saved locally; it will be sent on the next successful sync.", reason)
+	if conflictWarning != "" {
+		s.bgWarning = conflictWarning
+	} else {
+		s.bgWarning = fmt.Sprintf("Background team sync failed: %s. Your change is saved locally; it will be sent on the next successful sync.", reason)
+	}
+}
+
+func conflictDetails(warnings []core.Warning) []string {
+	const prefix = "sync conflict: "
+	const suffix = "; both versions are kept; resolve it with dossier_conflicts"
+	var details []string
+	for _, warning := range warnings {
+		text := string(warning)
+		if strings.HasPrefix(text, prefix) && strings.HasSuffix(text, suffix) {
+			details = append(details, strings.TrimSuffix(strings.TrimPrefix(text, prefix), suffix))
+		}
+	}
+	return details
 }
 
 func (s *Server) takeBgWarning() string {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newSessionTestService builds a core.Service backed by a fake store holding one dossier.
@@ -156,13 +157,20 @@ func TestMCPSwitchResolvesSessionFromEnv(t *testing.T) {
 }
 
 type attentionSyncer struct {
-	status core.SyncStatus
+	status      core.SyncStatus
+	statusDelay time.Duration
 }
 
 func (s *attentionSyncer) Sync(context.Context) (core.SyncReport, error) {
 	return core.SyncReport{}, nil
 }
 func (s *attentionSyncer) Status(context.Context) (core.SyncStatus, error) {
+	if s.statusDelay > 0 {
+		time.Sleep(s.statusDelay)
+	}
+	return s.status, nil
+}
+func (s *attentionSyncer) LocalStatus(context.Context) (core.SyncStatus, error) {
 	return s.status, nil
 }
 func (s *attentionSyncer) CheckRemoteEmpty(context.Context, string) error { return nil }
@@ -185,10 +193,14 @@ func TestMCPAttentionWarningsOnSessionAndRecall(t *testing.T) {
 	}
 	fakeStore.Revisions["dos_1"] = "rev_1"
 	fakeStore.Conflicts["conf_1"] = &core.Conflict{ID: "conf_1", DossierID: "dos_1"}
-	syncer := &attentionSyncer{status: core.SyncStatus{LastError: "connection refused"}}
+	syncer := &attentionSyncer{status: core.SyncStatus{LastError: "connection refused"}, statusDelay: 500 * time.Millisecond}
 	svc := core.NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, core.Config{}, syncer)
 
+	started := time.Now()
 	session := callTool(t, svc, "dossier_session", `{"id":"dos_1"}`)
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("dossier_session performed a remote status fetch: %s", elapsed)
+	}
 	if !session.OK || len(session.Warnings) == 0 {
 		t.Fatalf("session response warnings = %+v, result = %+v", session.Warnings, session)
 	}
@@ -197,7 +209,11 @@ func TestMCPAttentionWarningsOnSessionAndRecall(t *testing.T) {
 		t.Fatalf("session warning omitted conflict hint: %q", sessionWarning)
 	}
 
+	started = time.Now()
 	recall := callTool(t, svc, "dossier_recall", `{"id":"test-dossier"}`)
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("dossier_recall performed a remote status fetch: %s", elapsed)
+	}
 	if !recall.OK || len(recall.Warnings) == 0 {
 		t.Fatalf("recall response warnings = %+v, result = %+v", recall.Warnings, recall)
 	}

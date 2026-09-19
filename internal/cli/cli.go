@@ -1478,10 +1478,8 @@ func NewRootCmd() *cobra.Command {
 				_, _ = svc.Sync(syncCtx)
 				cancel()
 
-				if healthRes, herr := svc.Health(ctx); herr == nil {
-					if report, ok := healthRes.Data.(core.HealthReport); ok {
-						fmt.Fprintf(cmd.ErrOrStderr(), "Health: %s\n", report.Summary.Line(time.Now()))
-					}
+				if summary, herr := svc.LocalHealthSummary(ctx); herr == nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "Health: %s\n", summary.Line(time.Now()))
 				}
 			}
 

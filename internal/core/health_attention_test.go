@@ -12,15 +12,27 @@ import (
 )
 
 type FakeSyncer struct {
-	fakeStatus core.SyncStatus
-	fakeReport core.SyncReport
-	syncErr    error
+	fakeStatus   core.SyncStatus
+	fakeReport   core.SyncReport
+	syncErr      error
+	statusCalled chan struct{}
 }
 
 func (s *FakeSyncer) Sync(ctx context.Context) (core.SyncReport, error) {
 	return s.fakeReport, s.syncErr
 }
 func (s *FakeSyncer) Status(ctx context.Context) (core.SyncStatus, error) {
+	if s.statusCalled != nil {
+		select {
+		case s.statusCalled <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		return s.fakeStatus, ctx.Err()
+	}
+	return s.fakeStatus, nil
+}
+func (s *FakeSyncer) LocalStatus(ctx context.Context) (core.SyncStatus, error) {
 	return s.fakeStatus, nil
 }
 func (s *FakeSyncer) CheckRemoteEmpty(ctx context.Context, url string) error      { return nil }
@@ -107,6 +119,29 @@ func TestSyncAttention(t *testing.T) {
 	line, ids, ok = svc.SyncAttention(ctx, "dos_2")
 	if !ok || len(ids) == 0 || ids[0] != "c1" {
 		t.Fatalf("expected attention for bound dossier with conflicts")
+	}
+}
+
+func TestSessionStartDoesNotFetchRemoteForAttention(t *testing.T) {
+	st := store.NewFakeStore()
+	st.Dossiers["dos_1"] = &core.Dossier{Frontmatter: core.Frontmatter{ID: "dos_1", Name: "Test", Slug: "test", Status: core.StatusExecute, Priority: core.PriorityMedium}}
+	st.Revisions["dos_1"] = "rev_1"
+	st.Sessions["sess_1"] = &core.SessionBinding{SessionBindingID: "sess_1", DossierID: "dos_1", LastSeenRevision: "rev_1"}
+
+	statusCalled := make(chan struct{}, 1)
+	syncer := &FakeSyncer{fakeStatus: core.SyncStatus{LastSuccessPull: time.Now()}, statusCalled: statusCalled}
+	svc := core.NewService(st, nil, attentionTokenizer{}, nil, &attentionClock{now: time.Now()}, core.Config{}, syncer)
+	started := time.Now()
+	if _, err := svc.SessionStart(context.Background(), "sess_1"); err != nil {
+		t.Fatalf("SessionStart() error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("SessionStart performed a remote status fetch: %s", elapsed)
+	}
+	select {
+	case <-statusCalled:
+		t.Fatal("SessionStart called network-fetching Status")
+	default:
 	}
 }
 

@@ -238,11 +238,17 @@ func (g *GitSync) syncWithCtx(ctx context.Context) (SyncReport, error) {
 	}
 
 	// --- ahead/behind snapshot (after merge, before push) ---
-	report.Ahead, report.Behind = g.divergence(repo)
+	// A failed pull already consumed the bounded network budget. Use the last
+	// remote-tracking ref and do not fetch again (or attempt a push) offline.
+	if ferr != nil {
+		report.Ahead, report.Behind = g.localDivergence(repo)
+	} else {
+		report.Ahead, report.Behind = g.divergence(ctx, repo)
+	}
 
 	// --- PUSH ---
 	pushSuccess := false
-	if g.cfg.RemoteURL != "" {
+	if ferr == nil && g.cfg.RemoteURL != "" {
 		succ, pushed, perr := g.doPush(ctx, repo, g.cfg.Branch)
 		if perr != nil {
 			report.Error = appendErr(report.Error, perr.Error())

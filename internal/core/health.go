@@ -29,6 +29,21 @@ type HealthReport struct {
 	Doctor  DoctorReport  `json:"doctor"`
 }
 
+// HealthSummaryFromSyncStatus projects local sync state without performing I/O.
+func HealthSummaryFromSyncStatus(status SyncStatus, conflicts int) HealthSummary {
+	h := HealthSummary{
+		TeamSyncConfigured: true,
+		LastSuccess:        latestTime(status.LastSuccessPull, status.LastSuccessPush),
+		LastAttemptFailed:  status.LastError != "",
+		LastAttempt:        status.LastAttempt,
+		LastError:          status.LastError,
+		AuthState:          status.AuthState,
+		LocalChanges:       status.Dirty + status.Ahead,
+		Conflicts:          conflicts,
+	}
+	return h
+}
+
 // HealthSummaryFromDoctor projects the Doctor result without performing I/O.
 // Doctor also records each unresolved conflict as an issue, so that duplicate
 // signal is excluded from the general issue count.
@@ -136,6 +151,29 @@ func plural(n int, one, many string) string {
 	return many
 }
 
+// LocalHealthSummary returns sync health from persisted state and local refs
+// without contacting the remote.
+func (s *Service) LocalHealthSummary(ctx context.Context) (HealthSummary, error) {
+	summary, _, err := s.localHealth(ctx)
+	return summary, err
+}
+
+func (s *Service) localHealth(ctx context.Context) (HealthSummary, []Conflict, error) {
+	statuser, ok := s.syncer.(LocalSyncStatuser)
+	if !ok {
+		return HealthSummary{}, nil, fmt.Errorf("local sync status is unavailable")
+	}
+	status, err := statuser.LocalStatus(ctx)
+	if err != nil {
+		return HealthSummary{}, nil, err
+	}
+	conflicts, err := s.ListConflicts(ctx)
+	if err != nil {
+		return HealthSummary{}, nil, err
+	}
+	return HealthSummaryFromSyncStatus(status, len(conflicts)), conflicts, nil
+}
+
 // SyncAttention checks health and lists conflicts, returning a warning line and
 // the bound Dossier's conflict IDs if attention is needed. It returns ok=false
 // if no attention is needed (healthy state) or if team sync is unconfigured.
@@ -144,16 +182,7 @@ func (s *Service) SyncAttention(ctx context.Context, dossierID string) (string, 
 }
 
 func (s *Service) syncAttention(ctx context.Context, dossierID string, syncResult *Result, syncErr error) (string, []string, bool) {
-	healthRes, err := s.Health(ctx)
-	if err != nil {
-		return "", nil, false
-	}
-	report, ok := healthRes.Data.(HealthReport)
-	if !ok || !report.Summary.TeamSyncConfigured {
-		return "", nil, false
-	}
-
-	conflicts, err := s.ListConflicts(ctx)
+	summary, conflicts, err := s.localHealth(ctx)
 	if err != nil {
 		return "", nil, false
 	}
@@ -165,7 +194,6 @@ func (s *Service) syncAttention(ctx context.Context, dossierID string, syncResul
 		}
 	}
 
-	summary := report.Summary
 	syncHadConflicts := false
 	if syncErr != nil {
 		summary.LastAttemptFailed = true

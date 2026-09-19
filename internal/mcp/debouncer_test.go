@@ -224,8 +224,12 @@ func TestMCPServer_BackgroundWarningRearms(t *testing.T) {
 		t.Fatalf("warning after success = %q", got)
 	}
 
-	server.setBgWarning(nil, core.Result{OK: true, Data: core.SyncReport{Conflicts: []core.SyncConflict{{Path: "dossier.md"}}}})
-	if got := server.takeBgWarning(); !strings.Contains(got, "conflict") {
+	server.setBgWarning(nil, core.Result{
+		OK:       true,
+		Data:     core.SyncReport{Conflicts: []core.SyncConflict{{Path: "dossier.md"}}},
+		Warnings: []core.Warning{"sync conflict: conf_1 on Pricing review; both versions are kept; resolve it with dossier_conflicts"},
+	})
+	if got := server.takeBgWarning(); got != "Background team sync found 1 conflict: conf_1 on Pricing review. Both versions are kept; resolve it with dossier_conflicts." {
 		t.Fatalf("conflict warning = %q", got)
 	}
 }

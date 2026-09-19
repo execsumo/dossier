@@ -118,12 +118,13 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 	for i, conf := range report.Conflicts {
 		slugParts := strings.Split(filepath.ToSlash(conf.Path), "/")
 		slug := slugParts[0] // always the dossier slug
-		var targetID string
+		var targetID, targetName string
 		fms, listErr := s.store.List("all")
 		if listErr == nil {
 			for _, fm := range fms {
 				if fm.Slug == slug {
 					targetID = fm.ID
+					targetName = fm.Name
 					break
 				}
 			}
@@ -131,6 +132,9 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 		if targetID == "" {
 			// If we couldn't resolve the dossier ID by slug, just use the slug as ID fallback.
 			targetID = slug
+		}
+		if targetName == "" {
+			targetName = slug
 		}
 
 		confID := fmt.Sprintf("conf_%s_%s_%d", s.clock.Now().Format("20060102150405"), slug, i)
@@ -159,7 +163,7 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 				AfterRevision:  conf.RemoteRevision,
 				Message:        fmt.Sprintf("Conflict %s created due to sync concurrent edit on %s", confID, conf.Path),
 			})
-			warnings = append(warnings, Warning(fmt.Sprintf("wrote conflicts/%s.md — remote won the working tree, your version preserved", confID)))
+			warnings = append(warnings, Warning(fmt.Sprintf("sync conflict: %s on %s; both versions are kept; resolve it with dossier_conflicts", confID, targetName)))
 		} else {
 			warnings = append(warnings, Warning(fmt.Sprintf("failed to write conflict for %s: %v", conf.Path, writeErr)))
 		}
