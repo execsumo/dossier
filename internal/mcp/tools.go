@@ -58,7 +58,7 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 	return []ToolDefinition{
 		{
 			Name:        "dossier_list",
-			Description: "List open dossiers sorted by priority (max, high, medium, low)",
+			Description: "List open dossiers sorted by priority (max, high, medium, low). When the user says me, mine, or assigned to me, use lead: me; if several match, ask which one.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -66,10 +66,14 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 						"type":        "string",
 						"description": "Filter by status (spark|define|execute|review|blocked|done|all)",
 					},
+					"lead": map[string]any{
+						"type":        "string",
+						"description": "Filter by lead; use me for the current user (also accepts a username or display name)",
+					},
 					"interfaces": configuredStringListSchema(interfaces, "Filter by discussion interface; matches dossiers assigned to any supplied interface"),
 					"query": map[string]any{
 						"type":        "string",
-						"description": "Filter by name, description, lead, interface, or slug; whitespace-separated terms are ANDed",
+						"description": "Filter by name, description, lead, interface, or slug; username and display name both match; whitespace-separated terms are ANDed",
 					},
 				},
 			},
@@ -241,7 +245,7 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 		},
 		{
 			Name:        "dossier_session",
-			Description: "Get the active dossier bound to the current session, or switch/bind the session to a dossier (by slug or id) if the 'id' parameter is provided.",
+			Description: "Get the active dossier bound to the current session, or switch/bind the session to a dossier (by slug or id) if the 'id' parameter is provided. When the user says me, mine, or assigned to me, use dossier_list with lead: me; if several match, ask which one before binding.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -349,11 +353,19 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 	case "dossier_list":
 		var params struct {
 			Status     string   `json:"status"`
+			Lead       string   `json:"lead"`
 			Interfaces []string `json:"interfaces"`
 			Query      string   `json:"query"`
 		}
 		_ = json.Unmarshal(args, &params)
-		res, err = s.svc.List(ctx, core.ListReq{Status: params.Status, Interfaces: params.Interfaces, Query: params.Query})
+		res, err = s.svc.List(ctx, core.ListReq{Status: params.Status, Lead: params.Lead, Interfaces: params.Interfaces, Query: params.Query})
+		if err == nil {
+			username, displayName := s.svc.CurrentUser()
+			res.Data = map[string]any{
+				"items":        res.Data,
+				"current_user": map[string]string{"username": username, "display_name": displayName},
+			}
+		}
 
 	case "dossier_recall":
 		var params struct {
@@ -554,13 +566,20 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 
 				if boundDossierID != "" {
 					s.addSyncAttentionWarning(ctx, &res, boundDossierID)
+					if _, isBinding := res.Data.(*core.SessionBinding); isBinding {
+						if recalled, recallErr := s.svc.Recall(ctx, core.RecallReq{ID: boundDossierID}); recallErr == nil {
+							res.Data = recalled.Data
+						}
+					}
 				}
 
+				username, displayName := s.svc.CurrentUser()
 				type SessionResponse struct {
-					State                 interface{} `json:"state"`
-					Guide                 string      `json:"distillation_guide,omitempty"`
-					GuideRef              string      `json:"distillation_guide_ref,omitempty"`
-					OperatingInstructions string      `json:"operating_instructions,omitempty"`
+					State                 interface{}       `json:"state"`
+					CurrentUser           map[string]string `json:"current_user"`
+					Guide                 string            `json:"distillation_guide,omitempty"`
+					GuideRef              string            `json:"distillation_guide_ref,omitempty"`
+					OperatingInstructions string            `json:"operating_instructions,omitempty"`
 				}
 				// The Guide is sent once per session (see Service.GuideForSession).
 				// When it is suppressed, say where it went: an absent field would
@@ -580,6 +599,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 				}
 				resp := SessionResponse{
 					State:                 res.Data,
+					CurrentUser:           map[string]string{"username": username, "display_name": displayName},
 					Guide:                 guide,
 					OperatingInstructions: s.svc.GetInstructions(),
 				}

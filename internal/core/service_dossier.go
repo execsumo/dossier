@@ -798,9 +798,13 @@ func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
 	externalLinks := ParseExternalLinks(d.DistilledState.Body)
 
 	dossierPath := filepath.Join(s.cfg.DossierHome, d.Frontmatter.Slug)
+	roster, hasRoster := s.currentRoster()
+	leadView := s.displayLead(roster, hasRoster, d.Frontmatter.Lead)
+	frontmatter := d.Frontmatter
+	frontmatter.Lead = leadView.DisplayName
 	return Result{
 		OK:       true,
-		Data:     RecallResult{DistilledState: d.DistilledState.Body, Frontmatter: d.Frontmatter, Revision: rev, TokenEstimate: tokens, Path: dossierPath, Artifacts: index, References: externalLinks.References, ActiveMonitors: externalLinks.ActiveMonitors},
+		Data:     RecallResult{DistilledState: d.DistilledState.Body, Frontmatter: frontmatter, LeadFormer: leadView.Former, Revision: rev, TokenEstimate: tokens, Path: dossierPath, Artifacts: index, References: externalLinks.References, ActiveMonitors: externalLinks.ActiveMonitors},
 		Warnings: warnings,
 	}, nil
 }
@@ -1030,6 +1034,7 @@ type ListReq struct {
 	Status     string
 	Interfaces []string
 	Query      string
+	Lead       string // "me" filters to the configured current user
 }
 
 func matchesInterfaces(have, want []string) bool {
@@ -1099,20 +1104,27 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 	var filtered []ListedFrontmatter
 	roster, hasRoster := s.currentRoster()
 	query := NewQuery(req.Query)
+	leadFilter := strings.TrimSpace(req.Lead)
+	if leadFilter != "" && !strings.EqualFold(leadFilter, "me") {
+		return Result{OK: false}, NewError(ErrInvalidFrontmatter, `lead filter only supports "me"`)
+	}
+	currentUsername, _ := s.CurrentUser()
 	for _, fm := range fms {
 		if !matchesInterfaces(fm.Interfaces, req.Interfaces) {
 			continue
 		}
-		leadDisplay := fm.Lead
-		if hasRoster {
-			leadDisplay = roster.DisplayName(fm.Lead)
+		if strings.EqualFold(leadFilter, "me") && NormalizeUsername(fm.Lead) != currentUsername {
+			continue
 		}
+		leadView := s.displayLead(roster, hasRoster, fm.Lead)
+		leadDisplay := leadView.DisplayName
 		if !query.IsEmpty() && !query.Matches(Haystack(ListItem{
-			Name:        fm.Name,
-			Slug:        fm.Slug,
-			Description: fm.Description,
-			Lead:        leadDisplay + " " + fm.Lead,
-			Interfaces:  fm.Interfaces,
+			Name:         fm.Name,
+			Slug:         fm.Slug,
+			Description:  fm.Description,
+			Lead:         leadDisplay,
+			LeadUsername: NormalizeUsername(fm.Lead),
+			Interfaces:   fm.Interfaces,
 		})) {
 			continue
 		}
@@ -1131,17 +1143,16 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 	for _, listed := range filtered {
 		fm := listed.Frontmatter
 		dossierPath := filepath.Join(s.cfg.DossierHome, fm.Slug)
-		leadDisplay := fm.Lead
-		if hasRoster {
-			leadDisplay = roster.DisplayName(fm.Lead)
-		}
+		leadView := s.displayLead(roster, hasRoster, fm.Lead)
 		items = append(items, ListItem{
 			ID:                        fm.ID,
 			Name:                      fm.Name,
 			Slug:                      fm.Slug,
 			Status:                    string(fm.Status),
 			Description:               fm.Description,
-			Lead:                      leadDisplay,
+			Lead:                      leadView.DisplayName,
+			LeadUsername:              leadView.Username,
+			LeadFormer:                leadView.Former,
 			Interfaces:                append([]string(nil), fm.Interfaces...),
 			NextAction:                fm.NextAction,
 			Priority:                  string(fm.Priority),
@@ -1175,6 +1186,22 @@ func (s *Service) Search(ctx context.Context, req SearchReq) (Result, error) {
 	hits, err := s.search.Search(ctx, req.Query, req.Scope)
 	if err != nil {
 		return Result{}, WrapError(ErrInternal, "search failed", err)
+	}
+	roster, hasRoster := s.currentRoster()
+	frontmatters, listErr := s.store.List("all")
+	if listErr != nil {
+		return Result{}, WrapError(ErrInternal, "failed to map search leads", listErr)
+	}
+	leadsByID := make(map[string]string, len(frontmatters))
+	for _, fm := range frontmatters {
+		leadsByID[fm.ID] = fm.Lead
+	}
+	for i := range hits {
+		if lead := leadsByID[hits[i].DossierID]; lead != "" {
+			view := s.displayLead(roster, hasRoster, lead)
+			hits[i].Lead = view.DisplayName
+			hits[i].LeadFormer = view.Former
+		}
 	}
 
 	return Result{

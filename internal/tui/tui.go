@@ -2471,6 +2471,9 @@ func itemTableRow(item core.ListItem, showPriority, showDue bool) table.Row {
 	}
 
 	leadStr := formatLeadLabel(item.Lead)
+	if item.LeadFormer {
+		leadStr += " (former)"
+	}
 
 	priorityStr := item.Priority
 
@@ -2948,6 +2951,8 @@ func (m Model) renderDetailMetadata() string {
 	leadLabel := fm.Lead
 	if leadLabel == "" {
 		leadLabel = "Unassigned"
+	} else if m.recallResult.LeadFormer {
+		leadLabel += " (former)"
 	}
 
 	sb.WriteString(renderRow("Dossier:", fm.Name))
