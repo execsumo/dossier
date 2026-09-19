@@ -63,6 +63,8 @@ const (
 	// person-specific terms for every `## Delegation Contracts` block in the
 	// Distilled State (guide.md §4), derived from core.ParseDelegationContracts.
 	ViewContracts
+	// ViewHealth is the scrollable full Doctor report opened by H.
+	ViewHealth
 )
 
 // leadFilterKind enumerates the three ways the dashboard can be scoped by lead.
@@ -307,6 +309,15 @@ type watcherEvent struct {
 	err error
 }
 
+type healthMsg struct {
+	summary  core.HealthSummary
+	report   core.DoctorReport
+	warnings []core.Warning
+	err      error
+}
+
+type healthTickMsg struct{}
+
 func (m *Model) applyResultStatus(warnings []core.Warning, nextActions []core.NextAction) {
 	if len(warnings) == 0 && len(nextActions) == 0 {
 		return
@@ -387,16 +398,21 @@ type Model struct {
 	artifactViewport  viewport.Model
 	conflictViewport  viewport.Model
 	contractsViewport viewport.Model
+	healthViewport    viewport.Model
 	width             int
 	height            int
 
 	// Error / Warning tracking. These are the last complete Result envelope
 	// received by the TUI; adapters must not discard non-fatal guidance.
-	err         error
-	warnings    []core.Warning
-	nextActions []core.NextAction
-	watcherErr  error
-	requestSeq  *uint64
+	err             error
+	warnings        []core.Warning
+	nextActions     []core.NextAction
+	watcherErr      error
+	healthSummary   core.HealthSummary
+	healthReady     bool
+	healthLastCheck time.Time
+	healthReport    core.DoctorReport
+	requestSeq      *uint64
 
 	// View state helpers
 	loading        bool
@@ -527,6 +543,7 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 	avp := viewport.New(0, 0)
 	cvp := viewport.New(0, 0)
 	dvp := viewport.New(0, 0)
+	hvp := viewport.New(0, 0)
 
 	searchInput := textinput.New()
 	searchInput.Prompt = ""
@@ -588,6 +605,7 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		artifactViewport:     avp,
 		conflictViewport:     cvp,
 		contractsViewport:    dvp,
+		healthViewport:       hvp,
 		loading:              true,
 		searchInput:          searchInput,
 		help:                 helpView,
@@ -705,7 +723,7 @@ func (m *Model) ensureWatch(path string) {
 
 // Init initializes the tea program, triggering initial loads.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.listDossiersCmd(), waitForUpdate(m.updateChan))
+	return tea.Batch(m.listDossiersCmd(), m.healthCmd(), healthTick(), waitForUpdate(m.updateChan))
 }
 
 func (m Model) nextRequestID() uint64 {
@@ -1700,6 +1718,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.contractsViewport, cmd = m.contractsViewport.Update(msg)
 			return m, cmd
 
+		case ViewHealth:
+			if msg.String() == "esc" {
+				m.popOverlay()
+				return m, nil
+			}
+			m.healthViewport, cmd = m.healthViewport.Update(msg)
+			return m, cmd
+
 		case ViewEdit:
 			return m.updateEditor(msg)
 		case ViewRenameSlug:
@@ -1710,6 +1736,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "H":
+			if m.isListView() || m.currentView == ViewDetail {
+				m.openHealth()
+				return m, nil
+			}
 		case "ctrl+r":
 			m.loading = true
 			m.err = nil
@@ -1866,6 +1897,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.recalculateArtifactViewportLayout()
 		m.recalculateConflictViewportLayout()
 		m.recalculateContractsViewportLayout()
+		m.recalculateHealthViewportLayout()
 
 		// Re-render cached content even when its view is hidden. A resize in the
 		// artifact browser must not leave the detail view wrapped to the old width
@@ -2178,8 +2210,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.watcherErr = msg.err
 
+	case healthMsg:
+		m.healthLastCheck = time.Now()
+		if msg.err != nil {
+			m.warnings = append(m.warnings, core.Warning("health check: "+msg.err.Error()))
+			break
+		}
+		m.healthReady = true
+		m.healthSummary = msg.summary
+		m.healthReport = msg.report
+		m.healthViewport.SetContent(renderDoctorReport(m.healthSummary, m.healthReport))
+		m.recalculateHealthViewportLayout()
+		m.applyResultStatus(msg.warnings, nil)
+
+	case healthTickMsg:
+		m.healthLastCheck = time.Now()
+		cmds = append(cmds, m.healthCmd(), healthTick())
+
 	case dossierUpdatedMsg:
 		cmds = append(cmds, waitForUpdate(m.updateChan))
+		if time.Since(m.healthLastCheck) >= time.Minute {
+			m.healthLastCheck = time.Now()
+			cmds = append(cmds, m.healthCmd())
+		}
 		if m.recallResult.Frontmatter.ID != "" &&
 			(m.currentView == ViewDetail || (m.hasOverlay() && m.overlayBase == ViewDetail)) {
 			m.loading = true
@@ -2195,6 +2248,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	} else if m.currentView == ViewDetail {
 		m.viewport, cmd = m.viewport.Update(msg)
+		cmds = append(cmds, cmd)
+	} else if m.currentView == ViewHealth {
+		m.healthViewport, cmd = m.healthViewport.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -2466,6 +2522,16 @@ func (m *Model) recalculateContractsViewportLayout() {
 	if m.contractsViewport.Height < 3 {
 		m.contractsViewport.Height = 3
 	}
+}
+
+// recalculateHealthViewportLayout fits the Doctor report inside its overlay.
+func (m *Model) recalculateHealthViewportLayout() {
+	m.healthViewport.Width = m.width - 6
+	m.healthViewport.Height = m.height - 17
+	if m.healthViewport.Height < 3 {
+		m.healthViewport.Height = 3
+	}
+	m.healthViewport.SetYOffset(m.healthViewport.YOffset)
 }
 
 // openContracts re-parses the currently recalled dossier's Distilled State for
@@ -2826,18 +2892,19 @@ func (m Model) statusLines() []string {
 
 func (m Model) footerContent(v View) string {
 	var footerParts []string
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	contentWidth := width
+	if contentWidth > 2 {
+		contentWidth -= 2
+	}
+	footerParts = append(footerParts, truncateHealthLine(m.healthFooterLine(), contentWidth))
 	if warnings := m.footerWarnings(); warnings != "" {
 		footerParts = append(footerParts, warnings)
 	}
 
-	w := m.width
-	if w <= 0 {
-		w = 80
-	}
-	contentWidth := w
-	if contentWidth > 2 {
-		contentWidth -= 2
-	}
 	m.help.Width = contentWidth
 	if m.searchActive && m.isListView() {
 		footerParts = append(footerParts, m.help.View(m.searchHelpKeyMap()))

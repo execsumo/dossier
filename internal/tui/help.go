@@ -53,7 +53,7 @@ func modalHelpBindings(v View) []bubbleskey.Binding {
 		return withBack(tuiHelpKey("enter", "view artifact"))
 	case ViewLinks:
 		return withBack(tuiHelpKey("enter", "open link"))
-	case ViewContracts:
+	case ViewContracts, ViewHealth:
 		return withBack(tuiHelpKey("↑/↓", "scroll"))
 	}
 	return nil
@@ -71,6 +71,7 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 	common := []bubbleskey.Binding{
 		tuiHelpKey("q", "quit"),
 		tuiHelpKey("ctrl+r", "refresh"),
+		tuiHelpKey("H", "health report"),
 		tuiHelpKey("?", "more help"),
 	}
 

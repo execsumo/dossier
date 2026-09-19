@@ -263,6 +263,7 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			if report, ok := res.Data.(core.DoctorReport); ok {
+				fmt.Printf("Health: %s\n", core.HealthSummaryFromDoctor(report).Line(time.Now()))
 				fmt.Printf("\nChecked: %d dossiers, %d artifacts, %d audit logs\n", report.DossiersChecked, report.ArtifactsChecked, report.AuditLogsChecked)
 				if report.SyncConfigured {
 					fmt.Println("\nTeam Sync Status:")
@@ -1500,7 +1501,7 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			if syncStatusFlag {
-				res, err := svc.SyncStatus(context.Background())
+				res, err := svc.Health(context.Background())
 				if err != nil {
 					if jsonFlag {
 						printJSON(map[string]any{"ok": false, "error": err.Error()})
@@ -1509,22 +1510,25 @@ func NewRootCmd() *cobra.Command {
 					fmt.Printf("Status failed: %v\n", err)
 					os.Exit(1)
 				}
+				health := res.Data.(core.HealthReport)
 				if jsonFlag {
-					printJSON(res.Data)
+					printJSON(health)
 					return
 				}
-				st := res.Data.(core.SyncStatus)
-				fmt.Printf("Last attempt:    %s\n", formatTime(st.LastAttempt))
-				fmt.Printf("Last pull:       %s\n", formatTime(st.LastSuccessPull))
-				fmt.Printf("Last push:       %s\n", formatTime(st.LastSuccessPush))
-				if st.LastError != "" {
-					fmt.Printf("Last error:      %s\n", st.LastError)
+				fmt.Printf("Health: %s\n", health.Summary.Line(time.Now()))
+				if st := health.Doctor.SyncStatus; st != nil {
+					fmt.Printf("Last attempt:    %s\n", formatTime(st.LastAttempt))
+					fmt.Printf("Last pull:       %s\n", formatTime(st.LastSuccessPull))
+					fmt.Printf("Last push:       %s\n", formatTime(st.LastSuccessPush))
+					if st.LastError != "" {
+						fmt.Printf("Last error:      %s\n", st.LastError)
+					}
+					fmt.Printf("Auth state:      %s\n", st.AuthState)
+					fmt.Printf("Ahead:           %d\n", st.Ahead)
+					fmt.Printf("Behind:          %d\n", st.Behind)
+					fmt.Printf("Dirty:           %d\n", st.Dirty)
+					fmt.Printf("Conflicts:       %d\n", st.ConflictsFound)
 				}
-				fmt.Printf("Auth state:      %s\n", st.AuthState)
-				fmt.Printf("Ahead:           %d\n", st.Ahead)
-				fmt.Printf("Behind:          %d\n", st.Behind)
-				fmt.Printf("Dirty:           %d\n", st.Dirty)
-				fmt.Printf("Conflicts:       %d\n", st.UnresolvedConflicts)
 				return
 			}
 

@@ -52,7 +52,7 @@ type externalLinkRow struct {
 
 func isOverlayView(v View) bool {
 	switch v {
-	case ViewLeadSelector, ViewEdit, ViewLinkInput, ViewLinkSelector, ViewMergeSelector, ViewMergeConflictResolver, ViewRenameSlug, ViewArtifactIndex, ViewArtifactContent, ViewLinks, ViewContracts:
+	case ViewLeadSelector, ViewEdit, ViewLinkInput, ViewLinkSelector, ViewMergeSelector, ViewMergeConflictResolver, ViewRenameSlug, ViewArtifactIndex, ViewArtifactContent, ViewLinks, ViewContracts, ViewHealth:
 		return true
 	default:
 		return false
@@ -220,7 +220,7 @@ func compactModalFooter(v View) string {
 		text = "enter view artifact"
 	case ViewLinks:
 		text = "enter open link"
-	case ViewContracts:
+	case ViewContracts, ViewHealth:
 		text = "↑/↓ scroll"
 	default:
 		return ""
@@ -266,6 +266,8 @@ func modalTitle(v View) string {
 		return "View Artifact"
 	case ViewContracts:
 		return "Delegation Contracts"
+	case ViewHealth:
+		return "Doctor Report"
 	default:
 		return "Details"
 	}
@@ -315,6 +317,8 @@ func (m Model) renderOverlayContent(v View) string {
 		return m.renderExternalLinks()
 	case ViewContracts:
 		return m.contractsViewport.View()
+	case ViewHealth:
+		return m.healthViewport.View()
 	case ViewArtifactIndex:
 		return m.renderArtifactIndexBody()
 	case ViewArtifactContent:
