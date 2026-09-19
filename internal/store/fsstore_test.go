@@ -12,6 +12,80 @@ import (
 	"time"
 )
 
+func TestConflictRoundTripPreservesProposalBody(t *testing.T) {
+	home := t.TempDir()
+	store := NewFSStore(home)
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	conflict := &core.Conflict{
+		ID: "conf_roundtrip", DossierID: "dos_roundtrip", Kind: "sync_concurrent_edit",
+		TS:           time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+		RejectedBody: "manager edit 1\ncolleague edit 2\n", DiffAgainstCurrent: "- shared\n+ mine\n",
+	}
+	dossierDir := filepath.Join(home, "roundtrip")
+	if err := os.MkdirAll(dossierDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dossierDir, "dossier.md"), []byte("---\nid: dos_roundtrip\nslug: roundtrip\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteConflict(conflict); err != nil {
+		t.Fatalf("WriteConflict() error = %v", err)
+	}
+	got, err := store.ReadConflict(conflict.ID)
+	if err != nil {
+		t.Fatalf("ReadConflict() error = %v", err)
+	}
+	if got.RejectedBody != conflict.RejectedBody {
+		t.Fatalf("RejectedBody = %q, want %q", got.RejectedBody, conflict.RejectedBody)
+	}
+	if got.DiffAgainstCurrent != conflict.DiffAgainstCurrent {
+		t.Fatalf("DiffAgainstCurrent = %q, want %q", got.DiffAgainstCurrent, conflict.DiffAgainstCurrent)
+	}
+}
+
+func TestFSStoreResolveUsesProposalBody(t *testing.T) {
+	for _, choice := range []string{core.ConflictChoiceRestoreMine, core.ConflictChoiceKeepBoth} {
+		t.Run(choice, func(t *testing.T) {
+			home := t.TempDir()
+			store := NewFSStore(home)
+			if err := store.Init(); err != nil {
+				t.Fatalf("Init() error = %v", err)
+			}
+			fm := core.Frontmatter{ID: "dos_resolve", Name: "Resolve", Slug: "resolve", Status: core.StatusSpark, Priority: core.PriorityMedium}
+			file, err := FormatDossierFile(fm, "shared\n")
+			if err != nil {
+				t.Fatal(err)
+			}
+			dossierDir := filepath.Join(home, "resolve")
+			if err := os.MkdirAll(dossierDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dossierDir, "dossier.md"), []byte(file), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.WriteConflict(&core.Conflict{ID: "conf_resolve", DossierID: fm.ID, Kind: "sync_concurrent_edit", RejectedBody: "mine", DiffAgainstCurrent: "diff"}); err != nil {
+				t.Fatal(err)
+			}
+			svc := core.NewService(store, dummySearcher{}, dummyTok{}, dummyHreg{}, dummyClock{now: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}, core.Config{DossierHome: home, Author: "tester"}, nil)
+			if _, err := svc.ResolveConflict(context.Background(), core.ResolveConflictReq{ConflictID: "conf_resolve", Choice: choice}); err != nil {
+				t.Fatalf("ResolveConflict() error = %v", err)
+			}
+			got, _, err := store.Read(fm.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if choice == core.ConflictChoiceRestoreMine && got.DistilledState.Body != "mine\n" {
+				t.Fatalf("restored body = %q, want %q", got.DistilledState.Body, "mine\\n")
+			}
+			if choice == core.ConflictChoiceKeepBoth && strings.Count(got.DistilledState.Body, "## Rejected proposal") != 0 {
+				t.Fatalf("keep_both retained conflict file heading: %q", got.DistilledState.Body)
+			}
+		})
+	}
+}
+
 func TestFSStoreInit(t *testing.T) {
 	tempHome, err := os.MkdirTemp("", "dossier-test-home-*")
 	if err != nil {

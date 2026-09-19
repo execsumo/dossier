@@ -33,7 +33,7 @@ func TestConflictsOverlayResolvesThroughService(t *testing.T) {
 	if _, ok := store.resolvedConflicts["conf_tui"]; !ok {
 		t.Fatal("TUI resolution did not archive the conflict")
 	}
-	if got := store.dossiers["dos_conflict"].DistilledState.Body; got != "mine" {
-		t.Fatalf("body = %q, want mine", got)
+	if got := store.dossiers["dos_conflict"].DistilledState.Body; got != "mine\n" {
+		t.Fatalf("body = %q, want mine newline", got)
 	}
 }

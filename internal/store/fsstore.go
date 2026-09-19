@@ -1433,14 +1433,15 @@ func parseConflictFile(content string) (*core.Conflict, error) {
 		return nil, err
 	}
 
-	subparts := strings.Split(body, "## Diff against current")
-	if len(subparts) > 1 {
-		c.DiffAgainstCurrent = strings.TrimSpace(subparts[1])
-		proposalPart := subparts[0]
-		proposalPart = strings.TrimPrefix(proposalPart, "## Rejected proposal\n")
-		c.RejectedBody = strings.TrimSpace(proposalPart)
+	body = strings.TrimPrefix(body, "\n")
+	const proposalHeading = "## Rejected proposal\n"
+	body = strings.TrimPrefix(body, proposalHeading)
+	const diffHeading = "\n\n## Diff against current"
+	if diffIdx := strings.Index(body, diffHeading); diffIdx >= 0 {
+		c.RejectedBody = body[:diffIdx]
+		c.DiffAgainstCurrent = strings.TrimPrefix(body[diffIdx+len(diffHeading):], "\n")
 	} else {
-		c.RejectedBody = strings.TrimSpace(body)
+		c.RejectedBody = body
 	}
 
 	return &c, nil

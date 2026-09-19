@@ -13,7 +13,7 @@ func TestResolveConflictChoices(t *testing.T) {
 		want string
 	}{
 		{ConflictChoiceKeepShared, "shared"},
-		{ConflictChoiceRestoreMine, "mine"},
+		{ConflictChoiceRestoreMine, "mine\n"},
 		{ConflictChoiceKeepBoth, "shared\n\n## Unresolved disagreement (conflict conf_test)\n\nThe version below was preserved from a concurrent edit on 2026-01-02 03:04:05; reconcile and remove this section.\n\nmine\n"},
 	}
 	for _, tc := range choices {

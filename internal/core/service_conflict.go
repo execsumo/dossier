@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -52,10 +53,14 @@ func (s *Service) ResolveConflict(ctx context.Context, req ResolveConflictReq) (
 	case ConflictChoiceKeepShared:
 		result = Result{OK: true, Data: currentRevision}
 	case ConflictChoiceRestoreMine:
+		restoredBody := conflict.RejectedBody
+		if !strings.HasSuffix(restoredBody, "\n") {
+			restoredBody += "\n"
+		}
 		result, err = s.Save(ctx, SaveReq{
 			ID:                     dossier.Frontmatter.ID,
 			BaseRevision:           currentRevision,
-			DistilledStateMarkdown: conflict.RejectedBody,
+			DistilledStateMarkdown: restoredBody,
 		})
 	case ConflictChoiceKeepBoth:
 		body := fmt.Sprintf("%s\n\n## Unresolved disagreement (conflict %s)\n\nThe version below was preserved from a concurrent edit on %s; reconcile and remove this section.\n\n%s\n",

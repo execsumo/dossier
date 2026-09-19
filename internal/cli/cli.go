@@ -961,9 +961,10 @@ func NewRootCmd() *cobra.Command {
 
 	var conflictsJSON bool
 	conflictsCmd := &cobra.Command{
-		Use:   "conflicts",
-		Short: "List unresolved conflicts",
-		Args:  cobra.NoArgs,
+		Use:          "conflicts",
+		Short:        "List unresolved conflicts",
+		SilenceUsage: true,
+		Args:         cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := wire(resolveHomeDir())
 			if err != nil {
@@ -991,9 +992,10 @@ func NewRootCmd() *cobra.Command {
 
 	var keepShared, restoreMine, keepBoth, resolveJSON bool
 	resolveCmd := &cobra.Command{
-		Use:   "resolve <conflict-id>",
-		Short: "Resolve an unresolved conflict",
-		Args:  cobra.ExactArgs(1),
+		Use:          "resolve <conflict-id>",
+		Short:        "Resolve an unresolved conflict",
+		SilenceUsage: true,
+		Args:         cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			choices := 0
 			choice := ""
