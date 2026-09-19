@@ -272,7 +272,7 @@ No teammate should need to understand Git, merge bases, or conflict filenames.
 
 ### Phase 0 — Make the current product honest
 
-> Review: The review's P0 list (§6, P0-1…P0-8) replaces this phase. It adds items missing here: a `team create` empty-remote and existing-content guard, honest sync state, a conflict-resolution operation, typed auth failures, and excluding promote's raw JSONL from sync.
+> Review: The review's P0 list (§6, P0-1…P0-9) replaces this phase. P0-9, the automated TUI health footer, is in pilot scope by owner decision. It adds items missing here: a `team create` empty-remote and existing-content guard, honest sync state, a conflict-resolution operation, typed auth failures, and excluding promote's raw JSONL from sync.
 
 - Reconcile stale onboarding, runbook, PRD, and Team Sync claims with actual behavior.
 - Complete real private-GitHub testing, including first clone, fast-forward, auth failure, revocation, divergence, offline use, and upgrades.

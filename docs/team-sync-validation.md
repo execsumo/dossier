@@ -2,7 +2,7 @@
 
 > Created 2026-09-18 from [`team-adoption-plan-review.md`](team-adoption-plan-review.md).
 >
-> **When to use this:** after P0-1 to P0-7 (review §6) are implemented, before the
+> **When to use this:** after P0-1 to P0-7 and P0-9 (review §6) are implemented, before the
 > pilot starts. It is a procedure to run, not a list of open work. Every check
 > states what it verifies, how to run it, and what passing looks like. A failure
 > means the fix is not done; it does not mean this document needs changing.
@@ -36,6 +36,7 @@ at least one test per fix:
 | P0-5 | Resolving a conflict (keep shared / restore mine / keep both) archives the conflict file under `conflicts/resolved/` and clears the `doctor` issue. The same result through CLI, MCP and TUI. |
 | P0-6 | An https remote with no credentials produces an explicit warning. A 401/403 produces `sync_auth_failed` with a next step. |
 | P0-7 | Promote with JSONL content in a team store: the raw JSONL artifact is absent from the remote, and the compiled transcript is present. |
+| P0-9 | A core health-summary table test across the fixture states (never synced, synced, failed, conflicts, issues). A TUI test where the footer renders the summary and an unreachable remote doesn't block the first render. A golden test where the TUI footer text equals the CLI summary for the same store. |
 
 ## Part B — Sandbox setup
 
@@ -181,7 +182,21 @@ git --git-dir=remote.git ls-tree -r --name-only main transcript-check/artifacts
 **Pass:** no remote file contains `secret`, so the grep prints nothing and
 `raw-hits=1`. The compiled transcript artifact **is** present in the remote.
 
-### C8 — Regressions: behavior that already worked must still work
+### C8 — The TUI shows health without anyone running `doctor` (P0-9)
+
+Run the TUI against the colleague store in a second terminal (`col tui`), then
+repeat C3's offline step and C4's conflict step in the first terminal.
+
+**Pass:**
+- The TUI opens immediately, even while `remote.git` is moved away (offline).
+- Within about a minute, with no keypress, the footer changes: it shows "last
+  sync failed …" while offline, and "1 conflict" after C4.
+- The footer's numbers match `col sync --status` and `col doctor`.
+- The health key opens the full report as an overlay.
+- On a store with no team remote, the footer shows local issues only and no
+  sync wording.
+
+### C9 — Regressions: behavior that already worked must still work
 
 | Check | Pass |
 |---|---|
@@ -223,6 +238,8 @@ Afterwards, delete the test repo and revoke the token.
 Start the pilot only when all of these are true:
 
 - Parts A, C and D pass.
+- The manager has seen the TUI health footer report a real problem during Part
+  D (offline or revoked token), and clear again afterwards.
 - The runbook and onboarding status banners are updated: struck claims that
   are now true are restored, and anything still untrue stays struck.
 - **Pre-create check (manager's real store):** every Dossier directory in

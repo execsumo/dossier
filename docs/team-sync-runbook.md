@@ -128,7 +128,7 @@ Nothing is lost; there are **never merge markers** in the store.
 
 - `dossier sync --status` — read-only: unpushed commits, diverged remote, or stale credentials.
 - `dossier doctor` — store integrity, unresolved conflicts, provenance references, and harness/capability status.
-- TUI footer (later surfacing phase) — a glanceable status line, e.g. `synced 2m ago · 1 conflict`. **Not built** (no sync reference in `internal/tui/`).
+- TUI footer (later surfacing phase) — a glanceable status line, e.g. `synced 2m ago · 1 conflict`. **Not built** (no sync reference in `internal/tui/`). **In pilot scope as P0-9** (review §6). Once built, the footer replaces the daily `doctor` run, and a key opens the full report.
 
 *Sources: `SPEC.md` §7.2; `docs/team-sync-plan.md` Phase 3 §4 (Surfacing).*
 

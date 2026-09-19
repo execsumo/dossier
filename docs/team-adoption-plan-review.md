@@ -215,8 +215,9 @@ Nothing about Katana is needed to fix any of them. Confidence **high**.
 **B.7 What can stay concierge/manual?** Store creation (manager, scripted),
 credential setup (screen-shared, fine-grained PAT written by a helper script),
 assignment (message with `dossier open <slug>`), conflict resolution (manager),
-recovery of unsaved sessions (manager reads transcript), health checks (manager
-runs `doctor` daily). Confidence **high**.
+recovery of unsaved sessions (manager reads transcript). ~~Health checks
+(manager runs `doctor` daily).~~ Health is automated in the pilot via the TUI
+footer (P0-9). Confidence **high**.
 
 **B.8 Overbuilt / defer:** Contributions, recovery queue UX, restricted stores,
 audience projections, redaction policy engine, Katana adapter, stable-identity
@@ -429,6 +430,7 @@ harness verification.
 | P0-5 | A conflict resolution operation in `core.Service` (keep current / restore mine / both-as-disagreement), which archives the conflict file to `conflicts/resolved/` (non-destructive), exposed in CLI, MCP, TUI. | Table tests + one TUI test; SPEC §7/§8 amended. |
 | P0-6 | Auth failure explicit: `GetAuth` returns a typed "no credentials" warning instead of `nil, nil` when `team.remote` is https; 401/403 mapped to `sync_auth_failed` with a concrete next step. | Test with fake runner + fake remote returning 401. |
 | P0-7 | Promote's raw JSONL artifact excluded from sync (or not written to `artifacts/` in team stores), per B13. *Still required after decision #5:* that decision shares **compiled** transcripts, whereas this artifact is raw and carries `thinking`, which B13 excludes. | Test: promote with JSONL in a team store ⇒ raw artifact absent from remote. |
+| P0-9 | **Automated health in the TUI (pilot scope, owner 2026-09-18).** When the TUI starts, and on fsnotify refreshes (throttled, at most once a minute), it runs a health check **asynchronously with a timeout** and renders one footer line on the dashboard and detail views, e.g. `Team sync · synced 3m ago · 1 local change · 1 conflict · 2 issues`, or `Team sync · last sync failed 18m ago · work is safe locally`. A key (e.g. `H`) opens the full `doctor` report as an overlay. The summary is computed **in core**, from the same data `Doctor` uses (e.g. a `HealthSummary` on the doctor report or a `Service.Health`), so CLI (`dossier doctor`/`sync --status`) and the TUI cannot disagree; the TUI only renders it. `Syncer.Status` gets a context and bounded timeout, because it currently fetches with `context.Background()` (`internal/sync/status.go:67-80`). Without team sync configured, the footer shows local issues only. No role gating. **Depends on P0-3 and P0-4.** | Core table test: health summary from fixtures (never synced / synced / failed / conflicts / issues). TUI test: footer renders the summary and an unreachable remote doesn't block `Init`/first render. Golden test: TUI footer text matches the CLI summary for the same store. |
 | ~~P0-8~~ | ~~Live-GitHub drill (owner)~~. Not a development item. The owner runs it after P0-1 to P0-7, as Part D of [`team-sync-validation.md`](team-sync-validation.md). | — |
 
 ### Smallest viable concierge pilot (after P0)
@@ -438,7 +440,8 @@ store**, the team store at `~/.dossier` (decision #3). Before `team create`,
 the manager moves non-team-safe Dossiers out of the store. Manager assigns by setting
 `lead` to the colleague's name, syncing, and telling them the Dossier's *name*.
 The colleague opens Claude in their work folder and asks for it (MCP primary
-path, §B.2). Manager runs `doctor` daily and
+path, §B.2). The manager watches the TUI health footer (P0-9), opens the full
+report when it shows a problem, and
 resolves conflicts. Transcripts: accept that compiled transcripts sync *only if*
 decision #2's prohibited categories are enforced by convention; otherwise wait
 for Increment 1 item 4.
@@ -447,14 +450,15 @@ assigned Dossier ends with a save, colleague interview answers decision #12.
 
 ### Increment 1 (after pilot)
 
-0. **Automatic health for the manager.** On TUI start (and on each fsnotify
+0. ~~**Automatic health for the manager.** On TUI start (and on each fsnotify
    refresh, throttled), the TUI calls the existing `Service.Doctor` **async**
    and renders a one-line footer: sync age, pending changes, unresolved
    conflicts, and issue count. Enter opens the full report. The call must be
    async and bounded: `Doctor` → `Syncer.Status` does a remote fetch with no
    timeout (`internal/sync/status.go:67-80` passes `context.Background()`).
    Depends on P0-3 and P0-4; otherwise the footer shows the current wrong
-   `LastSync` and conflict count. No role gating: everyone sees it.
+   `LastSync` and conflict count. No role gating: everyone sees it.~~ Moved
+   into pilot scope as **P0-9** (owner, 2026-09-18).
 1. The **`dossier_session` bind response** (the primary path) and SessionStart
    carry one health line (last successful pull/push, pending changes) plus any
    unresolved conflict for the bound Dossier. `open` pulls (bounded) and prints
@@ -492,7 +496,7 @@ ending without a save (confirm whether the warning is ever seen).
 
 ## 7. Open uncertainties and cheapest next tests
 
-> **Sequencing (owner, 2026-09-18):** the pilot waits for P0-1 to P0-7, which
+> **Sequencing (owner, 2026-09-18):** the pilot waits for P0-1 to P0-7 and P0-9, which
 > are to be implemented in a separate session. After that session, run
 > [`team-sync-validation.md`](team-sync-validation.md) (sandbox checks, then
 > the owner's live GitHub test, then the pilot go/no-go). The first and fifth
@@ -523,6 +527,7 @@ Commits on `review/team-adoption-plan` (none pushed):
 | Review, onboarding | MCP as the colleague's primary path | `docs: make MCP the colleague's primary path` |
 | Review, plan | Harness, data boundary and transcript decisions; TUI health and roles on the roadmap | `docs: record harness, data boundary, and transcript decisions` |
 | `docs/team-sync-validation.md`, review, `HANDOFF.md` | Post-development validation procedure; assignment and success-criteria decisions; P0-8 moved to validation | `docs: add Team Sync validation procedure` |
+| Review, validation, runbook, plan, `HANDOFF.md` | P0-9: automated TUI health footer in pilot scope | `docs: add automated TUI health footer to pilot scope` |
 
 **Proposed, not applied (out of write scope):** SPEC §7 ×3 and §14.11,
 BUILD-DECISIONS B13, ADR 0005 status note, VISION.md banner, PRFAQ "Can I share"
