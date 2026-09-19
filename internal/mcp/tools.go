@@ -24,6 +24,19 @@ type mcpEnvelope struct {
 	NextActions []string        `json:"next_actions"`
 }
 
+// mcpMutatingTools are the tools whose successful calls write shared state.
+// They all enqueue through the single trigger below; session bindings and reads
+// are machine-local or intentionally excluded.
+var mcpMutatingTools = map[string]bool{
+	"dossier_save":             true,
+	"dossier_update":           true,
+	"dossier_promote":          true,
+	"dossier_link":             true,
+	"dossier_merge":            true,
+	"dossier_rename":           true,
+	"dossier_resolve_conflict": true,
+}
+
 type mcpErrorObject struct {
 	Code    MCPErrorCode   `json:"code"`
 	Message string         `json:"message"`
@@ -377,6 +390,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		}
 		res, err = s.svc.Recall(ctx, core.RecallReq{ID: params.ID})
 		if err == nil {
+			// Recall refreshes from the remote; this is separate from mutation enqueueing.
 			s.triggerSync()
 			dossierID := params.ID
 			if recalled, ok := res.Data.(core.RecallResult); ok {
@@ -476,9 +490,6 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			FrontmatterUpdates:     params.FrontmatterUpdates,
 			Artifacts:              arts,
 		})
-		if err == nil {
-			s.triggerSync()
-		}
 
 	case "dossier_promote":
 		var params struct {
@@ -707,9 +718,6 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			ConflictID: params.ConflictID,
 			Choice:     params.Choice,
 		})
-		if err == nil {
-			s.triggerSync()
-		}
 
 	case "dossier_rename":
 		var params struct {
@@ -733,13 +741,15 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		res, err = s.svc.Rename(ctx, core.RenameReq{
 			ID: params.ID, NewSlug: params.NewSlug, NewName: params.NewName, BaseRevision: core.Revision(params.BaseRevision),
 		})
-		if err == nil {
-			s.triggerSync()
-		}
 
 	default:
 		s.sendError(id, -32601, fmt.Sprintf("Tool %s not found", name), nil)
 		return
+	}
+
+	// Failed mutations do not enqueue: no successful shared write needs pushing.
+	if err == nil && res.OK && mcpMutatingTools[name] {
+		s.triggerSync()
 	}
 
 	var env mcpEnvelope

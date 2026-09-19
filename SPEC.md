@@ -1221,6 +1221,7 @@ Checks:
 - A conflict can be resolved (keep shared / restore mine / keep both) through CLI, MCP and TUI with the same result; the file moves to `conflicts/resolved/`, the audit log records who and how, and `doctor` stops reporting it.
 - Promote's byte-preserved raw JSONL artifact (`art_<n>_raw.*`, thinking included) never reaches the remote (`*/artifacts/*_raw.*` is gitignored); the compiled transcript does; a clone without the raw file has no `doctor` issue for it.
 - A failed or conflicting background sync is reported in the conversation (SessionStart context, `dossier_session`/`dossier_recall` warnings, or the next MCP response after a background sync) and not when healthy; SessionStart finishes within its 5 s budget against an unreachable remote.
+- Every successful mutating MCP tool enqueues exactly one debounced background sync; failed or conflicting mutations enqueue none, and a store without a team remote enqueues none and shows no sync warning.
 - The TUI shows a health footer computed in core, refreshed asynchronously (start, store changes at most once a minute, and a one-minute tick) with a bounded remote check, so an unreachable remote never blocks the first render; `H` opens the full doctor report; the footer text equals the CLI `Health:` line for the same store.
 
 ### 14.12 First-class Rename

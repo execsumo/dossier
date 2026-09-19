@@ -130,6 +130,9 @@ func NewServer(svc *core.Service, r io.Reader, w io.Writer) *Server {
 }
 
 func (s *Server) triggerSync() {
+	if s.svc == nil || !s.svc.SyncConfigured() {
+		return
+	}
 	select {
 	case s.syncChan <- struct{}{}:
 	default:
