@@ -271,6 +271,11 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 			},
 		},
 		{
+			Name:        "dossier_team",
+			Description: "Read the current team roster, including manager, members, and former members",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+		},
+		{
 			Name:        "dossier_conflicts",
 			Description: "List unresolved conflicts or show the current shared and preserved versions of one conflict",
 			InputSchema: map[string]any{
@@ -639,6 +644,11 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			ID:                 params.ID,
 			FrontmatterUpdates: updates,
 		})
+
+	case "dossier_team":
+		roster, rosterErr := s.svc.Members(ctx)
+		res = core.Result{OK: rosterErr == nil, Data: roster}
+		err = rosterErr
 
 	case "dossier_conflicts":
 		var params struct {

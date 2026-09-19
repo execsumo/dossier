@@ -25,6 +25,14 @@ type ListedFrontmatter struct {
 }
 
 // Store defines the CRUD contract for persistence.
+// RosterStore is the optional store capability for the synced team roster.
+// Keeping it optional preserves lightweight in-memory stores used by older
+// callers while filesystem-backed services expose the full team API.
+type RosterStore interface {
+	ReadRoster() (*Roster, error)
+	WriteRoster(*Roster) error
+}
+
 type Store interface {
 	Init() error
 	Read(slugOrID string) (*Dossier, Revision, error)

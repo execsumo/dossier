@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ const DefaultTokenLimit = 100000
 type Config struct {
 	DossierHome string
 	Author      string
+	DisplayName string
 	Interfaces  []string
 	Leads       []string
 	TokenLimit  int
@@ -150,6 +152,18 @@ func (s *Service) DossierHome() string {
 	return s.cfg.DossierHome
 }
 
+func (s *Service) currentRoster() (*Roster, bool) {
+	store, ok := s.store.(RosterStore)
+	if !ok {
+		return nil, false
+	}
+	roster, err := store.ReadRoster()
+	if err != nil || roster == nil || len(roster.Members) == 0 {
+		return nil, false
+	}
+	return roster, true
+}
+
 // AddLead updates the in-memory lead vocabulary after an adapter persists the
 // same change to config.yaml. This keeps subsequent Saves in this process
 // consistent with the newly expanded vocabulary.
@@ -189,6 +203,14 @@ func (s *Service) AddInterface(name string) {
 // Leads returns the configured lead vocabulary in display order. An empty list
 // preserves free-form lead assignment for backwards compatibility.
 func (s *Service) Leads() []string {
+	if roster, ok := s.currentRoster(); ok && len(roster.Members) > 0 {
+		leads := make([]string, 0, len(roster.Members))
+		for username := range roster.Members {
+			leads = append(leads, NormalizeUsername(username))
+		}
+		sort.Strings(leads)
+		return leads
+	}
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
 	return append([]string{}, s.cfg.Leads...)
@@ -320,6 +342,13 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 
 	report := DoctorReport{}
 	var warnings []Warning
+	if strings.TrimSpace(s.cfg.Author) == "" {
+		add := "author is empty; configure a stable organization username"
+		warnings = append(warnings, Warning(add))
+	} else if SanitizeAuthorString(s.cfg.Author) != s.cfg.Author {
+		warnings = append(warnings, Warning(fmt.Sprintf("author %q contains characters that will be sanitized in audit shard names", s.cfg.Author)))
+	}
+	roster, hasRoster := s.currentRoster()
 	// Advisories are surfaced but do not fail the check: an integration the user
 	// has not installed yet is worth saying out loud, and is not store damage.
 	addAdvisory := func(msg string) {
@@ -341,6 +370,12 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 		report.DossiersChecked++
 		if err := fm.Validate(); err != nil {
 			addIssue("Dossier %s has invalid frontmatter: %v", fm.ID, err)
+		}
+
+		if hasRoster && fm.Lead != "" {
+			if _, ok, _ := roster.ResolvePerson(fm.Lead); !ok {
+				addAdvisory(fmt.Sprintf("Dossier %s lead %q is not a member of the team roster", fm.ID, fm.Lead))
+			}
 		}
 
 		d, _, err := s.store.Read(fm.ID)

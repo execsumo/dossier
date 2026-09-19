@@ -17,6 +17,7 @@ type FakeStore struct {
 	Conflicts         map[string]*core.Conflict
 	ResolvedConflicts map[string]*core.Conflict
 	History           map[core.Revision]*core.Dossier
+	Roster            *core.Roster
 }
 
 // NewFakeStore instantiates an in-memory FakeStore.
@@ -30,10 +31,23 @@ func NewFakeStore() *FakeStore {
 		Conflicts:         make(map[string]*core.Conflict),
 		ResolvedConflicts: make(map[string]*core.Conflict),
 		History:           make(map[core.Revision]*core.Dossier),
+		Roster:            &core.Roster{Members: map[string]string{}, Former: map[string]string{}},
 	}
 }
 
 func (f *FakeStore) Init() error {
+	return nil
+}
+
+func (f *FakeStore) ReadRoster() (*core.Roster, error) {
+	if f.Roster == nil {
+		f.Roster = &core.Roster{Members: map[string]string{}, Former: map[string]string{}}
+	}
+	return f.Roster, nil
+}
+
+func (f *FakeStore) WriteRoster(roster *core.Roster) error {
+	f.Roster = roster
 	return nil
 }
 

@@ -68,6 +68,9 @@ func (s *Service) ResolveConflict(ctx context.Context, req ResolveConflictReq) (
 	if err != nil {
 		return Result{OK: false}, err
 	}
+	if conflict.Kind == "sync_concurrent_roster_edit" || conflict.DossierID == RosterConflictDossierID {
+		return Result{OK: false}, NewError(ErrConflictDetected, "team.yaml roster conflicts must be reconciled manually, then the archived conflict can be retained")
+	}
 
 	dossier, currentRevision, err := s.store.Read(conflict.DossierID)
 	if err != nil {

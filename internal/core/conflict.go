@@ -2,6 +2,9 @@ package core
 
 import "time"
 
+// RosterConflictDossierID identifies a root-level team.yaml conflict.
+const RosterConflictDossierID = "__team_roster__"
+
 // Conflict represents a rejected concurrent edit or merge conflict preserved for human resolution.
 type Conflict struct {
 	ID                 string     `yaml:"id" json:"id"`

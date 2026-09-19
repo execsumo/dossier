@@ -50,6 +50,74 @@ func (s *FSStore) lockNamespace() (*FileLock, error) {
 	return Lock(filepath.Join(s.dossierHome, ".lock"))
 }
 
+// ReadRoster reads the synced team roster. An absent file is an empty roster.
+func (s *FSStore) ReadRoster() (*core.Roster, error) {
+	path := filepath.Join(s.dossierHome, "team.yaml")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return &core.Roster{Members: map[string]string{}, Former: map[string]string{}}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var roster core.Roster
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&roster); err != nil {
+		return nil, fmt.Errorf("parse team.yaml: %w", err)
+	}
+	if roster.Members == nil {
+		roster.Members = map[string]string{}
+	}
+	if roster.Former == nil {
+		roster.Former = map[string]string{}
+	}
+	return &roster, nil
+}
+
+// WriteRoster atomically persists the manager-owned synced team roster.
+func (s *FSStore) WriteRoster(roster *core.Roster) error {
+	if roster == nil {
+		return fmt.Errorf("roster is nil")
+	}
+	lock, err := s.lockNamespace()
+	if err != nil {
+		return err
+	}
+	defer lock.Unlock()
+	if err := os.MkdirAll(s.dossierHome, 0755); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(roster)
+	if err != nil {
+		return fmt.Errorf("marshal team.yaml: %w", err)
+	}
+	tmp, err := os.CreateTemp(s.dossierHome, ".team.yaml-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if chmodErr := tmp.Chmod(0644); chmodErr != nil {
+		_ = tmp.Close()
+		return chmodErr
+	}
+	if _, err = tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return fmt.Errorf("write team.yaml: %w", err)
+	}
+	if err := os.Rename(tmpName, filepath.Join(s.dossierHome, "team.yaml")); err != nil {
+		return fmt.Errorf("replace team.yaml: %w", err)
+	}
+	return nil
+}
+
 // Init creates storage directories, writes the guide, and generates the library context.
 func (s *FSStore) Init() error {
 	dirs := []string{
@@ -715,25 +783,7 @@ func (s *FSStore) listArtifactsInternal(dossierID string, dossierDir string) ([]
 
 // SanitizeAuthorString converts an author name to a path-safe string.
 func SanitizeAuthorString(author string) string {
-	author = strings.ToLower(author)
-	var sb strings.Builder
-	lastWasDash := false
-	for _, r := range author {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			sb.WriteRune(r)
-			lastWasDash = false
-		} else {
-			if !lastWasDash {
-				sb.WriteRune('-')
-				lastWasDash = true
-			}
-		}
-	}
-	res := strings.Trim(sb.String(), "-")
-	if res == "" {
-		return "unknown"
-	}
-	return res
+	return core.SanitizeAuthorString(author)
 }
 
 // AppendAudit logs a JSONL event.
@@ -947,14 +997,19 @@ func (s *FSStore) ClearSessionBinding(sessionID string) error {
 
 // WriteConflict logs conflict states.
 func (s *FSStore) WriteConflict(conflict *core.Conflict) error {
-	lock, err := s.lockDossier(conflict.DossierID)
+	var lock *FileLock
+	var err error
+	if conflict.DossierID == core.RosterConflictDossierID {
+		lock, err = s.lockNamespace()
+	} else {
+		lock, err = s.lockDossier(conflict.DossierID)
+	}
 	if err != nil {
-		return fmt.Errorf("failed to acquire dossier lock: %w", err)
+		return fmt.Errorf("failed to acquire conflict lock: %w", err)
 	}
 	defer lock.Unlock()
 
-	dossierDir, err := s.findDossierDir(conflict.DossierID)
-	if err != nil {
+	if _, err := s.conflictsDir(conflict.DossierID); err != nil {
 		return err
 	}
 
@@ -965,7 +1020,10 @@ func (s *FSStore) WriteConflict(conflict *core.Conflict) error {
 		}
 	}
 
-	conflictsDir := filepath.Join(dossierDir, "conflicts")
+	conflictsDir, err := s.conflictsDir(conflict.DossierID)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(conflictsDir, 0755); err != nil {
 		return err
 	}
@@ -981,6 +1039,10 @@ func (s *FSStore) WriteConflict(conflict *core.Conflict) error {
 
 // ReadConflict retrieves conflict states.
 func (s *FSStore) ReadConflict(conflictID string) (*core.Conflict, error) {
+	rootPath := filepath.Join(s.dossierHome, "conflicts", fmt.Sprintf("%s.md", conflictID))
+	if data, err := os.ReadFile(rootPath); err == nil {
+		return parseConflictFile(string(data))
+	}
 	entries, err := os.ReadDir(s.dossierHome)
 	if err != nil {
 		return nil, err
@@ -991,7 +1053,7 @@ func (s *FSStore) ReadConflict(conflictID string) (*core.Conflict, error) {
 			continue
 		}
 		name := entry.Name()
-		if name == "context" || name == "sessions" || strings.HasPrefix(name, ".") {
+		if name == "context" || name == "sessions" || name == "conflicts" || strings.HasPrefix(name, ".") {
 			continue
 		}
 
@@ -1016,12 +1078,27 @@ func (s *FSStore) ListConflicts() ([]core.Conflict, error) {
 	}
 
 	var list []core.Conflict
+	rootConflicts := filepath.Join(s.dossierHome, "conflicts")
+	if confEntries, readErr := os.ReadDir(rootConflicts); readErr == nil {
+		for _, confEntry := range confEntries {
+			if confEntry.IsDir() || strings.HasPrefix(confEntry.Name(), ".") {
+				continue
+			}
+			data, readErr := os.ReadFile(filepath.Join(rootConflicts, confEntry.Name()))
+			if readErr != nil {
+				continue
+			}
+			if conflict, parseErr := parseConflictFile(string(data)); parseErr == nil {
+				list = append(list, *conflict)
+			}
+		}
+	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-		if name == "context" || name == "sessions" || strings.HasPrefix(name, ".") {
+		if name == "context" || name == "sessions" || name == "conflicts" || strings.HasPrefix(name, ".") {
 			continue
 		}
 
@@ -1060,17 +1137,22 @@ func (s *FSStore) ResolveConflict(conflictID string, updated *core.Conflict) err
 	if conflictID == "" || filepath.Base(conflictID) != conflictID {
 		return core.NewError(core.ErrNotFound, fmt.Sprintf("conflict %q not found", conflictID))
 	}
-	lock, err := s.lockDossier(updated.DossierID)
+	var lock *FileLock
+	var err error
+	if updated.DossierID == core.RosterConflictDossierID {
+		lock, err = s.lockNamespace()
+	} else {
+		lock, err = s.lockDossier(updated.DossierID)
+	}
 	if err != nil {
-		return fmt.Errorf("failed to acquire dossier lock: %w", err)
+		return fmt.Errorf("failed to acquire conflict lock: %w", err)
 	}
 	defer lock.Unlock()
 
-	dossierDir, err := s.findDossierDir(updated.DossierID)
+	conflictsDir, err := s.conflictsDir(updated.DossierID)
 	if err != nil {
 		return err
 	}
-	conflictsDir := filepath.Join(dossierDir, "conflicts")
 	activePath := filepath.Join(conflictsDir, conflictID+".md")
 	if _, err := os.Stat(activePath); err != nil {
 		if os.IsNotExist(err) {
@@ -1095,6 +1177,19 @@ func (s *FSStore) ResolveConflict(conflictID string, updated *core.Conflict) err
 		return fmt.Errorf("write resolved conflict %q: %w", conflictID, err)
 	}
 	return nil
+}
+
+// conflictsDir returns the active conflict directory for a dossier or the
+// store-root directory used by team.yaml roster conflicts.
+func (s *FSStore) conflictsDir(dossierID string) (string, error) {
+	if dossierID == core.RosterConflictDossierID {
+		return filepath.Join(s.dossierHome, "conflicts"), nil
+	}
+	dossierDir, err := s.findDossierDir(dossierID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dossierDir, "conflicts"), nil
 }
 
 // Private helper methods
