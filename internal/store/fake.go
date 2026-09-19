@@ -54,6 +54,30 @@ func (f *FakeStore) WriteRoster(roster *core.Roster) error {
 	return nil
 }
 
+func (f *FakeStore) SnapshotRoster() (core.RosterSnapshot, error) {
+	if f.Roster == nil || (f.Roster.Manager == "" && len(f.Roster.Members) == 0 && len(f.Roster.Former) == 0) {
+		return core.RosterSnapshot{}, nil
+	}
+	data, err := yaml.Marshal(f.Roster)
+	if err != nil {
+		return core.RosterSnapshot{}, err
+	}
+	return core.RosterSnapshot{Content: data, Found: true}, nil
+}
+
+func (f *FakeStore) RestoreRoster(snap core.RosterSnapshot) error {
+	if !snap.Found {
+		f.Roster = &core.Roster{Members: map[string]string{}, Former: map[string]string{}}
+		return nil
+	}
+	roster, err := f.DecodeRosterYAML(string(snap.Content))
+	if err != nil {
+		return err
+	}
+	f.Roster = roster
+	return nil
+}
+
 func (f *FakeStore) ReadRosterYAML() (string, error) {
 	data, err := yaml.Marshal(f.Roster)
 	return string(data), err

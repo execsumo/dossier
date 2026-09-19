@@ -33,6 +33,20 @@ type RosterStore interface {
 	WriteRoster(*Roster) error
 }
 
+// RosterSnapshot is the stored roster file as it stood at one moment.
+type RosterSnapshot struct {
+	Content []byte
+	Found   bool
+}
+
+// RosterRollbackStore lets team create restore the roster if the initial push
+// fails, without bringing serialization or filesystem operations into core.
+type RosterRollbackStore interface {
+	RosterStore
+	SnapshotRoster() (RosterSnapshot, error)
+	RestoreRoster(RosterSnapshot) error
+}
+
 // RosterConflictStore adds the raw YAML boundary needed to inspect and restore
 // a root-level team.yaml conflict without bringing serialization into core.
 type RosterConflictStore interface {

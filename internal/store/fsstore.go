@@ -107,6 +107,49 @@ func (s *FSStore) DecodeRosterYAML(content string) (*core.Roster, error) {
 	return &roster, nil
 }
 
+// SnapshotRoster returns the complete stored team roster, if one exists.
+func (s *FSStore) SnapshotRoster() (core.RosterSnapshot, error) {
+	data, err := os.ReadFile(filepath.Join(s.dossierHome, "team.yaml"))
+	if os.IsNotExist(err) {
+		return core.RosterSnapshot{}, nil
+	}
+	if err != nil {
+		return core.RosterSnapshot{}, err
+	}
+	return core.RosterSnapshot{Content: data, Found: true}, nil
+}
+
+// RestoreRoster restores a previous roster without deleting a generated one.
+func (s *FSStore) RestoreRoster(snap core.RosterSnapshot) error {
+	lock, err := s.lockNamespace()
+	if err != nil {
+		return err
+	}
+	defer lock.Unlock()
+
+	if snap.Found {
+		if err := os.MkdirAll(s.dossierHome, 0755); err != nil {
+			return err
+		}
+		return s.writeRosterBytes(snap.Content)
+	}
+
+	path := filepath.Join(s.dossierHome, "team.yaml")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	failedDir := s.dossierHome + ".failed-create-" + time.Now().UTC().Format("20060102T150405.000000000Z")
+	if err := os.MkdirAll(failedDir, 0700); err != nil {
+		return err
+	}
+	if err := os.Rename(path, filepath.Join(failedDir, "team.yaml")); err != nil {
+		return fmt.Errorf("move team.yaml aside: %w", err)
+	}
+	return nil
+}
+
 // WriteRoster atomically persists the manager-owned synced team roster.
 func (s *FSStore) WriteRoster(roster *core.Roster) error {
 	if roster == nil {
@@ -124,6 +167,10 @@ func (s *FSStore) WriteRoster(roster *core.Roster) error {
 	if err != nil {
 		return fmt.Errorf("marshal team.yaml: %w", err)
 	}
+	return s.writeRosterBytes(data)
+}
+
+func (s *FSStore) writeRosterBytes(data []byte) error {
 	tmp, err := os.CreateTemp(s.dossierHome, ".team.yaml-*")
 	if err != nil {
 		return err

@@ -33,6 +33,30 @@ func setupTeamStore(t *testing.T, dir, author, remote string) *core.Service {
 	return svc
 }
 
+func TestService_TeamCreateFailureLeavesNoRoster(t *testing.T) {
+	ctx := context.Background()
+	remoteDir := t.TempDir()
+	bare, err := git.PlainInit(remoteDir, true)
+	if err != nil {
+		t.Fatalf("init bare: %v", err)
+	}
+	if err := bare.Storer.SetReference(plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName("main"))); err != nil {
+		t.Fatalf("set bare HEAD: %v", err)
+	}
+
+	dir := t.TempDir()
+	svc := setupTeamStore(t, dir, "alice", remoteDir)
+	if _, err := git.PlainInit(dir, false); err != nil {
+		t.Fatalf("init local git store: %v", err)
+	}
+	if _, err := svc.TeamCreate(ctx, core.TeamCreateReq{RemoteURL: remoteDir, Branch: "main", Confirmed: true}); err == nil {
+		t.Fatal("team create should fail for an existing local git store")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "team.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("team.yaml remains after failed create, err=%v", err)
+	}
+}
+
 // TestService_TeamCreateJoin_RoundTrip is the committed regression test for the
 // Phase 3a onboarding commands: `team create` bootstraps + pushes a store, and
 // `team join` clones it into a fresh store — no phantom conflicts, and the two
