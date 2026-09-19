@@ -17,8 +17,9 @@ func (d *dummySyncer) Sync(ctx context.Context) (core.SyncReport, error) {
 	return core.SyncReport{}, nil
 }
 func (d *dummySyncer) Status(ctx context.Context) (core.SyncStatus, error)   { return d.status, nil }
-func (d *dummySyncer) Create(ctx context.Context) error                      { return nil }
+func (d *dummySyncer) Create(ctx context.Context, branch, url string) error  { return nil }
 func (d *dummySyncer) Clone(ctx context.Context, u, h string, dth int) error { return nil }
+func (d *dummySyncer) CheckRemoteEmpty(ctx context.Context, u string) error  { return nil }
 
 func TestDoctor_ConflictCounts(t *testing.T) {
 	tmpDir := t.TempDir()
