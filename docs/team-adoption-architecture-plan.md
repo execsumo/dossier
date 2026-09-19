@@ -90,6 +90,8 @@ A private GitHub repository gives all repository members access to all synced Do
 
 Compiled transcript artifacts can contain prompts, tool results, file content, and environment output. Raw and compiled transcripts should be local-only by default; shared evidence should be explicit and sanitized.
 
+> Review: **Owner decision (2026-09-18): compiled transcripts sync, now and going forward.** This recommendation is overruled. B13 still keeps the raw stash and `thinking` local. The data boundary is the safeguard: no PII, credentials, or HR and compensation material, including in anything an agent reads. See review §4 decisions #2 and #5.
+
 > Review: Disclosure starts before sync. `team create` initializes the *whole existing store* as the team repo (`internal/sync/sync.go:58-99`). It has no empty-remote check: pointed at a non-empty remote, it merged and pushed an unrelated personal Dossier (dogfood). Raw JSONL also already syncs: `promote` with transcript content archives a byte-preserved raw artifact, thinking included, under `artifacts/` (`internal/core/service_promote.go:90-103`). B13 only excludes the session stash. Compiled transcripts sync today.
 
 #### Conflict handling is still developer-oriented
@@ -229,6 +231,8 @@ Shared content should default to:
 - relevant audit information.
 
 Raw and compiled transcripts should remain local-only unless explicitly promoted.
+
+> Review: **Owner decision (2026-09-18): compiled transcripts sync, now and going forward.** This recommendation is overruled. B13 still keeps the raw stash and `thinking` local. The data boundary is the safeguard: no PII, credentials, or HR and compensation material, including in anything an agent reads. See review §4 decisions #2 and #5.
 
 ### 8. Health and sync status
 

@@ -197,6 +197,11 @@ agent `cat`ed, every env dump and tool result is in git history on every clone
 Experiment: in the pilot, grep compiled transcripts for tokens/paths/customer
 names before any push. Product decision.
 
+**Overruled by owner decision #5 (2026-09-18): transcripts sync, now and in
+future.** The recovery and followability side of the tradeoff was chosen. The
+cost, permanent disclosure of whatever an agent reads, is carried by the data
+boundary (decision #2).
+
 **B.5 Separate stores sufficient for pilot?** **[rec]** Not buildable cheaply
 (one store per machine). ~~Manager keeps personal work in a separate
 `DOSSIER_HOME` and must **not** run `team create` on their personal store.~~
@@ -226,12 +231,19 @@ that would change it.
    ⇒ Pi colleague cannot update state from CLI, pilot measures a harness gap not
    the product. Change if: a CLI Distilled-State update command ships and a live
    Pi drill passes.
+   **DECIDED (owner, 2026-09-18): Claude Code is the pilot harness.**
 2. **Pilot data boundary.** Prohibit: customer PII, credentials/secrets, HR and
    compensation, unreleased financials, anything under NDA with third parties /
    Allow "internal operational work" / Allow all. **Prohibit the first four
    categories plus any work whose agent session would read those files**
    (transcripts sync). Wrong ⇒ permanent disclosure in git history on every
    clone. Change if: transcripts become local-only and a pre-push scan exists.
+   **DECIDED (owner, 2026-09-18): banned from the shared store are personal
+   data (PII), credentials, and HR and compensation.** Because transcripts sync
+   (decision #5), the ban also covers any session in which the agent would
+   *read* such material, not only what gets written into a Dossier. Unreleased
+   financials and NDA material were proposed but not adopted, so they are
+   allowed unless the owner adds them.
 3. **Privacy model.** Separate stores now / repo-wide visibility temporarily.
    ~~**Repo-wide visibility, temporarily, with a single dedicated pilot store
    created fresh (never from a personal store).**~~
@@ -257,6 +269,10 @@ that would change it.
    transcripts. **Curated + explicit evidence shared; transcripts local.** Wrong ⇒
    either leaks (too much) or unrecoverable context (too little). Change if:
    pilot shows managers repeatedly need a colleague's transcript.
+   **DECIDED (owner, 2026-09-18), overruling the recommendation: compiled
+   transcripts sync, for the pilot and going forward.** Curated state, explicit
+   evidence and compiled transcripts are all shared. B13's exclusions still
+   stand: the raw session stash and `thinking` turns stay local.
 6. **Offline policy.** Work continues offline; how stale before launch.
    **Always continue; show "last successful pull" at launch; no blocking
    threshold in the pilot.** Wrong ⇒ blocked colleagues (too strict) or work on
@@ -409,7 +425,7 @@ harness verification.
 | P0-4 | Unresolved-conflict count derived from `ListConflicts`, not the last sync run; `doctor` sync block agrees with its issue list. | Test: conflict persists across a clean sync. |
 | P0-5 | A conflict resolution operation in `core.Service` (keep current / restore mine / both-as-disagreement), which archives the conflict file to `conflicts/resolved/` (non-destructive), exposed in CLI, MCP, TUI. | Table tests + one TUI test; SPEC §7/§8 amended. |
 | P0-6 | Auth failure explicit: `GetAuth` returns a typed "no credentials" warning instead of `nil, nil` when `team.remote` is https; 401/403 mapped to `sync_auth_failed` with a concrete next step. | Test with fake runner + fake remote returning 401. |
-| P0-7 | Promote's raw JSONL artifact excluded from sync (or not written to `artifacts/` in team stores), per B13. | Test: promote with JSONL in a team store ⇒ raw artifact absent from remote. |
+| P0-7 | Promote's raw JSONL artifact excluded from sync (or not written to `artifacts/` in team stores), per B13. *Still required after decision #5:* that decision shares **compiled** transcripts, whereas this artifact is raw and carries `thinking`, which B13 excludes. | Test: promote with JSONL in a team store ⇒ raw artifact absent from remote. |
 | P0-8 | Live-GitHub drill (owner): create, join, ff pull, divergent edit, revoked token, offline, default-branch ≠ main. | Checklist recorded in runbook with dates. |
 
 ### Smallest viable concierge pilot (after P0)
@@ -428,6 +444,14 @@ assigned Dossier ends with a save, colleague interview answers decision #12.
 
 ### Increment 1 (after pilot)
 
+0. **Automatic health for the manager.** On TUI start (and on each fsnotify
+   refresh, throttled), the TUI calls the existing `Service.Doctor` **async**
+   and renders a one-line footer: sync age, pending changes, unresolved
+   conflicts, and issue count. Enter opens the full report. The call must be
+   async and bounded: `Doctor` → `Syncer.Status` does a remote fetch with no
+   timeout (`internal/sync/status.go:67-80` passes `context.Background()`).
+   Depends on P0-3 and P0-4; otherwise the footer shows the current wrong
+   `LastSync` and conflict count. No role gating: everyone sees it.
 1. The **`dossier_session` bind response** (the primary path) and SessionStart
    carry one health line (last successful pull/push, pending changes) plus any
    unresolved conflict for the bound Dossier. `open` pulls (bounded) and prints
@@ -436,9 +460,9 @@ assigned Dossier ends with a save, colleague interview answers decision #12.
    "what's assigned to me?" needs no name. `open --here` (cwd workspace) for the
    non-MCP launchers.
 3. A CLI `dossier save <slug> --distilled-file … --base-revision …` (Pi parity).
-4. Transcripts local-only by default in team stores (gitignore compiled
+4. ~~Transcripts local-only by default in team stores (gitignore compiled
    transcript artifacts or store them outside `artifacts/`), with explicit
-   promotion.
+   promotion.~~ Dropped by decision #5 (transcripts sync).
 5. Sync after every mutating service call, not only three MCP tools — done once
    in core or in each adapter's shared wrapper, never forked.
 
@@ -449,7 +473,12 @@ assigned Dossier ends with a save, colleague interview answers decision #12.
 
 Assignment objects, inbox, Contributions, recovery queue UI, multi-store,
 ACLs/projections, Katana adapter, identity manifest, PLANv02 requirements /
-roster / timezone features.
+roster / timezone features. **Roles in config** (asked 2026-09-18): not yet.
+`config.yaml` is machine-local and never syncs, so a role there is
+self-asserted and enforces nothing, since everyone with repo access can write
+everything. The one identity need, resolving "me" (Increment 1 item 2), is a
+name, not a role. If roles are needed later, they belong in a synced team
+manifest, and they stay advisory until the transport enforces access.
 
 ### Drills before claiming readiness
 
