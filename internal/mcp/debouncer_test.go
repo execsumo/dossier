@@ -15,11 +15,15 @@ import (
 type blockingSyncer struct {
 	syncCalls int32
 	blockChan chan struct{}
+	entered   chan struct{}
 	doneChan  chan struct{}
 }
 
 func (b *blockingSyncer) Sync(ctx context.Context) (core.SyncReport, error) {
 	atomic.AddInt32(&b.syncCalls, 1)
+	if b.entered != nil {
+		b.entered <- struct{}{}
+	}
 	if b.blockChan != nil {
 		<-b.blockChan
 	}
@@ -31,8 +35,63 @@ func (b *blockingSyncer) Sync(ctx context.Context) (core.SyncReport, error) {
 func (b *blockingSyncer) Status(ctx context.Context) (core.SyncStatus, error) {
 	return core.SyncStatus{}, nil
 }
-func (b *blockingSyncer) Create(ctx context.Context) error                            { return nil }
+func (b *blockingSyncer) CheckRemoteEmpty(ctx context.Context, url string) error      { return nil }
+func (b *blockingSyncer) Create(ctx context.Context, url, branch string) error        { return nil }
 func (b *blockingSyncer) Clone(ctx context.Context, url, dir string, depth int) error { return nil }
+
+func TestServiceConcurrentVocabularyMutationAndDebouncedSync(t *testing.T) {
+	fakeStore := store.NewFakeStore()
+	syncer := &blockingSyncer{
+		blockChan: make(chan struct{}),
+		entered:   make(chan struct{}, 1),
+	}
+	svc := core.NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{},
+		&mockClock{}, core.Config{Interfaces: []string{"Planning"}}, syncer)
+	server := NewServer(svc, bytes.NewBuffer(nil), &safeWriter{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go server.syncDebouncer(ctx)
+	server.triggerSync()
+	close(server.syncChan)
+
+	select {
+	case <-syncer.entered:
+	case <-time.After(time.Second):
+		t.Fatal("debounced Sync did not start")
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			svc.AddLead("Alice")
+			svc.AddInterface("Review")
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			_ = svc.Leads()
+			_ = svc.Interfaces()
+			if _, err := svc.Save(context.Background(), core.SaveReq{
+				FrontmatterUpdates: map[string]any{"name": "Concurrent config read"},
+			}); err != nil {
+				t.Errorf("Save() error = %v", err)
+				return
+			}
+		}
+	}()
+	wg.Wait()
+	close(syncer.blockChan)
+
+	select {
+	case <-server.doneChan:
+	case <-time.After(time.Second):
+		t.Fatal("debouncer did not stop")
+	}
+}
 
 func TestMCPServer_Debouncer_NonBlockingAndDrain(t *testing.T) {
 	fakeStore := store.NewFakeStore()

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"dossier/internal/config"
@@ -13,6 +14,7 @@ import (
 	"dossier/internal/tokenizer"
 	"dossier/internal/tui"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -261,15 +263,18 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			if report, ok := res.Data.(core.DoctorReport); ok {
+				fmt.Printf("Health: %s\n", core.HealthSummaryFromDoctor(report).Line(time.Now()))
 				fmt.Printf("\nChecked: %d dossiers, %d artifacts, %d audit logs\n", report.DossiersChecked, report.ArtifactsChecked, report.AuditLogsChecked)
 				if report.SyncConfigured {
 					fmt.Println("\nTeam Sync Status:")
 					if report.SyncStatus != nil {
-						lastSync := report.SyncStatus.LastSync.Format(time.RFC3339)
-						if report.SyncStatus.LastSync.IsZero() {
-							lastSync = "never"
+						fmt.Printf("  Last attempt: %s\n", formatTime(report.SyncStatus.LastAttempt))
+						fmt.Printf("  Last pull: %s\n", formatTime(report.SyncStatus.LastSuccessPull))
+						fmt.Printf("  Last push: %s\n", formatTime(report.SyncStatus.LastSuccessPush))
+						if report.SyncStatus.LastError != "" {
+							fmt.Printf("  Last error: %s\n", report.SyncStatus.LastError)
 						}
-						fmt.Printf("  Last sync: %s\n", lastSync)
+						fmt.Printf("  Auth state: %s\n", report.SyncStatus.AuthState)
 						fmt.Printf("  Ahead: %d, Behind: %d\n", report.SyncStatus.Ahead, report.SyncStatus.Behind)
 						fmt.Printf("  Unresolved conflicts: %d\n", report.SyncStatus.ConflictsFound)
 					} else {
@@ -954,6 +959,85 @@ func NewRootCmd() *cobra.Command {
 	}
 	mergeCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
+	var conflictsJSON bool
+	conflictsCmd := &cobra.Command{
+		Use:          "conflicts",
+		Short:        "List unresolved conflicts",
+		SilenceUsage: true,
+		Args:         cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				return err
+			}
+			conflicts, err := svc.ListConflicts(context.Background())
+			if err != nil {
+				return err
+			}
+			if conflictsJSON {
+				printJSON(conflicts)
+				return nil
+			}
+			if len(conflicts) == 0 {
+				fmt.Println("No unresolved conflicts")
+				return nil
+			}
+			for _, conflict := range conflicts {
+				fmt.Printf("%s\t%s\t%s\t%s\n", conflict.ID, conflict.DossierID, conflict.Kind, conflict.TS.Format(time.RFC3339))
+			}
+			return nil
+		},
+	}
+	conflictsCmd.Flags().BoolVar(&conflictsJSON, "json", false, "Output results in JSON format")
+
+	var keepShared, restoreMine, keepBoth, resolveJSON bool
+	resolveCmd := &cobra.Command{
+		Use:          "resolve <conflict-id>",
+		Short:        "Resolve an unresolved conflict",
+		SilenceUsage: true,
+		Args:         cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			choices := 0
+			choice := ""
+			if keepShared {
+				choices++
+				choice = core.ConflictChoiceKeepShared
+			}
+			if restoreMine {
+				choices++
+				choice = core.ConflictChoiceRestoreMine
+			}
+			if keepBoth {
+				choices++
+				choice = core.ConflictChoiceKeepBoth
+			}
+			if choices != 1 {
+				return fmt.Errorf("exactly one of --keep-shared, --restore-mine, or --keep-both is required")
+			}
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				return err
+			}
+			res, err := svc.ResolveConflict(context.Background(), core.ResolveConflictReq{
+				ConflictID: args[0],
+				Choice:     choice,
+			})
+			if err != nil {
+				return err
+			}
+			if resolveJSON {
+				printJSON(res)
+			} else {
+				fmt.Printf("Resolved conflict %s with %s\n", args[0], choice)
+			}
+			return nil
+		},
+	}
+	resolveCmd.Flags().BoolVar(&keepShared, "keep-shared", false, "Keep the current shared state")
+	resolveCmd.Flags().BoolVar(&restoreMine, "restore-mine", false, "Restore the rejected local state")
+	resolveCmd.Flags().BoolVar(&keepBoth, "keep-both", false, "Keep both states with an unresolved disagreement section")
+	resolveCmd.Flags().BoolVar(&resolveJSON, "json", false, "Output results in JSON format")
+
 	var renameBaseRevision string
 	var renameTitle string
 	var renameSlug string
@@ -1467,6 +1551,8 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(activeCmd)
 	rootCmd.AddCommand(switchCmd)
 	rootCmd.AddCommand(mergeCmd)
+	rootCmd.AddCommand(conflictsCmd)
+	rootCmd.AddCommand(resolveCmd)
 	rootCmd.AddCommand(renameCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(leadCmd)
@@ -1496,7 +1582,7 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			if syncStatusFlag {
-				res, err := svc.SyncStatus(context.Background())
+				res, err := svc.Health(context.Background())
 				if err != nil {
 					if jsonFlag {
 						printJSON(map[string]any{"ok": false, "error": err.Error()})
@@ -1505,16 +1591,25 @@ func NewRootCmd() *cobra.Command {
 					fmt.Printf("Status failed: %v\n", err)
 					os.Exit(1)
 				}
+				health := res.Data.(core.HealthReport)
 				if jsonFlag {
-					printJSON(res.Data)
+					printJSON(health)
 					return
 				}
-				st := res.Data.(core.SyncStatus)
-				fmt.Printf("Ahead:     %d\n", st.Ahead)
-				fmt.Printf("Behind:    %d\n", st.Behind)
-				fmt.Printf("Dirty:     %d\n", st.Dirty)
-				fmt.Printf("Conflicts: %d\n", len(st.Conflicts))
-				fmt.Printf("Last Sync: %s\n", st.LastSync.Format(time.RFC3339))
+				fmt.Printf("Health: %s\n", health.Summary.Line(time.Now()))
+				if st := health.Doctor.SyncStatus; st != nil {
+					fmt.Printf("Last attempt:    %s\n", formatTime(st.LastAttempt))
+					fmt.Printf("Last pull:       %s\n", formatTime(st.LastSuccessPull))
+					fmt.Printf("Last push:       %s\n", formatTime(st.LastSuccessPush))
+					if st.LastError != "" {
+						fmt.Printf("Last error:      %s\n", st.LastError)
+					}
+					fmt.Printf("Auth state:      %s\n", st.AuthState)
+					fmt.Printf("Ahead:           %d\n", st.Ahead)
+					fmt.Printf("Behind:          %d\n", st.Behind)
+					fmt.Printf("Dirty:           %d\n", st.Dirty)
+					fmt.Printf("Conflicts:       %d\n", st.ConflictsFound)
+				}
 				return
 			}
 
@@ -1524,12 +1619,19 @@ func NewRootCmd() *cobra.Command {
 					printJSON(map[string]any{"ok": false, "error": err.Error()})
 					os.Exit(1)
 				}
+				// Conflicts written in the same run must still be announced.
+				for _, warning := range res.Warnings {
+					fmt.Printf("Warning: %s\n", warning)
+				}
 				fmt.Printf("Sync failed: %v\n", err)
 				os.Exit(1)
 			}
 
 			if jsonFlag {
 				printJSON(res)
+				if !res.OK {
+					os.Exit(1)
+				}
 				return
 			}
 
@@ -1538,6 +1640,15 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			report := res.Data.(core.SyncReport)
+			if !res.OK || report.Error != "" {
+				errMsg := report.Error
+				if errMsg == "" {
+					errMsg = "unknown error"
+				}
+				fmt.Printf("Sync failed: %s. Your changes are committed locally and will be sent on the next successful sync.\n", errMsg)
+				os.Exit(1)
+			}
+
 			fmt.Println("Sync successful")
 			if report.Pulled {
 				fmt.Println("- Pulled remote changes")
@@ -1559,13 +1670,13 @@ func NewRootCmd() *cobra.Command {
 		Short: "Manage team sync setup",
 	}
 
+	var teamCreateYes, teamCreateJSON bool
 	teamCreateCmd := &cobra.Command{
 		Use:   "create <url>",
 		Short: "Turn the current store into a team's shared store",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			homeDir := resolveHomeDir()
-
 			cfgPath := filepath.Join(homeDir, "config.yaml")
 			cfg, err := config.Load(cfgPath)
 			if err != nil {
@@ -1574,42 +1685,67 @@ func NewRootCmd() *cobra.Command {
 			}
 			cfg.Team.Remote = args[0]
 			cfg.Team.Branch = "main"
-			if err := cfg.Save(cfgPath); err != nil {
-				fmt.Printf("Error saving config: %v\n", err)
-				os.Exit(1)
-			}
-
-			svc, err := wire(homeDir)
+			svc, _, err := wireWithLoadedConfig(homeDir, cfg, cfgPath)
 			if err != nil {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
 
-			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{
-				RemoteURL: args[0],
-				Branch:    "main",
-			})
+			preview, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{RemoteURL: args[0], Branch: "main"})
+			if err != nil {
+				errStr := err.Error()
+				if dErr, ok := err.(*core.DomainError); ok {
+					errStr = dErr.Error()
+				}
+				fmt.Printf("Team create failed: %v\n", errStr)
+				os.Exit(1)
+			}
+			if !teamCreateYes {
+				for _, warning := range preview.Warnings {
+					fmt.Printf("Warning: %s\n", warning)
+				}
+				fmt.Println("Dossiers to publish:")
+				for _, dossier := range preview.Data.([]core.ListedFrontmatter) {
+					fmt.Printf("- %s (%s) [%s]\n", dossier.Name, dossier.Slug, dossier.Status)
+				}
+				fmt.Fprint(cmd.OutOrStdout(), "Publish these Dossiers? [y/N]: ")
+				answer, readErr := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+				answer = strings.ToLower(strings.TrimSpace(answer))
+				if readErr != nil && answer == "" {
+					fmt.Println("Team create refused: confirmation required; use --yes in non-interactive mode")
+					os.Exit(1)
+				}
+				if answer != "y" && answer != "yes" {
+					fmt.Println("Team create refused.")
+					os.Exit(1)
+				}
+			}
+			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{RemoteURL: args[0], Branch: "main", Confirmed: true})
 			if err != nil {
 				fmt.Printf("Team create failed: %v\n", err)
 				os.Exit(1)
 			}
-
-			if jsonFlag {
+			if err := cfg.Save(cfgPath); err != nil {
+				fmt.Printf("Team create succeeded but saving config failed: %v\n", err)
+				os.Exit(1)
+			}
+			if teamCreateJSON {
 				printJSON(res)
 				return
 			}
 			fmt.Println("Team store created successfully.")
 		},
 	}
-	teamCreateCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
+	teamCreateCmd.Flags().BoolVarP(&teamCreateYes, "yes", "y", false, "Skip confirmation prompt")
+	teamCreateCmd.Flags().BoolVar(&teamCreateJSON, "json", false, "Output results in JSON format")
 
+	var teamJoinJSON bool
 	teamJoinCmd := &cobra.Command{
 		Use:   "join <url>",
 		Short: "Join an existing team store",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			homeDir := resolveHomeDir()
-
 			cfgPath := filepath.Join(homeDir, "config.yaml")
 			cfg, err := config.Load(cfgPath)
 			if err != nil {
@@ -1618,27 +1754,25 @@ func NewRootCmd() *cobra.Command {
 			}
 			cfg.Team.Remote = args[0]
 			cfg.Team.Branch = "main"
-			if err := cfg.Save(cfgPath); err != nil {
-				fmt.Printf("Error saving config: %v\n", err)
-				os.Exit(1)
-			}
-
-			svc, err := wire(homeDir)
+			svc, _, err := wireWithLoadedConfig(homeDir, cfg, cfgPath)
 			if err != nil {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
-
-			res, err := svc.TeamJoin(context.Background(), core.TeamJoinReq{
-				RemoteURL: args[0],
-				Branch:    "main",
-			})
+			res, err := svc.TeamJoin(context.Background(), core.TeamJoinReq{RemoteURL: args[0], Branch: "main"})
 			if err != nil {
-				fmt.Printf("Team join failed: %v\n", err)
+				errStr := err.Error()
+				if dErr, ok := err.(*core.DomainError); ok {
+					errStr = dErr.Error()
+				}
+				fmt.Printf("Team join failed: %v\n", errStr)
 				os.Exit(1)
 			}
-
-			if jsonFlag {
+			if err := cfg.Save(cfgPath); err != nil {
+				fmt.Printf("Team join succeeded but saving config failed: %v\n", err)
+				os.Exit(1)
+			}
+			if teamJoinJSON {
 				printJSON(res)
 				return
 			}
@@ -1648,7 +1782,7 @@ func NewRootCmd() *cobra.Command {
 			}
 		},
 	}
-	teamJoinCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
+	teamJoinCmd.Flags().BoolVar(&teamJoinJSON, "json", false, "Output results in JSON format")
 
 	teamCmd.AddCommand(teamCreateCmd)
 	teamCmd.AddCommand(teamJoinCmd)
@@ -1767,6 +1901,13 @@ func printHarnessReports(reports []core.HarnessReport) {
 	}
 }
 
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	return t.Format(time.RFC3339)
+}
+
 func printJSON(data any) {
 	jsonBytes, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
@@ -1793,16 +1934,23 @@ func wireWithConfig(dossierHome string) (*core.Service, *config.Config, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	return wireWithLoadedConfig(dossierHome, cfg, cfgPath)
+}
+
+func wireWithLoadedConfig(dossierHome string, cfg *config.Config, cfgPath string) (*core.Service, *config.Config, error) {
 	if canonical, err := harness.NormalizeOpenWith(cfg.OpenWith); err != nil {
 		return nil, nil, err
 	} else {
 		cfg.OpenWith = canonical
 	}
 
-	// Write default config to disk if not exists
+	// Write default config to disk if not exists. Team onboarding passes a
+	// loaded config with team.remote only in memory and saves it after success.
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-		if err := cfg.SaveDefault(cfgPath); err != nil {
-			return nil, nil, fmt.Errorf("failed to save default config: %w", err)
+		if cfg.Team.Remote == "" {
+			if err := cfg.SaveDefault(cfgPath); err != nil {
+				return nil, nil, fmt.Errorf("failed to save default config: %w", err)
+			}
 		}
 	}
 
@@ -1834,8 +1982,10 @@ func wireWithConfig(dossierHome string) (*core.Service, *config.Config, error) {
 
 	var syncerAdapter core.Syncer
 	if cfg.Team.Remote != "" {
-		auth, err := sync.GetAuth("")
-		if err != nil {
+		auth, authState, err := sync.GetAuth("", cfg.Team.Remote)
+		if errors.Is(err, sync.ErrNoCredentials) {
+			fmt.Fprintf(os.Stderr, "Warning: no credentials found for %s\n", cfg.Team.Remote)
+		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to load credentials: %v\n", err)
 		}
 		gs := sync.New(sync.Config{
@@ -1844,6 +1994,7 @@ func wireWithConfig(dossierHome string) (*core.Service, *config.Config, error) {
 			StoreDir:   dossierHome,
 			Branch:     cfg.Team.Branch,
 			Auth:       auth,
+			AuthState:  authState,
 		})
 		syncerAdapter = sync.NewAdapter(gs)
 	}

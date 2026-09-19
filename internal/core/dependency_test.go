@@ -8,8 +8,9 @@ import (
 )
 
 // TestCorePackageIsPure enforces the Hexagonal Architecture constraint:
-// internal/core MUST NOT import any sibling packages or third-party libraries.
-// It is only allowed to import the Go standard library and its own subpackages (if any).
+// internal/core MUST NOT import I/O-bearing standard-library packages, sibling
+// packages, or third-party libraries. Pure standard-library helpers and
+// internal/core subpackages are allowed.
 func TestCorePackageIsPure(t *testing.T) {
 	cmd := exec.Command("go", "list", "-f", "{{join .Imports \"\\n\"}}", "dossier/internal/core")
 	var stdout, stderr bytes.Buffer
@@ -24,6 +25,11 @@ func TestCorePackageIsPure(t *testing.T) {
 	for _, imp := range imports {
 		imp = strings.TrimSpace(imp)
 		if imp == "" {
+			continue
+		}
+
+		if imp == "os" || strings.HasPrefix(imp, "os/") || imp == "net" || strings.HasPrefix(imp, "net/") {
+			t.Errorf("FORBIDDEN I/O IMPORT IN CORE: %s. Put I/O behind a core port.", imp)
 			continue
 		}
 

@@ -1,6 +1,12 @@
 # TUI Implementation Notes
 
-> Status: implemented and maintained. This document preserves the original build plan and historical decisions for the Bubble Tea TUI; it is not a list of outstanding work.
+> **DOCUMENT STATUS: HISTORICAL IMPLEMENTATION PLAN — COMPLETE; DO NOT TREAT AS OUTSTANDING WORK.**
+>
+> This document preserves the original build plan and historical decisions for
+> the Bubble Tea TUI. For current behavior, remediation status, and supported
+> layout, use `docs/tui.md`. For implementation mechanics, use
+> `BUILD-DECISIONS.md`, `ARCHITECTURE.md`, and `internal/tui/`.
+>
 > Settled decision: `BUILD-DECISIONS.md` **B3** (Rich TUI, Bubble Tea) and **B9** (every relevant operation reachable via CLI and TUI). Implementation lives in `internal/tui/` (`ARCHITECTURE.md` §2, §3).
 > Original author: claude (sibling pane). Original owner: agy.
 

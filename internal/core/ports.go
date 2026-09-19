@@ -56,6 +56,7 @@ type Store interface {
 	WriteConflict(conflict *Conflict) error
 	ReadConflict(conflictID string) (*Conflict, error)
 	ListConflicts() ([]Conflict, error)
+	ResolveConflict(conflictID string, updated *Conflict) error
 
 	// Context library
 	WriteLibraryContext(data LibraryData) error
@@ -67,6 +68,14 @@ type Store interface {
 	EnsureContextAssets() ([]string, error)
 	ReadContextAsset(name string) (string, error)
 	StaleContextAssets() []string
+}
+
+// DossierScanner is an optional bulk-read capability for use-cases that need
+// every Distilled State body. It lets a filesystem store parse each dossier
+// once without forcing the N+1 List-then-Read pattern. The callback keeps
+// bodies streaming rather than retaining the whole store in memory.
+type DossierScanner interface {
+	ScanDossiers(statusFilter string, visit func(*Dossier) error) error
 }
 
 // LibraryDossier represents a dossier summarized in the context library.
@@ -195,15 +204,21 @@ type SyncReport struct {
 	Ahead         int
 	Behind        int
 	Error         string
+	AuthFailed    bool
 }
 
 // SyncStatus is a read-only snapshot.
 type SyncStatus struct {
-	Ahead     int
-	Behind    int
-	LastSync  time.Time
-	Conflicts []SyncConflict
-	Dirty     int
+	Ahead               int
+	Behind              int
+	LastAttempt         time.Time
+	LastSuccessPull     time.Time
+	LastSuccessPush     time.Time
+	LastError           string
+	AuthState           string
+	Conflicts           []SyncConflict
+	UnresolvedConflicts int
+	Dirty               int
 }
 
 // Renamer is the optional atomic rename capability implemented by stores that
@@ -218,6 +233,7 @@ type Renamer interface {
 type Syncer interface {
 	Sync(ctx context.Context) (SyncReport, error)
 	Status(ctx context.Context) (SyncStatus, error)
-	Create(ctx context.Context) error
+	CheckRemoteEmpty(ctx context.Context, url string) error
+	Create(ctx context.Context, url, branch string) error
 	Clone(ctx context.Context, url, dir string, depth int) error
 }

@@ -273,20 +273,22 @@ func (testHarnessRegistry) Get(name string) (core.Harness, error) {
 }
 
 type testStore struct {
-	dossiers  map[string]*core.Dossier
-	bindings  map[string]*core.SessionBinding
-	conflicts map[string]*core.Conflict
-	artifacts map[string][]core.Artifact
-	auditLogs map[string][]core.AuditEvent
+	dossiers          map[string]*core.Dossier
+	bindings          map[string]*core.SessionBinding
+	conflicts         map[string]*core.Conflict
+	resolvedConflicts map[string]*core.Conflict
+	artifacts         map[string][]core.Artifact
+	auditLogs         map[string][]core.AuditEvent
 }
 
 func newTestStore() *testStore {
 	return &testStore{
-		dossiers:  make(map[string]*core.Dossier),
-		bindings:  make(map[string]*core.SessionBinding),
-		conflicts: make(map[string]*core.Conflict),
-		artifacts: make(map[string][]core.Artifact),
-		auditLogs: make(map[string][]core.AuditEvent),
+		dossiers:          make(map[string]*core.Dossier),
+		bindings:          make(map[string]*core.SessionBinding),
+		conflicts:         make(map[string]*core.Conflict),
+		resolvedConflicts: make(map[string]*core.Conflict),
+		artifacts:         make(map[string][]core.Artifact),
+		auditLogs:         make(map[string][]core.AuditEvent),
 	}
 }
 
@@ -420,6 +422,19 @@ func (s *testStore) ListConflicts() ([]core.Conflict, error) {
 		list = append(list, *c)
 	}
 	return list, nil
+}
+
+func (s *testStore) ResolveConflict(id string, updated *core.Conflict) error {
+	conflict, ok := s.conflicts[id]
+	if !ok {
+		return core.NewError(core.ErrNotFound, "conflict not found")
+	}
+	delete(s.conflicts, id)
+	if updated == nil {
+		updated = conflict
+	}
+	s.resolvedConflicts[id] = updated
+	return nil
 }
 
 func (s *testStore) WriteLibraryContext(data core.LibraryData) error { return nil }

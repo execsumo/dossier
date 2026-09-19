@@ -1,12 +1,20 @@
 # Spike Findings — go-git Sync Adapter (Team Sync Phase 2 de-risk)
 
+> **DOCUMENT STATUS: HISTORICAL SPIKE FINDINGS — COMPLETE; NOT CURRENT BEHAVIOR.**
+>
+> Retained for design history and technical rationale. Do not use this file as
+> the current implementation contract or as evidence that the present Team
+> Sync path is fully validated. Use `docs/team-sync-plan.md`, ADR 0005,
+> `BUILD-DECISIONS.md` B12, `SPEC.md`, and `HANDOFF.md` for current status.
+>
 > Date: 2026-07-15 · Branch: `delegate/cline-gitsync-spike` · Package: `internal/sync`
 > Companion: `docs/team-sync-plan.md` (Phase 2), ADR 0005, `BUILD-DECISIONS.md` B12.
 >
-> This is a **spike**: `internal/sync` is self-contained and is NOT wired into
-> `core.Service`, the CLI, or MCP. Everything below is verified by tests in
-> `internal/sync/*_test.go`, all of which run against **local bare repos** (no
-> network, no GitHub).
+> This was a **spike**: at the time of writing, `internal/sync` was
+> self-contained and NOT wired into `core.Service`, the CLI, or MCP. The
+> findings were verified against local bare repositories only (no network, no
+> GitHub). Later implementation work wired and changed this path; the original
+> claims below remain historical findings, not current behavior.
 
 ## TL;DR
 

@@ -63,6 +63,11 @@ const (
 	// person-specific terms for every `## Delegation Contracts` block in the
 	// Distilled State (guide.md §4), derived from core.ParseDelegationContracts.
 	ViewContracts
+	// ViewConflicts lists unresolved sync/merge conflicts and resolves them
+	// through the same Service operation as CLI and MCP.
+	ViewConflicts
+	// ViewHealth is the scrollable full Doctor report opened by H.
+	ViewHealth
 )
 
 // leadFilterKind enumerates the three ways the dashboard can be scoped by lead.
@@ -298,6 +303,18 @@ type artifactContentMsg struct {
 	err         error
 }
 
+type conflictsMsg struct {
+	requestID uint64
+	items     []core.Conflict
+	err       error
+}
+
+type conflictResolvedMsg struct {
+	requestID uint64
+	conflict  core.Conflict
+	err       error
+}
+
 type errMsg error
 
 type dossierUpdatedMsg struct{}
@@ -306,6 +323,15 @@ type watcherErrorMsg struct{ err error }
 type watcherEvent struct {
 	err error
 }
+
+type healthMsg struct {
+	summary  core.HealthSummary
+	report   core.DoctorReport
+	warnings []core.Warning
+	err      error
+}
+
+type healthTickMsg struct{}
 
 func (m *Model) applyResultStatus(warnings []core.Warning, nextActions []core.NextAction) {
 	if len(warnings) == 0 && len(nextActions) == 0 {
@@ -387,16 +413,21 @@ type Model struct {
 	artifactViewport  viewport.Model
 	conflictViewport  viewport.Model
 	contractsViewport viewport.Model
+	healthViewport    viewport.Model
 	width             int
 	height            int
 
 	// Error / Warning tracking. These are the last complete Result envelope
 	// received by the TUI; adapters must not discard non-fatal guidance.
-	err         error
-	warnings    []core.Warning
-	nextActions []core.NextAction
-	watcherErr  error
-	requestSeq  *uint64
+	err             error
+	warnings        []core.Warning
+	nextActions     []core.NextAction
+	watcherErr      error
+	healthSummary   core.HealthSummary
+	healthReady     bool
+	healthLastCheck time.Time
+	healthReport    core.DoctorReport
+	requestSeq      *uint64
 
 	// View state helpers
 	loading        bool
@@ -441,6 +472,8 @@ type Model struct {
 	mergeCursor            int
 	mergeConflict          *core.Conflict
 	conflictResolverCursor int // 0 = Resolve/Force, 1 = Cancel
+	conflicts              []core.Conflict
+	conflictCursor         int
 
 	// Kanban board view state. kanbanColumns is rebuilt by applyFilters — one
 	// bucket per canonical stage, holding the same filtered items the dashboard
@@ -527,6 +560,7 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 	avp := viewport.New(0, 0)
 	cvp := viewport.New(0, 0)
 	dvp := viewport.New(0, 0)
+	hvp := viewport.New(0, 0)
 
 	searchInput := textinput.New()
 	searchInput.Prompt = ""
@@ -588,6 +622,7 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		artifactViewport:     avp,
 		conflictViewport:     cvp,
 		contractsViewport:    dvp,
+		healthViewport:       hvp,
 		loading:              true,
 		searchInput:          searchInput,
 		help:                 helpView,
@@ -705,7 +740,7 @@ func (m *Model) ensureWatch(path string) {
 
 // Init initializes the tea program, triggering initial loads.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.listDossiersCmd(), waitForUpdate(m.updateChan))
+	return tea.Batch(m.listDossiersCmd(), m.healthCmd(), healthTick(), waitForUpdate(m.updateChan))
 }
 
 func (m Model) nextRequestID() uint64 {
@@ -793,6 +828,25 @@ func (m Model) listArtifactsCmd(dossierID string) tea.Cmd {
 
 // readArtifactCmd fetches one artifact's line-numbered content, mirroring
 // `dossier artifact <slug> <artifact-id>`.
+func (m Model) conflictsCmd() tea.Cmd {
+	requestID := m.nextRequestID()
+	return func() tea.Msg {
+		items, err := m.svc.ListConflicts(context.Background())
+		return conflictsMsg{requestID: requestID, items: items, err: err}
+	}
+}
+
+func (m Model) resolveConflictCmd(conflict core.Conflict, choice string) tea.Cmd {
+	requestID := m.nextRequestID()
+	return func() tea.Msg {
+		_, err := m.svc.ResolveConflict(context.Background(), core.ResolveConflictReq{
+			ConflictID: conflict.ID,
+			Choice:     choice,
+		})
+		return conflictResolvedMsg{requestID: requestID, conflict: conflict, err: err}
+	}
+}
+
 func (m Model) readArtifactCmd(dossierID, artifactID string) tea.Cmd {
 	requestID := m.nextRequestID()
 	return func() tea.Msg {
@@ -1700,6 +1754,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.contractsViewport, cmd = m.contractsViewport.Update(msg)
 			return m, cmd
 
+		case ViewConflicts:
+			switch msg.String() {
+			case "esc":
+				m.popOverlay()
+				return m, nil
+			case "up", "k":
+				if len(m.conflicts) > 0 {
+					m.conflictCursor = (m.conflictCursor - 1 + len(m.conflicts)) % len(m.conflicts)
+				}
+				return m, nil
+			case "down", "j":
+				if len(m.conflicts) > 0 {
+					m.conflictCursor = (m.conflictCursor + 1) % len(m.conflicts)
+				}
+				return m, nil
+			case "1", "2", "3":
+				if len(m.conflicts) == 0 || m.conflictCursor >= len(m.conflicts) {
+					return m, nil
+				}
+				choices := map[string]string{"1": core.ConflictChoiceKeepShared, "2": core.ConflictChoiceRestoreMine, "3": core.ConflictChoiceKeepBoth}
+				m.loading = true
+				m.err = nil
+				return m, m.resolveConflictCmd(m.conflicts[m.conflictCursor], choices[msg.String()])
+			}
+			return m, nil
+
+		case ViewHealth:
+			if msg.String() == "esc" {
+				m.popOverlay()
+				return m, nil
+			}
+			m.healthViewport, cmd = m.healthViewport.Update(msg)
+			return m, cmd
+
 		case ViewEdit:
 			return m.updateEditor(msg)
 		case ViewRenameSlug:
@@ -1710,6 +1798,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "H":
+			if m.isListView() || m.currentView == ViewDetail {
+				m.openHealth()
+				return m, nil
+			}
 		case "ctrl+r":
 			m.loading = true
 			m.err = nil
@@ -1791,6 +1884,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.openInAgent(t)
 				}
 			}
+		case "x":
+			if m.isListView() || m.currentView == ViewDetail {
+				m.loading = true
+				m.err = nil
+				m.pushOverlay(ViewConflicts)
+				return m, m.conflictsCmd()
+			}
 		case "a":
 			if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
 				m.loading = true
@@ -1866,6 +1966,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.recalculateArtifactViewportLayout()
 		m.recalculateConflictViewportLayout()
 		m.recalculateContractsViewportLayout()
+		m.recalculateHealthViewportLayout()
 
 		// Re-render cached content even when its view is hidden. A resize in the
 		// artifact browser must not leave the detail view wrapped to the old width
@@ -2031,6 +2132,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil
 		}
 
+	case conflictsMsg:
+		if !m.acceptsRequest(msg.requestID) {
+			return m, nil
+		}
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.conflicts = msg.items
+		m.conflictCursor = 0
+		m.err = nil
+
+	case conflictResolvedMsg:
+		if !m.acceptsRequest(msg.requestID) {
+			return m, nil
+		}
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.err = nil
+		cmds = append(cmds, m.conflictsCmd(), m.listDossiersCmd())
+		if m.recallResult.Frontmatter.ID == msg.conflict.DossierID {
+			cmds = append(cmds, m.recallDossierCmd(msg.conflict.DossierID))
+		}
+
 	case linkResultMsg:
 		if !m.acceptsRequest(msg.requestID) {
 			return m, nil
@@ -2178,8 +2307,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.watcherErr = msg.err
 
+	case healthMsg:
+		m.healthLastCheck = time.Now()
+		if msg.err != nil {
+			m.warnings = append(m.warnings, core.Warning("health check: "+msg.err.Error()))
+			break
+		}
+		m.healthReady = true
+		m.healthSummary = msg.summary
+		m.healthReport = msg.report
+		m.healthViewport.SetContent(renderDoctorReport(m.healthSummary, m.healthReport))
+		m.recalculateHealthViewportLayout()
+		m.applyResultStatus(msg.warnings, nil)
+
+	case healthTickMsg:
+		m.healthLastCheck = time.Now()
+		cmds = append(cmds, m.healthCmd(), healthTick())
+
 	case dossierUpdatedMsg:
 		cmds = append(cmds, waitForUpdate(m.updateChan))
+		if time.Since(m.healthLastCheck) >= time.Minute {
+			m.healthLastCheck = time.Now()
+			cmds = append(cmds, m.healthCmd())
+		}
 		if m.recallResult.Frontmatter.ID != "" &&
 			(m.currentView == ViewDetail || (m.hasOverlay() && m.overlayBase == ViewDetail)) {
 			m.loading = true
@@ -2195,6 +2345,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	} else if m.currentView == ViewDetail {
 		m.viewport, cmd = m.viewport.Update(msg)
+		cmds = append(cmds, cmd)
+	} else if m.currentView == ViewHealth {
+		m.healthViewport, cmd = m.healthViewport.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -2466,6 +2619,16 @@ func (m *Model) recalculateContractsViewportLayout() {
 	if m.contractsViewport.Height < 3 {
 		m.contractsViewport.Height = 3
 	}
+}
+
+// recalculateHealthViewportLayout fits the Doctor report inside its overlay.
+func (m *Model) recalculateHealthViewportLayout() {
+	m.healthViewport.Width = m.width - 6
+	m.healthViewport.Height = m.height - 17
+	if m.healthViewport.Height < 3 {
+		m.healthViewport.Height = 3
+	}
+	m.healthViewport.SetYOffset(m.healthViewport.YOffset)
 }
 
 // openContracts re-parses the currently recalled dossier's Distilled State for
@@ -2826,18 +2989,19 @@ func (m Model) statusLines() []string {
 
 func (m Model) footerContent(v View) string {
 	var footerParts []string
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	contentWidth := width
+	if contentWidth > 2 {
+		contentWidth -= 2
+	}
+	footerParts = append(footerParts, truncateHealthLine(m.healthFooterLine(), contentWidth))
 	if warnings := m.footerWarnings(); warnings != "" {
 		footerParts = append(footerParts, warnings)
 	}
 
-	w := m.width
-	if w <= 0 {
-		w = 80
-	}
-	contentWidth := w
-	if contentWidth > 2 {
-		contentWidth -= 2
-	}
 	m.help.Width = contentWidth
 	if m.searchActive && m.isListView() {
 		footerParts = append(footerParts, m.help.View(m.searchHelpKeyMap()))

@@ -59,7 +59,7 @@ func TestService_TeamCreateJoin_RoundTrip(t *testing.T) {
 	if _, err := svcA.Promote(ctx, core.PromoteReq{Name: "Pricing model", DistilledStateMarkdown: "Alice notes"}); err != nil {
 		t.Fatalf("A promote: %v", err)
 	}
-	if _, err := svcA.TeamCreate(ctx, core.TeamCreateReq{RemoteURL: remoteDir, Branch: "main"}); err != nil {
+	if _, err := svcA.TeamCreate(ctx, core.TeamCreateReq{RemoteURL: remoteDir, Branch: "main", Confirmed: true}); err != nil {
 		t.Fatalf("team create: %v", err)
 	}
 	// The remote must now carry A's dossier.

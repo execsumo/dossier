@@ -404,7 +404,7 @@ v1 supports **Claude Code and Pi.** Claude Code provides the full capability set
 - Raw transcript capture works.
 
 **Pi does not provide that set natively** (verified against Pi 0.83.0, extended
-2026-09-09 against 0.85.1; ADR 0005). Pi has no built-in MCP client, its
+2026-09-09 against 0.85.1; ADR 0009). Pi has no built-in MCP client, its
 `PI_SESSION_ID`/`PI_SESSION_FILE` reach bash-tool children only, and it exposes
 in-process extension *events* rather than out-of-process hooks. Dossier
 therefore installs its own Pi extension (`assets/pi-extension.ts` → `<pi agent
@@ -466,8 +466,10 @@ dossier recall <slug-or-id> [--json]
 dossier search <query> [--dossier <slug-or-id>] [--json]
 dossier artifact <slug-or-id> [<artifact-id>] [-L <a-b>] [--json]
 dossier sync [--status] [--json]
-dossier team create <url> [--json]
+dossier team create <url> [--yes] [--json]
 dossier team join <url> [--json]
+dossier conflicts [--json]
+dossier resolve <conflict-id> (--keep-shared|--restore-mine|--keep-both) [--json]
 dossier status <slug-or-id> <spark|define|execute|review|blocked|done>
 dossier lead <slug-or-id> "<lead-name>"
 dossier description <slug-or-id> "<summary>"
@@ -551,28 +553,49 @@ dossier doctor
 `dossier sync` (Team Sync — implemented)
 
 - Pulls, resolves, commits, and pushes to the configured team remote.
-- With `--status`: reports unpushed commits, diverged remote, or stale credentials without modifying state.
+- Exits non-zero and never prints "successful" when any network step failed; the message names the failure and says the local commit is kept for the next sync. "Pushed local changes" is printed only when a push actually sent commits.
+- Credentials rejected by the remote (HTTP 401/403), a credentials file with a mode other than `0600`, or no credentials at all for an `http(s)` remote return `sync_auth_failed` with the next step (write a fine-grained token to `~/.dossier/credentials` with mode `0600`, or `gh auth login`). Conflicts written in the same run are still announced.
+- Every command wired to an `http(s)` team remote warns once on stderr when no credentials were found. Local-path remotes need none.
+- With `--status`: reads without modifying state. Prints the `Health:` line (see `dossier doctor`), then last attempt, last successful pull, last successful push, last error, auth state (`file`, `gh`, `none`, `missing`, `rejected`, `error`), ahead/behind (remote fetch bounded to 5 s; unknown degrades to 0), uncommitted changes, and unresolved conflicts counted from `conflicts/` files (not from the last run).
+- `--status --json` returns `{summary, doctor}` (the health summary and the full doctor report).
+- Sync state lives in machine-local `.syncstate.json`. A failed attempt advances only `last_attempt` and `last_error`.
 - Supports `--json` output for MCP/TUI wrappers.
-- Failure modes degrade visibly: network offline, expired/invalid auth, and oversized artifacts (>100 MB) return explicit surfaced warnings, never silent failures.
+- Oversized artifacts (>100 MB) are excluded with a warning on the run that saw them.
 
 `dossier team create <url>` (Team Sync — implemented)
 
 - Initializes and pushes the existing store to an empty private repo.
-- Validates the target repo is empty.
-- Writes `team.remote` to config.
+- Validates the target repo is empty before any local change: a remote with any refs is refused ("not empty") and nothing changes locally or remotely.
+- Lists every Dossier that will be published, archived ones included, warns that everything in the store directory syncs, and asks for confirmation. `--yes` skips the prompt; non-interactive input without `--yes` is refused.
+- Writes `team.remote` to config only after the push succeeded. A failed create moves the `.git/` it made (and a `.gitignore` it created) to a sibling `<DOSSIER_HOME>.failed-create-<UTC>/` directory, so a retry starts clean. Nothing is deleted.
 - Supports `--json`.
 
 `dossier team join <url>` (Team Sync — implemented)
 
 - Clones the team repo into `DOSSIER_HOME`.
-- Refuses to clobber a non-empty unsynced store (requires merge-adopt flow with confirmation).
-- Confirms `author` identity.
-- Prompts for and stores a GitHub PAT.
+- Refuses to clobber a non-empty unsynced store. *Not implemented:* the merge-adopt flow with confirmation.
+- Refuses a remote whose default branch is not `main`, naming the branch.
+- Writes `team.remote` to config only after the clone succeeded. A failed join moves whatever it created into a sibling `<DOSSIER_HOME>.failed-join-<UTC>/` directory, leaving pre-existing `config.yaml`/`.gitignore` in place, so a retry succeeds. Nothing is deleted.
+- *Not implemented (2026-09-18):* author confirmation and a PAT prompt. Credentials must pre-exist at `$HOME/.dossier/credentials` (mode `0600`; the path ignores `DOSSIER_HOME`) or come from `gh auth token`; see `dossier sync` for how their absence is reported.
 - Runs capability detect and hook install (existing `init` path).
 - Supports `--json`.
 
+`dossier conflicts` / `dossier resolve` (P0-5, 2026-09-18)
+
+- `conflicts` lists unresolved conflicts (id, Dossier id, kind, timestamp) across the store: sync conflicts (`sync_concurrent_edit`) and local concurrent-edit conflicts alike.
+- `resolve <conflict-id>` requires exactly one choice:
+  - `--keep-shared`: the current `dossier.md` stays as it is.
+  - `--restore-mine`: the conflict's preserved proposal becomes the Distilled State, as a new revision saved through the normal write path with the current revision as base (never a raw overwrite).
+  - `--keep-both`: a new revision whose body is the current body, then `## Unresolved disagreement (conflict <id>)`, a line saying when the version was preserved and asking the reader to reconcile and remove the section, then the preserved proposal.
+- Every resolution moves `<slug>/conflicts/<id>.md` to `<slug>/conflicts/resolved/<id>.md` and adds `resolved_at`, `resolved_by` and `choice` to its frontmatter. Nothing is deleted. Resolved conflicts are not listed, counted, or reported by `doctor`.
+- Appends a `conflict_resolved` audit event with the author, the choice, and the before/after revisions.
+- An unknown or already-resolved id returns `not_found`; a conflict whose Dossier no longer exists returns `not_found` and moves nothing; an invalid choice returns `invalid_frontmatter` before anything is read.
+- Sync conflict files store the rejected proposal as Distilled State Markdown (the `dossier.md` frontmatter envelope is removed; the full local file stays in the sync history).
+- The TUI offers the same operation: `x` on the dashboard or a detail view opens the conflicts overlay, and `1`/`2`/`3` choose keep shared / restore mine / keep both.
+
 `dossier doctor`
 
+- Prints a one-line `Health:` summary first. It is computed in core (`Service.Health`) from the same data as the rest of the report, and is the same text as the TUI health footer and `dossier sync --status`, e.g. `Team sync · synced 3m ago · 1 local change · 1 conflict · 2 issues`, `Team sync · last sync failed 18m ago · work is safe locally`, `Team sync · no credentials found`, or without Team Sync `Store · healthy` / `Store · 2 issues`. Unresolved conflicts are counted once, not again as issues.
 - Validates store integrity.
 - Checks YAML frontmatter.
 - Checks missing artifact links.
@@ -602,6 +625,10 @@ Required tools:
 - `dossier_session`
 - `dossier_update`
 - `dossier_rename`
+- `dossier_conflicts`
+- `dossier_resolve_conflict`
+
+> **Note on `dossier_conflicts` / `dossier_resolve_conflict` (P0-5):** `dossier_conflicts` takes no arguments and returns the unresolved conflicts. `dossier_resolve_conflict` takes `conflict_id` and `choice` (`keep_shared`, `restore_mine`, `keep_both`) and behaves exactly as `dossier resolve`; it returns the resulting revision. Error codes: `not_found`, `invalid_frontmatter`, `concurrent_edit`.
 
 > **Note on `dossier_artifact`:** it takes `dossier_id` + `artifact_id`, and optionally either a `fragment` (a citation fragment such as `"L42-L68"`) or `start_line`/`end_line`. Content is returned with absolute 1-indexed line numbers, so the span read is the span cited. An unranged fetch returns the whole artifact and warns past 500 lines rather than truncating. `dossier_artifacts` returns the same evidence index that `dossier_recall` now carries in `artifacts[]`: one entry per archived artifact with its type, line count, and whether the Distilled State cites it.
 
@@ -1134,13 +1161,21 @@ Checks:
 
 ### 14.11 Team Sync
 
-> Status (2026-07-16): implemented and integrated; all criteria are covered by automated tests against local bare repos (internal/sync, internal/cli) EXCEPT the "exactly two commands and one sign-in" PAT onboarding, which remains pending the Phase 4 real-GitHub pilot.
+> Status (2026-09-18): convergence, remote-wins conflict capture, oversized exclusion and machine-local exclusion are covered by tests against local bare repos. The P0 fixes (review `docs/team-adoption-plan-review.md` §6) add tested criteria below. Not met: two-command/one-sign-in onboarding (no auth prompt); visible warnings on background sync (hook and MCP results are still discarded; the TUI health footer is the surface); persistent oversized-file warning (per-run only). Never exercised against live GitHub (validation Part D).
 - Two stores converge through one remote.
 - Concurrent `dossier.md` edit yields exactly one `conflicts/*.md` (`kind: sync_concurrent_edit`) on the later syncer with no content lost anywhere.
 - Save never blocks on network (offline save succeeds, push retries later with a visible warning).
 - Machine-local files (`config.yaml`, credentials, root `sessions/`, `context/`) never appear in the remote.
 - >100 MB artifacts excluded from sync with a persistent visible warning.
-- `team join` onboarding completes with exactly two commands and one sign-in.
+- `team join` onboarding completes with exactly two commands and one sign-in. *(Not met.)*
+- `team create` refuses a non-empty remote and leaves it unchanged; it lists every Dossier (archived included) before publishing; declining leaves no `.git/` and no `team.remote`.
+- A failed `team create` or `team join` can be retried without manual cleanup; what it created is moved aside, not deleted.
+- An unreachable remote makes `dossier sync` exit non-zero without "successful", and leaves `last_success_pull`/`last_success_push` unchanged; a no-op push reports `Pushed=false`.
+- The unresolved-conflict count survives a later clean sync, and `doctor`'s Team Sync block agrees with its issue list.
+- Missing credentials for an `http(s)` remote warn explicitly; 401/403 returns `sync_auth_failed` with a next step.
+- A conflict can be resolved (keep shared / restore mine / keep both) through CLI, MCP and TUI with the same result; the file moves to `conflicts/resolved/`, the audit log records who and how, and `doctor` stops reporting it.
+- Promote's byte-preserved raw JSONL artifact (`art_<n>_raw.*`, thinking included) never reaches the remote (`*/artifacts/*_raw.*` is gitignored); the compiled transcript does; a clone without the raw file has no `doctor` issue for it.
+- The TUI shows a health footer computed in core, refreshed asynchronously (start, store changes at most once a minute, and a one-minute tick) with a bounded remote check, so an unreachable remote never blocks the first render; `H` opens the full doctor report; the footer text equals the CLI `Health:` line for the same store.
 
 ### 14.12 First-class Rename
 

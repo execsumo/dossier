@@ -89,15 +89,31 @@ func (s *FSStore) Init() error {
 
 // List scans the store for Dossier frontmatters.
 func (s *FSStore) List(statusFilter string) ([]core.ListedFrontmatter, error) {
+	var list []core.ListedFrontmatter
+	err := s.walkDossiers(statusFilter, false, func(_ string, dirPath string, fm *core.Frontmatter, body string) error {
+		artifacts, _ := s.listArtifactsInternal(fm.ID, dirPath)
+		list = append(list, core.ListedFrontmatter{
+			Frontmatter:               *fm,
+			Revision:                  core.CalculateRevision(*fm, body, artifacts),
+			HasOpenDelegationContract: core.HasOpenDelegationContract(body),
+		})
+		return nil
+	})
+	return list, err
+}
+
+// walkDossiers owns the root traversal, parsing, and status policy shared by
+// metadata listing and streaming full-state scans. Strict scans surface a bad
+// dossier because silently skipping it would weaken Promote's ambiguity check;
+// List retains its compatibility behavior of omitting malformed entries.
+func (s *FSStore) walkDossiers(statusFilter string, strict bool, visit func(name, dirPath string, fm *core.Frontmatter, body string) error) error {
 	entries, err := os.ReadDir(s.dossierHome)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil
 		}
-		return nil, err
+		return err
 	}
-
-	var list []core.ListedFrontmatter
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -111,27 +127,39 @@ func (s *FSStore) List(statusFilter string) ([]core.ListedFrontmatter, error) {
 		dossierPath := filepath.Join(dirPath, "dossier.md")
 		data, err := os.ReadFile(dossierPath)
 		if err != nil {
+			if strict {
+				return fmt.Errorf("scan dossier %s: %w", name, err)
+			}
 			continue
 		}
 
-		// The full file (frontmatter and body) is already read and parsed here
-		// just to extract fm, so deriving the open-delegation-ask signal from
-		// the same body costs no extra I/O over a second pass.
 		fm, body, err := ParseDossierFile(string(data))
 		if err != nil {
+			if strict {
+				return fmt.Errorf("scan dossier %s: %w", name, err)
+			}
 			continue
 		}
-		artifacts, _ := s.listArtifactsInternal(fm.ID, dirPath)
-
-		if statusFilter == "all" || string(fm.Status) == statusFilter || fm.Status == core.NormalizeStatus(core.Status(statusFilter)) {
-			list = append(list, core.ListedFrontmatter{
-				Frontmatter:               *fm,
-				Revision:                  core.CalculateRevision(*fm, body, artifacts),
-				HasOpenDelegationContract: core.HasOpenDelegationContract(body),
-			})
+		if statusFilter != "all" && string(fm.Status) != statusFilter && fm.Status != core.NormalizeStatus(core.Status(statusFilter)) {
+			continue
+		}
+		if err := visit(name, dirPath, fm, body); err != nil {
+			return err
 		}
 	}
-	return list, nil
+	return nil
+}
+
+// ScanDossiers implements core.DossierScanner for use-cases that need every
+// body. Each dossier file is read and parsed once, avoiding List followed by a
+// second Read of every candidate.
+func (s *FSStore) ScanDossiers(statusFilter string, visit func(*core.Dossier) error) error {
+	return s.walkDossiers(statusFilter, true, func(_ string, _ string, fm *core.Frontmatter, body string) error {
+		return visit(&core.Dossier{
+			Frontmatter:    *fm,
+			DistilledState: core.DistilledState{Body: body},
+		})
+	})
 }
 
 // Read reads a Dossier and its current Revision.
@@ -1025,6 +1053,50 @@ func (s *FSStore) ListConflicts() ([]core.Conflict, error) {
 	return list, nil
 }
 
+// ResolveConflict moves an active conflict into the resolved archive and then
+// rewrites its frontmatter with the resolution metadata. The rename happens
+// first so the original active conflict is never deleted or overwritten.
+func (s *FSStore) ResolveConflict(conflictID string, updated *core.Conflict) error {
+	if conflictID == "" || filepath.Base(conflictID) != conflictID {
+		return core.NewError(core.ErrNotFound, fmt.Sprintf("conflict %q not found", conflictID))
+	}
+	lock, err := s.lockDossier(updated.DossierID)
+	if err != nil {
+		return fmt.Errorf("failed to acquire dossier lock: %w", err)
+	}
+	defer lock.Unlock()
+
+	dossierDir, err := s.findDossierDir(updated.DossierID)
+	if err != nil {
+		return err
+	}
+	conflictsDir := filepath.Join(dossierDir, "conflicts")
+	activePath := filepath.Join(conflictsDir, conflictID+".md")
+	if _, err := os.Stat(activePath); err != nil {
+		if os.IsNotExist(err) {
+			return core.NewError(core.ErrNotFound, fmt.Sprintf("conflict %q not found", conflictID))
+		}
+		return err
+	}
+
+	resolvedDir := filepath.Join(conflictsDir, "resolved")
+	if err := os.MkdirAll(resolvedDir, 0755); err != nil {
+		return err
+	}
+	resolvedPath := filepath.Join(resolvedDir, conflictID+".md")
+	if err := os.Rename(activePath, resolvedPath); err != nil {
+		return fmt.Errorf("archive conflict %q: %w", conflictID, err)
+	}
+	serialized, err := formatConflictFile(updated)
+	if err != nil {
+		return fmt.Errorf("format resolved conflict %q: %w", conflictID, err)
+	}
+	if err := os.WriteFile(resolvedPath, []byte(serialized), 0644); err != nil {
+		return fmt.Errorf("write resolved conflict %q: %w", conflictID, err)
+	}
+	return nil
+}
+
 // Private helper methods
 
 func slugMatches(fm *core.Frontmatter, value string) bool {
@@ -1361,14 +1433,15 @@ func parseConflictFile(content string) (*core.Conflict, error) {
 		return nil, err
 	}
 
-	subparts := strings.Split(body, "## Diff against current")
-	if len(subparts) > 1 {
-		c.DiffAgainstCurrent = strings.TrimSpace(subparts[1])
-		proposalPart := subparts[0]
-		proposalPart = strings.TrimPrefix(proposalPart, "## Rejected proposal\n")
-		c.RejectedBody = strings.TrimSpace(proposalPart)
+	body = strings.TrimPrefix(body, "\n")
+	const proposalHeading = "## Rejected proposal\n"
+	body = strings.TrimPrefix(body, proposalHeading)
+	const diffHeading = "\n\n## Diff against current"
+	if diffIdx := strings.Index(body, diffHeading); diffIdx >= 0 {
+		c.RejectedBody = body[:diffIdx]
+		c.DiffAgainstCurrent = strings.TrimPrefix(body[diffIdx+len(diffHeading):], "\n")
 	} else {
-		c.RejectedBody = strings.TrimSpace(body)
+		c.RejectedBody = body
 	}
 
 	return &c, nil

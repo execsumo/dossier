@@ -3,6 +3,18 @@
 > Date: 2026-07-15 · Branch: `team-sync` · Decision: [ADR 0005](adr/0005-team-sync-via-github.md), `BUILD-DECISIONS.md` B12.
 > Status tracking lives in `HANDOFF.md` ("Current initiative"). Update both as phases land.
 
+> **Status: historical implementation plan, partly delivered (review 2026-09-18).** Phases 1–3 are merged to `main` (`73683e8`), with the Phase 4 docs and test items. Phase 4's live-GitHub drill and pilot have not happened. Do not read the steps below as a description of current behavior. These items were planned but **not built**, checked against code:
+>
+> - Phase 2 §4: `sync_auth_failed` warning and "exact re-auth command". Neither exists; auth failures surface as a generic `Sync network error`.
+> - Phase 3 §1: "validates it's empty". `team create` has no empty check and publishes the whole existing store (`internal/sync/sync.go:58-99`; dogfood).
+> - Phase 3 §2: merge-adopt flow, `author` confirmation, PAT prompt/store. None exist (`internal/cli/cli.go:1606-1650`).
+> - Phase 3 §3: "pull-before-Recall, commit+push-after-Save". Built only for the session hooks and MCP `dossier_recall`/`dossier_save`/`dossier_rename`. Not built for CLI or TUI.
+> - Phase 3 §3: "failures degrade to warnings". Background results are discarded (`_, _ =`); see HANDOFF D8.
+> - Phase 3 §4: TUI footer and `dossier_list` sync-warning slot. Not built; `doctor` is the only surface.
+> - Non-negotiable "Degrade visibly: … auth-expired … surfaced warnings". Not met on background paths.
+>
+> Current defects and the fix order: [`team-adoption-plan-review.md`](team-adoption-plan-review.md) §6.
+
 ## Goal
 
 Multiple colleagues' Claude Code sessions contribute to one shared Dossier store. Session captures are stashed per-dossier so nothing is lost. Transport is a private GitHub repo **fully hidden behind the Dossier binary** (embedded go-git). Colleague experience: install binary → `dossier team join <url>` → sign in once → it just works.
