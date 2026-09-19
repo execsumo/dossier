@@ -233,6 +233,9 @@ against a colleague appears on *their* list, and their answer appears on yours â
 is still the committed direction, deliberately sequenced late so the model is
 validated by real use before distribution is layered on top. See `VISION.md`
 Â§Layer 5.
+Creating a team store publishes every Dossier already in the store, archived
+ones included, to everyone with access to the repo. Dossier lists them and asks
+before it pushes. Anything not team-safe must be moved out of the store first.
 
 **Can I delete a Dossier?**
 Not through Dossier. You can archive it, which hides it from default views while

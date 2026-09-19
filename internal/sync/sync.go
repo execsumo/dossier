@@ -62,6 +62,10 @@ func (g *GitSync) Clone(ctx context.Context, url, dir string, depth int) error {
 	if err := EnsureGitignore(dir); err != nil {
 		return fmt.Errorf("sync clone %s: %w", url, moveFailedJoin(dir, existing, err))
 	}
+	// A clone is a successful pull; without this, health reads "never synced"
+	// right after a join.
+	now := time.Now()
+	saveState(dir, syncState{LastAttempt: now, LastSuccessPull: now, AuthState: g.cfg.AuthState})
 	return nil
 }
 
