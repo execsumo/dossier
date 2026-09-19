@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -79,7 +80,7 @@ func setupPair(t *testing.T) (bareDir, storeA, storeB string) {
 	storeB = filepath.Join(t.TempDir(), "storeB")
 	for _, dir := range []string{storeA, storeB} {
 		g := New(Config{StoreDir: dir, RemoteURL: bareDir, Branch: "main"})
-		if err := g.Clone(bareDir, dir, 0); err != nil {
+		if err := g.Clone(context.Background(), bareDir, dir, 0); err != nil {
 			t.Fatalf("clone %s: %v", dir, err)
 		}
 	}

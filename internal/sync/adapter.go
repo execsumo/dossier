@@ -87,12 +87,17 @@ func (a *Adapter) Status(ctx context.Context) (core.SyncStatus, error) {
 	}, nil
 }
 
+// CheckRemoteEmpty implements core.Syncer.
+func (a *Adapter) CheckRemoteEmpty(ctx context.Context, url string) error {
+	return a.gs.CheckRemoteEmpty(ctx, url)
+}
+
 // Create implements core.Syncer.
-func (a *Adapter) Create(ctx context.Context) error {
-	return a.gs.Create(ctx)
+func (a *Adapter) Create(ctx context.Context, url, branch string) error {
+	return a.gs.Create(ctx, url, branch)
 }
 
 // Clone implements core.Syncer.
 func (a *Adapter) Clone(ctx context.Context, url, dir string, depth int) error {
-	return a.gs.Clone(url, dir, depth)
+	return a.gs.Clone(ctx, url, dir, depth)
 }
