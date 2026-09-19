@@ -52,6 +52,7 @@ func (a *Adapter) Sync(ctx context.Context) (core.SyncReport, error) {
 		Ahead:         report.Ahead,
 		Behind:        report.Behind,
 		Error:         report.Error,
+		AuthFailed:    report.AuthFailed,
 	}, nil
 }
 

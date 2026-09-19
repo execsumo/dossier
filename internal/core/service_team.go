@@ -88,14 +88,8 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 	}
 
 	var warnings []Warning
-	isAuthErr := func(msg string) bool {
-		return strings.Contains(msg, "authentication required") || strings.Contains(msg, "authorization failed") || strings.Contains(msg, "insecure permissions")
-	}
 
 	if report.Error != "" {
-		if isAuthErr(report.Error) {
-			return Result{OK: false}, NewError(ErrSyncAuthFailed, "GitHub rejected the token. Create a fine-grained token with Contents read/write on <repo>, write it to ~/.dossier/credentials (chmod 600), or run `gh auth login`, then `dossier sync`.")
-		}
 		warnings = append(warnings, Warning(fmt.Sprintf("Sync network error: %s", report.Error)))
 	}
 
@@ -150,6 +144,11 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 		} else {
 			warnings = append(warnings, Warning(fmt.Sprintf("failed to write conflict for %s: %v", conf.Path, writeErr)))
 		}
+	}
+
+	if report.AuthFailed {
+		errMsg := fmt.Sprintf("GitHub rejected the token. Create a fine-grained token with Contents read/write on %s, write it to ~/.dossier/credentials (chmod 600), or run `gh auth login`, then `dossier sync`.", s.cfg.TeamRemote)
+		return Result{OK: false, Data: report, Warnings: warnings}, NewError(ErrSyncAuthFailed, errMsg)
 	}
 
 	return Result{

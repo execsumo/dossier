@@ -201,5 +201,6 @@ func (c *Config) ToCoreConfig() core.Config {
 		Interfaces:  append([]string{}, c.Interfaces...),
 		Leads:       append([]string{}, c.Leads...),
 		TokenLimit:  c.TokenLimit,
+		TeamRemote:  c.Team.Remote,
 	}
 }

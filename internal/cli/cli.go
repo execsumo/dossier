@@ -266,11 +266,13 @@ func NewRootCmd() *cobra.Command {
 				if report.SyncConfigured {
 					fmt.Println("\nTeam Sync Status:")
 					if report.SyncStatus != nil {
-						lastSync := report.SyncStatus.LastSync.Format(time.RFC3339)
-						if report.SyncStatus.LastSync.IsZero() {
-							lastSync = "never"
+						fmt.Printf("  Last attempt: %s\n", formatTime(report.SyncStatus.LastAttempt))
+						fmt.Printf("  Last pull: %s\n", formatTime(report.SyncStatus.LastSuccessPull))
+						fmt.Printf("  Last push: %s\n", formatTime(report.SyncStatus.LastSuccessPush))
+						if report.SyncStatus.LastError != "" {
+							fmt.Printf("  Last error: %s\n", report.SyncStatus.LastError)
 						}
-						fmt.Printf("  Last sync: %s\n", lastSync)
+						fmt.Printf("  Auth state: %s\n", report.SyncStatus.AuthState)
 						fmt.Printf("  Ahead: %d, Behind: %d\n", report.SyncStatus.Ahead, report.SyncStatus.Behind)
 						fmt.Printf("  Unresolved conflicts: %d\n", report.SyncStatus.ConflictsFound)
 					} else {
@@ -1531,12 +1533,19 @@ func NewRootCmd() *cobra.Command {
 					printJSON(map[string]any{"ok": false, "error": err.Error()})
 					os.Exit(1)
 				}
-				fmt.Printf("Sync failed: %v\n", err)
+				errStr := err.Error()
+				if dErr, ok := err.(*core.DomainError); ok {
+					errStr = dErr.Error()
+				}
+				fmt.Printf("Sync failed: %v\n", errStr)
 				os.Exit(1)
 			}
 
 			if jsonFlag {
 				printJSON(res)
+				if !res.OK {
+					os.Exit(1)
+				}
 				return
 			}
 
@@ -1545,6 +1554,15 @@ func NewRootCmd() *cobra.Command {
 			}
 
 			report := res.Data.(core.SyncReport)
+			if !res.OK || report.Error != "" {
+				errMsg := report.Error
+				if errMsg == "" {
+					errMsg = "unknown error"
+				}
+				fmt.Printf("Sync failed: %s. Your changes are committed locally and will be sent on the next successful sync.\n", errMsg)
+				os.Exit(1)
+			}
+
 			fmt.Println("Sync successful")
 			if report.Pulled {
 				fmt.Println("- Pulled remote changes")

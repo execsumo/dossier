@@ -91,7 +91,13 @@ func (g *GitSync) Status(ctx context.Context) (SyncStatus, error) {
 	st.LastSuccessPull = s.LastSuccessPull
 	st.LastSuccessPush = s.LastSuccessPush
 	st.LastError = s.LastError
-	st.AuthState = s.AuthState
+	if s.AuthState == "rejected" {
+		st.AuthState = "rejected"
+	} else if g.cfg.AuthState != "" {
+		st.AuthState = g.cfg.AuthState
+	} else {
+		st.AuthState = s.AuthState
+	}
 	st.Conflicts = s.Conflicts
 	return st, nil
 }

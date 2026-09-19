@@ -74,6 +74,8 @@ type SyncReport struct {
 	// the local commit still landed but the remote could not be reached. "" on
 	// success.
 	Error string
+	// AuthFailed is true if the error was a 401/403 or missing credentials.
+	AuthFailed bool
 }
 
 // ConflictRecord captures a both-modified file: remote content wins the working

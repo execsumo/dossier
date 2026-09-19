@@ -203,6 +203,7 @@ type SyncReport struct {
 	Ahead         int
 	Behind        int
 	Error         string
+	AuthFailed    bool
 }
 
 // SyncStatus is a read-only snapshot.

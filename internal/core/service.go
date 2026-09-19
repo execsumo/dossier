@@ -19,6 +19,7 @@ type Config struct {
 	Interfaces  []string
 	Leads       []string
 	TokenLimit  int
+	TeamRemote  string
 }
 
 // Service orchestrates Dossier domain use-cases over the port interfaces.
@@ -90,12 +91,17 @@ type ListItem struct {
 	HasOpenDelegationContract bool `json:"has_open_delegation_contract"`
 }
 
+// SyncStatusData summarizes the team sync snapshot.
 type SyncStatusData struct {
-	Ahead          int       `json:"ahead"`
-	Behind         int       `json:"behind"`
-	LastSync       time.Time `json:"last_sync"`
-	Dirty          int       `json:"dirty"`
-	ConflictsFound int       `json:"conflicts_found"`
+	Ahead           int       `json:"ahead"`
+	Behind          int       `json:"behind"`
+	LastAttempt     time.Time `json:"last_attempt"`
+	LastSuccessPull time.Time `json:"last_success_pull"`
+	LastSuccessPush time.Time `json:"last_success_push"`
+	LastError       string    `json:"last_error,omitempty"`
+	AuthState       string    `json:"auth_state"`
+	Dirty           int       `json:"dirty"`
+	ConflictsFound  int       `json:"conflicts_found"`
 }
 
 // DoctorReport summarizes integrity checks run by Doctor.
@@ -434,11 +440,15 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 			addIssue("Failed to get sync status: %v", err)
 		} else {
 			report.SyncStatus = &SyncStatusData{
-				Ahead:          status.Ahead,
-				Behind:         status.Behind,
-				LastSync:       status.LastAttempt,
-				Dirty:          status.Dirty,
-				ConflictsFound: len(conflicts),
+				Ahead:           status.Ahead,
+				Behind:          status.Behind,
+				LastAttempt:     status.LastAttempt,
+				LastSuccessPull: status.LastSuccessPull,
+				LastSuccessPush: status.LastSuccessPush,
+				LastError:       status.LastError,
+				AuthState:       status.AuthState,
+				Dirty:           status.Dirty,
+				ConflictsFound:  len(conflicts),
 			}
 		}
 	}

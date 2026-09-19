@@ -73,3 +73,29 @@ func TestGetAuth_HTTPSNoCreds(t *testing.T) {
 		t.Errorf("expected state missing, got %s", state)
 	}
 }
+
+func TestGetAuth_Fallback(t *testing.T) {
+	origRunner := runner
+	defer func() { runner = origRunner }()
+	runner = func(name string, arg ...string) ([]byte, error) {
+		return []byte("fake_token\n"), nil
+	}
+	auth, state, err := GetAuth("/does-not-exist", "https://github.com/foo/bar.git")
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if state != "gh" || auth.Password != "fake_token" {
+		t.Errorf("expected state gh and fake_token, got %s / %v", state, auth)
+	}
+
+	runner = func(name string, arg ...string) ([]byte, error) {
+		return nil, errors.New("not found")
+	}
+	_, state, err = GetAuth("/does-not-exist", "file:///tmp/repo")
+	if err != nil {
+		t.Errorf("expected no error for local path, got %v", err)
+	}
+	if state != "none" {
+		t.Errorf("expected state none, got %s", state)
+	}
+}

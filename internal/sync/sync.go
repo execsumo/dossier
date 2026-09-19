@@ -13,6 +13,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
 // Clone clones url (or the configured RemoteURL) into dir, making dir a working
@@ -144,6 +145,9 @@ func (g *GitSync) syncWithCtx(ctx context.Context) (SyncReport, error) {
 	// --- PULL → RESOLVE (remote-wins): fetch + 3-way merge ---
 	pullReport, ferr, perr := g.pullRemoteWins(ctx, repo, wt, localHead)
 	pullSuccess := ferr == nil
+	if errors.Is(ferr, transport.ErrAuthenticationRequired) || errors.Is(ferr, transport.ErrAuthorizationFailed) || errors.Is(ferr, ErrInsecureCredentials) || errors.Is(ferr, ErrNoCredentials) {
+		report.AuthFailed = true
+	}
 	if perr != nil {
 		return report, perr
 	}
@@ -164,6 +168,9 @@ func (g *GitSync) syncWithCtx(ctx context.Context) (SyncReport, error) {
 		succ, pushed, perr := g.doPush(ctx, repo, g.cfg.Branch)
 		if perr != nil {
 			report.Error = appendErr(report.Error, perr.Error())
+			if errors.Is(perr, transport.ErrAuthenticationRequired) || errors.Is(perr, transport.ErrAuthorizationFailed) || errors.Is(perr, ErrInsecureCredentials) || errors.Is(perr, ErrNoCredentials) {
+				report.AuthFailed = true
+			}
 		} else {
 			pushSuccess = succ
 			report.Pushed = pushed
@@ -185,7 +192,7 @@ func (g *GitSync) syncWithCtx(ctx context.Context) (SyncReport, error) {
 		st.LastError = ""
 	}
 	if g.cfg.AuthState != "" {
-		if report.Error != "" && (strings.Contains(report.Error, "authentication required") || strings.Contains(report.Error, "authorization failed") || strings.Contains(report.Error, "insecure permissions")) {
+		if report.AuthFailed {
 			st.AuthState = "rejected"
 		} else {
 			st.AuthState = g.cfg.AuthState
