@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -387,8 +388,8 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 	}
 	tempFile.Close()
 
-	if err := os.Chmod(tempName, 0444); err != nil {
-		return "", fmt.Errorf("failed to set read-only permissions: %w", err)
+	if err := prepareReadOnlyReplacement(tempName, dossierPath); err != nil {
+		return "", fmt.Errorf("failed to prepare read-only replacement: %w", err)
 	}
 
 	if err := os.Rename(tempName, dossierPath); err != nil {
@@ -410,7 +411,7 @@ func (s *FSStore) Rename(dossierID string, newSlug string, newName string, base 
 	}
 
 	// A directory rename must not race Team Sync's working-tree checkout.
-	syncLock, err := Lock(filepath.Join(s.dossierHome, ".sync.lock"))
+	syncLock, err := Lock(filepath.Clean(s.dossierHome) + ".sync.lock")
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to acquire sync lock: %w", err)
 	}
@@ -540,10 +541,22 @@ func replaceReadOnlyFile(path string, content []byte) error {
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tempName, 0444); err != nil {
+	if err := prepareReadOnlyReplacement(tempName, path); err != nil {
 		return err
 	}
 	return os.Rename(tempName, path)
+}
+
+func prepareReadOnlyReplacement(tempName, targetPath string) error {
+	if runtime.GOOS == "windows" {
+		// Windows refuses to replace an existing read-only file. Clear only the
+		// target's read-only attribute; Unix keeps the 0444 invariant below.
+		if err := os.Chmod(targetPath, 0644); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return os.Chmod(tempName, 0444)
 }
 
 // WriteArtifact stores a source artifact file atomically.
@@ -634,8 +647,8 @@ func (s *FSStore) WriteArtifact(dossierID string, a *core.Artifact) error {
 	}
 	tempFile.Close()
 
-	if err := os.Chmod(tempName, 0444); err != nil {
-		return fmt.Errorf("failed to set read-only permissions: %w", err)
+	if err := prepareReadOnlyReplacement(tempName, filePath); err != nil {
+		return fmt.Errorf("failed to prepare read-only replacement: %w", err)
 	}
 
 	if err := os.Rename(tempName, filePath); err != nil {

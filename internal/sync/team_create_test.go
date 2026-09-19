@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -129,11 +130,15 @@ func TestCloneAcceptsPreexistingCredentials(t *testing.T) {
 	if err := g.Clone(context.Background(), bareDir, store, 0); err != nil {
 		t.Fatalf("join with pre-existing credentials: %v", err)
 	}
-	info, err := os.Stat(creds)
-	if err != nil {
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(creds)
+		if err != nil {
+			t.Fatalf("credentials lost by join: %v", err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("credentials mode changed to %v", info.Mode().Perm())
+		}
+	} else if _, err := os.Stat(creds); err != nil {
 		t.Fatalf("credentials lost by join: %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("credentials mode changed to %v", info.Mode().Perm())
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -17,7 +18,11 @@ func TestGetAuth_FileMode(t *testing.T) {
 	}
 
 	_, _, err := GetAuth(path, "https://github.com/foo/bar")
-	if !errors.Is(err, ErrInsecureCredentials) {
+	if runtime.GOOS == "windows" {
+		if err != nil {
+			t.Fatalf("Windows ACLs, not Unix mode bits, protect credentials: %v", err)
+		}
+	} else if !errors.Is(err, ErrInsecureCredentials) {
 		t.Fatalf("expected ErrInsecureCredentials for 0644, got %v", err)
 	}
 

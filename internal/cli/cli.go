@@ -1298,7 +1298,7 @@ func NewRootCmd() *cobra.Command {
 					if isVolatilePath(targetPath) {
 						home, err := os.UserHomeDir()
 						if err == nil {
-							targetPath = filepath.Join(home, ".local", "bin", "dossier")
+							targetPath = filepath.Join(home, ".local", "bin", stableBinaryName())
 						} else {
 							fmt.Println("Error: could not determine stable installation path. Run 'dossier install' first.")
 							os.Exit(1)
@@ -1377,6 +1377,10 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
+			if runtime.GOOS == "windows" {
+				// Windows will not replace a read-only installed executable.
+				_ = os.Chmod(targetPath, 0644)
+			}
 			if err := os.Rename(tmpName, targetPath); err != nil {
 				fmt.Printf("Failed to install updated binary over %s: %v\n", targetPath, err)
 				os.Exit(1)
@@ -2132,6 +2136,10 @@ func copyFile(src, dest string) error {
 		return err
 	}
 
+	if runtime.GOOS == "windows" {
+		// Reinstalling over a read-only executable otherwise fails on Windows.
+		_ = os.Chmod(dest, 0644)
+	}
 	if err := os.Rename(tmpName, dest); err != nil {
 		return err
 	}
@@ -2140,7 +2148,7 @@ func copyFile(src, dest string) error {
 }
 
 func isVolatilePath(path string) bool {
-	path = strings.ToLower(path)
+	path = strings.ToLower(filepath.ToSlash(path))
 	if strings.Contains(path, "/tmp/") ||
 		strings.Contains(path, "/temp/") ||
 		strings.Contains(path, "go-build") ||
@@ -2149,7 +2157,7 @@ func isVolatilePath(path string) bool {
 	}
 	wd, err := os.Getwd()
 	if err == nil {
-		if strings.HasPrefix(path, strings.ToLower(wd)) {
+		if strings.HasPrefix(path, strings.ToLower(filepath.ToSlash(wd))) {
 			return true
 		}
 	}
@@ -2163,7 +2171,7 @@ func runInstall(destDir string, yesToAll bool) error {
 	}
 
 	destDir = expandTilde(destDir)
-	destPath := filepath.Join(destDir, "dossier")
+	destPath := filepath.Join(destDir, stableBinaryName())
 
 	if !isDirOnPath(destDir) {
 		fmt.Printf("Warning: Target directory %s is not in your PATH.\n", destDir)
@@ -2173,8 +2181,8 @@ func runInstall(destDir string, yesToAll bool) error {
 			_, _ = fmt.Scanln(&resp)
 			resp = strings.ToLower(strings.TrimSpace(resp))
 			if resp == "y" || resp == "yes" {
-				destDir = "/usr/local/bin"
-				destPath = filepath.Join(destDir, "dossier")
+				destDir = filepath.Join(string(os.PathSeparator), "usr", "local", "bin")
+				destPath = filepath.Join(destDir, stableBinaryName())
 			}
 		}
 	}
@@ -2197,17 +2205,26 @@ func runInstall(destDir string, yesToAll bool) error {
 	return nil
 }
 
+func stableBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return "dossier.exe"
+	}
+	return "dossier"
+}
+
 func getStableBinaryPath() string {
 	home, err := os.UserHomeDir()
 	if err == nil {
-		p := filepath.Join(home, ".local", "bin", "dossier")
+		p := filepath.Join(home, ".local", "bin", stableBinaryName())
 		if info, err := os.Stat(p); err == nil && !info.IsDir() {
 			return p
 		}
 	}
-	p2 := "/usr/local/bin/dossier"
-	if info, err := os.Stat(p2); err == nil && !info.IsDir() {
-		return p2
+	if runtime.GOOS != "windows" {
+		p2 := filepath.Join(string(os.PathSeparator), "usr", "local", "bin", stableBinaryName())
+		if info, err := os.Stat(p2); err == nil && !info.IsDir() {
+			return p2
+		}
 	}
 	exec, err := os.Executable()
 	if err == nil {

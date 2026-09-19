@@ -9,9 +9,16 @@ import (
 	"testing"
 )
 
+func TestQuoteCommandPath(t *testing.T) {
+	if got := quoteCommandPath(`C:\\Program Files\\Dossier\\dossier.exe`); got != `"C:\\Program Files\\Dossier\\dossier.exe"` {
+		t.Fatalf("quoteCommandPath() = %q", got)
+	}
+}
+
 func TestClaudeCodeHarness(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
 
 	// Before creating config files, Detect should return empty capabilities
 	h := NewClaudeCodeHarness("/tmp/dossier")
@@ -178,6 +185,7 @@ func TestClaudeCodeHarness(t *testing.T) {
 func TestClaudeCodeHarnessSplitConfig(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
 
 	claudeDir := filepath.Join(tempHome, ".claude")
 	if err := os.MkdirAll(claudeDir, 0755); err != nil {

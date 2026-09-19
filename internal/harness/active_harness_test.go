@@ -14,6 +14,7 @@ func claudeCodeConfiguredHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte("{}"), 0o644); err != nil {
 		t.Fatalf("failed to write .claude.json: %v", err)
 	}

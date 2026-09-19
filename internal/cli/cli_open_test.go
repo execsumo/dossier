@@ -9,19 +9,54 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
+func writeClaudeStub(t *testing.T, dir, argsFile string, recordArgs bool) string {
+	t.Helper()
+	name := "claude-stub"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(dir, name)
+	if runtime.GOOS == "windows" {
+		// Windows cannot execute a .cmd file through exec.Command directly;
+		// compile a tiny native stub instead of skipping the handoff test.
+		source := filepath.Join(dir, "stub.go")
+		program := "package main\nfunc main() {}\n"
+		if recordArgs {
+			program = "package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n\nfunc main() {\n"
+			program += "\tf, _ := os.Create(" + strconv.Quote(argsFile) + ")\n\tdefer f.Close()\n\tcwd, _ := os.Getwd()\n\tfmt.Fprintln(f, cwd)\n\tfor _, arg := range os.Args[1:] { fmt.Fprintln(f, arg) }\n}\n"
+		}
+		if err := os.WriteFile(source, []byte(program), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("go", "build", "-o", path, source)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("build Windows stub: %v\n%s", err, output)
+		}
+		return path
+	}
+
+	var script string
+	if recordArgs {
+		script = "#!/bin/sh\n{ pwd; for a in \"$@\"; do echo \"$a\"; done; } > " + argsFile + "\n"
+	} else {
+		script = "#!/bin/sh\nexit 0\n"
+	}
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 // TestOpenCommandBindsThenLaunches exercises the full `dossier open` handoff
 // against a stub "claude" that records how it was invoked: the dossier must be
 // bound to the same session id the binary is handed (ADR 0006).
 func TestOpenCommandBindsThenLaunches(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("stub binary is a shell script")
-	}
-
 	tempHome := t.TempDir()
 	// The service resolves dossier paths from its config, which defaults to
 	// $DOSSIER_HOME — the --home flag alone only redirects the store.
@@ -54,11 +89,7 @@ func TestOpenCommandBindsThenLaunches(t *testing.T) {
 	// Stub claude: record argv and the working directory, then exit cleanly.
 	binDir := t.TempDir()
 	argsFile := filepath.Join(binDir, "argv.txt")
-	stub := filepath.Join(binDir, "claude-stub")
-	script := "#!/bin/sh\n{ pwd; for a in \"$@\"; do echo \"$a\"; done; } > " + argsFile + "\n"
-	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	stub := writeClaudeStub(t, binDir, argsFile, true)
 	t.Setenv(harness.ClaudeBinEnv, stub)
 
 	cmd := NewRootCmd()
@@ -193,10 +224,6 @@ func TestOpenCommandMissingBinary(t *testing.T) {
 }
 
 func TestOpenCommandPrintsHealth(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("stub binary is a shell script")
-	}
-
 	tempHome := t.TempDir()
 	t.Setenv("DOSSIER_HOME", tempHome)
 
@@ -241,11 +268,7 @@ func TestOpenCommandPrintsHealth(t *testing.T) {
 
 	// Stub claude
 	binDir := t.TempDir()
-	stub := filepath.Join(binDir, "claude-stub")
-	script := "#!/bin/sh\nexit 0\n"
-	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	stub := writeClaudeStub(t, binDir, "", false)
 	t.Setenv(harness.ClaudeBinEnv, stub)
 
 	cmd := NewRootCmd()

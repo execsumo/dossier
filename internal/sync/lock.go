@@ -9,10 +9,12 @@ import (
 	"github.com/gofrs/flock"
 )
 
-// syncLock is a flock-style advisory lock at the store root (.sync.lock) that
-// serializes concurrent [GitSync.Sync] calls on one store. A second caller
-// blocks for at most Config.LockTimeout rather than corrupting the working tree
-// or git index (which are not safe for concurrent writers).
+// syncLock is a flock-style advisory lock adjacent to the store (.sync.lock)
+// that serializes concurrent [GitSync.Sync] calls on one store. Keeping it
+// outside the worktree matters on Windows: go-git's forced checkout may remove
+// ignored files, and Windows cannot remove an open lock file.
+// A second caller blocks for at most Config.LockTimeout rather than corrupting
+// the working tree or git index (which are not safe for concurrent writers).
 type syncLock struct {
 	fl  *flock.Flock
 	dir string
@@ -20,7 +22,7 @@ type syncLock struct {
 
 func newSyncLock(storeDir string) *syncLock {
 	return &syncLock{
-		fl:  flock.New(filepath.Join(storeDir, ".sync.lock")),
+		fl:  flock.New(filepath.Clean(storeDir) + ".sync.lock"),
 		dir: storeDir,
 	}
 }

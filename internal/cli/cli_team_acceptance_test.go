@@ -19,7 +19,7 @@ func buildDossierBinary(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binary := filepath.Join(t.TempDir(), "dossier")
+	binary := filepath.Join(t.TempDir(), stableBinaryName())
 	cmd := exec.Command("go", "build", "-o", binary, "./cmd/dossier")
 	cmd.Dir = root
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -31,8 +31,8 @@ func buildDossierBinary(t *testing.T) string {
 func runDossier(t *testing.T, binary, home, fakeHome, stdin string, args ...string) (int, string) {
 	t.Helper()
 	cmd := exec.Command(binary, args...)
-	cmd.Env = filteredEnv("DOSSIER_HOME", "HOME")
-	cmd.Env = append(cmd.Env, "DOSSIER_HOME="+home, "HOME="+fakeHome)
+	cmd.Env = filteredEnv("DOSSIER_HOME", "HOME", "USERPROFILE")
+	cmd.Env = append(cmd.Env, "DOSSIER_HOME="+home, "HOME="+fakeHome, "USERPROFILE="+fakeHome)
 	cmd.Stdin = bytes.NewBufferString(stdin)
 	var output bytes.Buffer
 	cmd.Stdout = &output
