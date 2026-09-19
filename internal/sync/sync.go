@@ -71,6 +71,22 @@ func (g *GitSync) Clone(ctx context.Context, url, dir string, depth int) error {
 	return nil
 }
 
+// CheckRemoteAccess verifies that a remote can be listed without changing the
+// local store. Empty repositories count as reachable.
+func (g *GitSync) CheckRemoteAccess(ctx context.Context, url string) error {
+	if url == "" {
+		url = g.cfg.RemoteURL
+	}
+	if url == "" {
+		return errors.New("sync: remote URL is required")
+	}
+	_, err := g.remoteRefs(ctx, url)
+	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "remote repository is empty") {
+		return fmt.Errorf("unable to access remote %s: %w", url, err)
+	}
+	return nil
+}
+
 // CheckRemoteEmpty verifies that a team-create target has no refs without
 // changing the local store. It works for local bare repositories and network
 // remotes alike.
@@ -95,6 +111,10 @@ func (g *GitSync) CheckRemoteEmpty(ctx context.Context, url string) error {
 		return fmt.Errorf("the remote %s is not empty; team create needs an empty repository", url)
 	}
 	return nil
+}
+
+func CheckRemoteAccess(ctx context.Context, url string, auth transport.AuthMethod) error {
+	return New(Config{RemoteURL: url, Auth: auth}).CheckRemoteAccess(ctx, url)
 }
 
 func (g *GitSync) remoteRefs(ctx context.Context, url string) ([]*plumbing.Reference, error) {

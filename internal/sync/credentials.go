@@ -3,6 +3,7 @@ package sync
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,16 +19,50 @@ var ErrInsecureCredentials = errors.New("credentials file has insecure permissio
 // ErrNoCredentials indicates that no credentials were found for an https remote.
 var ErrNoCredentials = errors.New("no credentials found")
 
-// runner is a hook for tests to intercept exec.Command
+// runner is a hook for tests to intercept exec.Command.
 var runner = func(name string, arg ...string) ([]byte, error) {
+	return exec.Command(resolveGH(name), arg...).Output()
+}
+
+func resolveGH(name string) string {
 	// exec.Command resolves PATHEXT on Windows, but use LookPath explicitly so
 	// the installed gh.exe is found consistently there.
 	if runtime.GOOS == "windows" && name == "gh" {
 		if path, err := exec.LookPath("gh.exe"); err == nil {
-			name = path
+			return path
 		}
 	}
-	return exec.Command(name, arg...).Output()
+	return name
+}
+
+// loginRunner is separate from runner because gh auth login must keep the
+// user's terminal attached while it opens the browser and prints its code.
+var loginRunner = func(name string, args []string, in io.Reader, out, errOut io.Writer) error {
+	cmd := exec.Command(resolveGH(name), args...)
+	cmd.Stdin = in
+	cmd.Stdout = out
+	cmd.Stderr = errOut
+	return cmd.Run()
+}
+
+// GitHubAuthStatus reports whether gh is installed and whether it is logged in
+// to github.com. A non-zero auth status means installed-but-logged-out; a
+// missing executable means not installed.
+func GitHubAuthStatus() (installed, loggedIn bool) {
+	_, err := runner("gh", "auth", "status", "--hostname", "github.com")
+	if err == nil {
+		return true, true
+	}
+	if errors.Is(err, exec.ErrNotFound) || strings.Contains(strings.ToLower(err.Error()), "executable file not found") {
+		return false, false
+	}
+	return true, false
+}
+
+// GitHubLogin runs the interactive browser login with the supplied terminal
+// streams. It deliberately never writes the resulting token to disk.
+func GitHubLogin(in io.Reader, out, errOut io.Writer) error {
+	return loginRunner("gh", []string{"auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--web"}, in, out, errOut)
 }
 
 // GetAuth resolves the GitHub PAT and returns a basic auth configured for go-git,
