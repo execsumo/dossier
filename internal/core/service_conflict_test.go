@@ -2,10 +2,80 @@ package core
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestConflictDetailUsesCurrentSharedBody(t *testing.T) {
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	store := newLocalFakeStore()
+	store.dossiers["dos_detail"] = &Dossier{
+		Frontmatter:    Frontmatter{ID: "dos_detail", Name: "Detail", Slug: "detail", Status: StatusSpark, Priority: PriorityMedium},
+		DistilledState: DistilledState{Body: "shared old\n"},
+	}
+	store.conflicts["conf_detail"] = &Conflict{
+		ID: "conf_detail", DossierID: "dos_detail", Kind: "merge_conflict", TS: now,
+		RejectedBody: "mine\n", DiffAgainstCurrent: "stale diff",
+	}
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: now}, Config{}, nil)
+
+	cases := []struct {
+		name       string
+		body       string
+		wantShared string
+		wantDiff   string
+	}{
+		{"initial", "shared old\n", "shared old\n", "- shared old\n+ mine\n  "},
+		{"moved shared body", "shared current\n", "shared current\n", "- shared current\n+ mine\n  "},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store.dossiers["dos_detail"].DistilledState.Body = tc.body
+			detail, err := svc.ConflictDetail(context.Background(), "conf_detail")
+			if err != nil {
+				t.Fatalf("ConflictDetail: %v", err)
+			}
+			if detail.DossierName != "Detail" || detail.DossierSlug != "detail" || detail.Shared != tc.wantShared || detail.Mine != "mine\n" {
+				t.Fatalf("detail = %+v", detail)
+			}
+			if detail.Diff != tc.wantDiff {
+				t.Fatalf("diff = %q, want %q", detail.Diff, tc.wantDiff)
+			}
+		})
+	}
+}
+
+func TestConflictDetailNotFoundCases(t *testing.T) {
+	cases := []struct {
+		name       string
+		conflictID string
+		setup      func(*localFakeStore)
+	}{
+		{name: "unknown conflict", conflictID: "missing"},
+		{name: "missing dossier", conflictID: "conf_missing", setup: func(store *localFakeStore) {
+			store.conflicts["conf_missing"] = &Conflict{ID: "conf_missing", DossierID: "gone", RejectedBody: "mine"}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newLocalFakeStore()
+			if tc.setup != nil {
+				tc.setup(store)
+			}
+			svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{}, nil)
+			_, err := svc.ConflictDetail(context.Background(), tc.conflictID)
+			if err == nil {
+				t.Fatal("ConflictDetail unexpectedly succeeded")
+			}
+			var domainErr *DomainError
+			if !errors.As(err, &domainErr) || domainErr.Code != ErrNotFound {
+				t.Fatalf("error = %T %v, want not_found", err, err)
+			}
+		})
+	}
+}
 
 func TestResolveConflictChoices(t *testing.T) {
 	choices := []struct {

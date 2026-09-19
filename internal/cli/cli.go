@@ -961,14 +961,26 @@ func NewRootCmd() *cobra.Command {
 
 	var conflictsJSON bool
 	conflictsCmd := &cobra.Command{
-		Use:          "conflicts",
-		Short:        "List unresolved conflicts",
+		Use:          "conflicts [conflict-id]",
+		Short:        "List unresolved conflicts or show one comparison",
 		SilenceUsage: true,
-		Args:         cobra.NoArgs,
+		Args:         cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := wire(resolveHomeDir())
 			if err != nil {
 				return err
+			}
+			if len(args) == 1 {
+				detail, err := svc.ConflictDetail(context.Background(), args[0])
+				if err != nil {
+					return err
+				}
+				if conflictsJSON {
+					printJSON(detail)
+				} else {
+					printConflictDetail(detail)
+				}
+				return nil
 			}
 			conflicts, err := svc.ListConflicts(context.Background())
 			if err != nil {
@@ -1906,6 +1918,16 @@ func formatTime(t time.Time) string {
 		return "never"
 	}
 	return t.Format(time.RFC3339)
+}
+
+func printConflictDetail(detail core.ConflictDetail) {
+	fmt.Printf("Dossier: %s (%s)\nConflict: %s\nKind: %s\nWhen: %s\n\n", detail.DossierName, detail.DossierSlug, detail.Conflict.ID, detail.Conflict.Kind, detail.Conflict.TS.Format(time.RFC3339))
+	fmt.Println("Shared (current)")
+	fmt.Println(detail.Shared)
+	fmt.Println("Yours (preserved)")
+	fmt.Println(detail.Mine)
+	fmt.Println("Diff")
+	fmt.Println(detail.Diff)
 }
 
 func printJSON(data any) {

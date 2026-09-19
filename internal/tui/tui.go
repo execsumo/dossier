@@ -306,6 +306,7 @@ type artifactContentMsg struct {
 type conflictsMsg struct {
 	requestID uint64
 	items     []core.Conflict
+	details   map[string]core.ConflictDetail
 	err       error
 }
 
@@ -473,7 +474,9 @@ type Model struct {
 	mergeConflict          *core.Conflict
 	conflictResolverCursor int // 0 = Resolve/Force, 1 = Cancel
 	conflicts              []core.Conflict
+	conflictDetails        map[string]core.ConflictDetail
 	conflictCursor         int
+	conflictShowDiff       bool
 
 	// Kanban board view state. kanbanColumns is rebuilt by applyFilters — one
 	// bucket per canonical stage, holding the same filtered items the dashboard
@@ -634,6 +637,7 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		updateChan:           updateChan,
 		watchedPaths:         map[string]bool{},
 		requestSeq:           new(uint64),
+		conflictDetails:      make(map[string]core.ConflictDetail),
 		openWith:             openWith,
 		planOpenWith:         harness.PlanOpenWith,
 		persistConfiguredLead: func(name string) error {
@@ -832,8 +836,32 @@ func (m Model) conflictsCmd() tea.Cmd {
 	requestID := m.nextRequestID()
 	return func() tea.Msg {
 		items, err := m.svc.ListConflicts(context.Background())
-		return conflictsMsg{requestID: requestID, items: items, err: err}
+		if err != nil {
+			return conflictsMsg{requestID: requestID, err: err}
+		}
+		details := make(map[string]core.ConflictDetail, len(items))
+		for _, conflict := range items {
+			detail, detailErr := m.svc.ConflictDetail(context.Background(), conflict.ID)
+			if detailErr == nil {
+				details[conflict.ID] = detail
+			}
+		}
+		return conflictsMsg{requestID: requestID, items: items, details: details}
 	}
+}
+
+func (m *Model) setConflictViewportContent() {
+	if len(m.conflicts) == 0 || m.conflictCursor < 0 || m.conflictCursor >= len(m.conflicts) {
+		m.conflictViewport.SetContent("")
+		return
+	}
+	detail, ok := m.conflictDetails[m.conflicts[m.conflictCursor].ID]
+	if !ok {
+		m.conflictViewport.SetContent("Comparison unavailable for this conflict.")
+		return
+	}
+	m.conflictViewport.SetContent(m.renderConflictComparison(detail))
+	m.conflictViewport.GotoTop()
 }
 
 func (m Model) resolveConflictCmd(conflict core.Conflict, choice string) tea.Cmd {
@@ -1759,16 +1787,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc":
 				m.popOverlay()
 				return m, nil
-			case "up", "k":
+			case "k":
 				if len(m.conflicts) > 0 {
 					m.conflictCursor = (m.conflictCursor - 1 + len(m.conflicts)) % len(m.conflicts)
+					m.setConflictViewportContent()
 				}
 				return m, nil
-			case "down", "j":
+			case "j":
 				if len(m.conflicts) > 0 {
 					m.conflictCursor = (m.conflictCursor + 1) % len(m.conflicts)
+					m.setConflictViewportContent()
 				}
 				return m, nil
+			case "d":
+				m.conflictShowDiff = !m.conflictShowDiff
+				m.setConflictViewportContent()
+				return m, nil
+			case "up", "down", "pgup", "pgdown":
+				m.conflictViewport, cmd = m.conflictViewport.Update(msg)
+				return m, cmd
 			case "1", "2", "3":
 				if len(m.conflicts) == 0 || m.conflictCursor >= len(m.conflicts) {
 					return m, nil
@@ -1984,6 +2021,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			diffMd := fmt.Sprintf("```diff\n%s\n```", m.mergeConflict.DiffAgainstCurrent)
 			m.conflictViewport.SetContent(m.renderMarkdown(diffMd))
 		}
+		if m.currentView == ViewConflicts {
+			m.setConflictViewportContent()
+		}
 		if len(m.contracts) > 0 {
 			m.contractsViewport.SetContent(renderContractsChecklist(m.contracts))
 			m.contractsViewport.SetYOffset(m.contractsViewport.YOffset)
@@ -2142,7 +2182,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.conflicts = msg.items
+		m.conflictDetails = msg.details
 		m.conflictCursor = 0
+		m.conflictShowDiff = false
+		m.recalculateConflictViewportLayout()
+		m.setConflictViewportContent()
 		m.err = nil
 
 	case conflictResolvedMsg:
@@ -2605,6 +2649,15 @@ func (m *Model) recalculateArtifactViewportLayout() {
 func (m *Model) recalculateConflictViewportLayout() {
 	m.conflictViewport.Width = m.width - 6
 	m.conflictViewport.Height = m.height - 17
+	if m.currentView == ViewConflicts {
+		m.conflictViewport.Width = conflictOverlayPanelWidth(m.width) - overlayPanelStyle.GetHorizontalFrameSize()
+		bodyHeight := m.height - overlayPanelStyle.GetVerticalFrameSize() - 3
+		footerHeight := lipgloss.Height(renderModalFooter(ViewConflicts))
+		m.conflictViewport.Height = bodyHeight - len(m.conflicts) - footerHeight - 5
+	}
+	if m.conflictViewport.Width < 3 {
+		m.conflictViewport.Width = 3
+	}
 	if m.conflictViewport.Height < 3 {
 		m.conflictViewport.Height = 3
 	}
