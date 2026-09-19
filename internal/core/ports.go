@@ -256,6 +256,20 @@ type Syncer interface {
 	Clone(ctx context.Context, url, dir string, depth int) error
 }
 
+// RemoteAccessChecker is an optional sync capability used to verify access
+// before a join changes the local store. Optional keeps lightweight test
+// Syncers and older adapters source-compatible.
+type RemoteAccessChecker interface {
+	CheckRemoteAccess(ctx context.Context, url string) error
+}
+
+// RemoteAccessError is implemented by sync adapters that preserve typed
+// authentication versus visibility failures without importing their package.
+type RemoteAccessError interface {
+	error
+	AccessKind() string
+}
+
 // LocalSyncStatuser is the optional no-network status capability used by
 // session and MCP attention paths. A normal Status may fetch the remote, which
 // is not acceptable while returning an interactive response.
