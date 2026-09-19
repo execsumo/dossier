@@ -187,8 +187,10 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 					},
 					"frontmatter_updates": map[string]any{
 						"type":        "object",
-						"description": "Key-value updates to frontmatter fields (description and priority: low|medium|high|max)",
+						"description": "Key-value updates to frontmatter fields; active-work saves should include status and next_action",
 						"properties": map[string]any{
+							"status":      map[string]any{"type": "string", "enum": []string{"spark", "define", "execute", "review", "blocked", "done"}},
+							"next_action": map[string]any{"type": "string", "description": "The concise next step for the next person or session (maximum 140 characters)"},
 							"description": map[string]any{"type": "string"},
 							"priority":    map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "max"}},
 						},
