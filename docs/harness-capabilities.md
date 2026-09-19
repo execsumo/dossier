@@ -142,6 +142,10 @@ sends users hunting for a fix that does not exist. The boolean stays false — t
 changes how it reads, not what is true — and `HarnessReport.IntegrationComplete`
 consequently reports a fully bridged Pi as complete.
 
+### Known gap: Pi cannot update an existing Dossier's Distilled State (review 2026-09-18)
+
+This is a code-read finding, not yet confirmed in a live Pi session. The CLI is Pi's only Dossier surface, but no CLI command writes the Distilled State of an *existing* Dossier. The only CLI path that sets `DistilledStateMarkdown` is `promote` (`internal/cli/cli.go:733`), which creates a new Dossier. `dossier.md` is written read-only (`0444`, `internal/store/fsstore.go:390`). A Pi agent can therefore bind, recall and link evidence, but cannot perform the in-session save that is the only path to the Distilled State (see "Hook payloads do not carry distilled state" below). `dossier open` also does not pre-bind Pi (`cli.go:1418-1430`), and the launch prompt names the MCP tool `dossier_session`, which Pi lacks (`internal/harness/launch.go:229-235`). `IntegrationComplete` reports Pi as fully functional regardless. Treat that as an overclaim until a CLI save exists or a live session shows another path.
+
 ### Out of scope in this pass (named, not forgotten)
 
 - **MCP registration.** Deliberate, not deferred: Pi ships no MCP client, and
@@ -167,6 +171,7 @@ consequently reports a fully bridged Pi as complete.
 - **MCP Path:** Stdio-based server registered globally in `~/.claude.json` under `"mcpServers"` or locally in a project's `.mcp.json`.
 - **Hooks:** Lifecycle hooks trigger commands. The standard output of the `SessionStart` hook is directly injected into Claude Code's active context window. The `PreCompact` hook triggers just before history truncation.
 - **Hook payloads do not carry distilled state (verified).** `SessionEnd`/`PreCompact` deliver `session_id`, `hook_event_name`, and `transcript_path` — there is no field through which the agent's curated state could arrive, and a hook cannot invoke the agent to produce one. `Service.SessionEnd` therefore archives the transcript and leaves the Distilled State untouched unless the session already saved it. An earlier reading of this table assumed the boundary could perform "a final `Save` of the session's active Dossier context"; it cannot, and the code no longer implies it does. The `distilled_state` field the hook handler decodes remains for harnesses that can supply one; none in the registry does today. Consequence: eager `dossier_save` during the session is the only path to the Distilled State, which is why `assets/instructions.md` states that as a load-bearing rule, and why the boundary emits a visible warning when a session persisted nothing.
+  - **Unverified (review 2026-09-18):** whether that warning is *seen* in Claude Code. `dossier hook session-end` prints it to stdout (`internal/cli/cli.go:1344`) from a hook that runs while the session is closing, when there is no turn left to inject into. Until a live session shows the text somewhere a user looks, treat it as recorded (in the audit log, `distilled_state_not_captured`) rather than visible. Pi surfaces hook failures with `ctx.ui.notify`, but a warning printed by a successful hook is a different path, also unverified.
 - **Session ID:** A stable UUID is passed in the JSON payload on `stdin` to any hook handler. (Note: Previously, this session ID was only available to hooks and was not automatically resolved by MCP adapters; the addition of env-var resolution closes this gap).
 
 ### MCP Session Identity
