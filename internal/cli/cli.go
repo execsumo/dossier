@@ -958,6 +958,83 @@ func NewRootCmd() *cobra.Command {
 	}
 	mergeCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
+	var conflictsJSON bool
+	conflictsCmd := &cobra.Command{
+		Use:   "conflicts",
+		Short: "List unresolved conflicts",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				return err
+			}
+			conflicts, err := svc.ListConflicts(context.Background())
+			if err != nil {
+				return err
+			}
+			if conflictsJSON {
+				printJSON(conflicts)
+				return nil
+			}
+			if len(conflicts) == 0 {
+				fmt.Println("No unresolved conflicts")
+				return nil
+			}
+			for _, conflict := range conflicts {
+				fmt.Printf("%s\t%s\t%s\t%s\n", conflict.ID, conflict.DossierID, conflict.Kind, conflict.TS.Format(time.RFC3339))
+			}
+			return nil
+		},
+	}
+	conflictsCmd.Flags().BoolVar(&conflictsJSON, "json", false, "Output results in JSON format")
+
+	var keepShared, restoreMine, keepBoth, resolveJSON bool
+	resolveCmd := &cobra.Command{
+		Use:   "resolve <conflict-id>",
+		Short: "Resolve an unresolved conflict",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			choices := 0
+			choice := ""
+			if keepShared {
+				choices++
+				choice = core.ConflictChoiceKeepShared
+			}
+			if restoreMine {
+				choices++
+				choice = core.ConflictChoiceRestoreMine
+			}
+			if keepBoth {
+				choices++
+				choice = core.ConflictChoiceKeepBoth
+			}
+			if choices != 1 {
+				return fmt.Errorf("exactly one of --keep-shared, --restore-mine, or --keep-both is required")
+			}
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				return err
+			}
+			res, err := svc.ResolveConflict(context.Background(), core.ResolveConflictReq{
+				ConflictID: args[0],
+				Choice:     choice,
+			})
+			if err != nil {
+				return err
+			}
+			if resolveJSON {
+				printJSON(res)
+			} else {
+				fmt.Printf("Resolved conflict %s with %s\n", args[0], choice)
+			}
+			return nil
+		},
+	}
+	resolveCmd.Flags().BoolVar(&keepShared, "keep-shared", false, "Keep the current shared state")
+	resolveCmd.Flags().BoolVar(&restoreMine, "restore-mine", false, "Restore the rejected local state")
+	resolveCmd.Flags().BoolVar(&keepBoth, "keep-both", false, "Keep both states with an unresolved disagreement section")
+	resolveCmd.Flags().BoolVar(&resolveJSON, "json", false, "Output results in JSON format")
+
 	var renameBaseRevision string
 	var renameTitle string
 	var renameSlug string
@@ -1471,6 +1548,8 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(activeCmd)
 	rootCmd.AddCommand(switchCmd)
 	rootCmd.AddCommand(mergeCmd)
+	rootCmd.AddCommand(conflictsCmd)
+	rootCmd.AddCommand(resolveCmd)
 	rootCmd.AddCommand(renameCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(leadCmd)

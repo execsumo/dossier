@@ -29,8 +29,9 @@ var defaultGitignoreEntries = []string{
 	"# Dossier sync — machine-local, never committed (managed by internal/sync)",
 	"/config.yaml",
 	"/credentials",
-	"/sessions/",  // root session bindings
-	"*/sessions/", // per-slug raw session stash — write-only, never citable
+	"/sessions/",          // root session bindings
+	"*/sessions/",         // per-slug raw session stash — write-only, never citable
+	"*/artifacts/*_raw.*", // byte-preserved raw promote transcripts — local-only
 	"/context/",
 	"/.locks/",
 	".lock",

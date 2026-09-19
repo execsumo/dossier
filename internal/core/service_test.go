@@ -178,6 +178,7 @@ type localFakeStore struct {
 	audits             map[string][]AuditEvent
 	sessions           map[string]*SessionBinding
 	conflicts          map[string]*Conflict
+	resolvedConflicts  map[string]*Conflict
 	history            map[Revision]*Dossier
 	contextAssets      map[string]string
 	staleContextAssets []string
@@ -222,13 +223,14 @@ func (s *flakyListStore) List(filter string) ([]ListedFrontmatter, error) {
 
 func newLocalFakeStore() *localFakeStore {
 	return &localFakeStore{
-		dossiers:  make(map[string]*Dossier),
-		revisions: make(map[string]Revision),
-		artifacts: make(map[string][]Artifact),
-		audits:    make(map[string][]AuditEvent),
-		sessions:  make(map[string]*SessionBinding),
-		conflicts: make(map[string]*Conflict),
-		history:   make(map[Revision]*Dossier),
+		dossiers:          make(map[string]*Dossier),
+		revisions:         make(map[string]Revision),
+		artifacts:         make(map[string][]Artifact),
+		audits:            make(map[string][]AuditEvent),
+		sessions:          make(map[string]*SessionBinding),
+		conflicts:         make(map[string]*Conflict),
+		resolvedConflicts: make(map[string]*Conflict),
+		history:           make(map[Revision]*Dossier),
 		contextAssets: map[string]string{
 			"guide.md":        "GUIDE BODY",
 			"instructions.md": "INSTRUCTIONS BODY",
@@ -481,6 +483,18 @@ func (f *localFakeStore) ListConflicts() ([]Conflict, error) {
 		out = append(out, *c)
 	}
 	return out, nil
+}
+func (f *localFakeStore) ResolveConflict(id string, updated *Conflict) error {
+	conflict, ok := f.conflicts[id]
+	if !ok {
+		return NewError(ErrNotFound, "conflict not found")
+	}
+	delete(f.conflicts, id)
+	if updated == nil {
+		updated = conflict
+	}
+	f.resolvedConflicts[id] = updated
+	return nil
 }
 func (f *localFakeStore) WriteLibraryContext(data LibraryData) error { return nil }
 

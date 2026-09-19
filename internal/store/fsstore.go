@@ -1053,6 +1053,50 @@ func (s *FSStore) ListConflicts() ([]core.Conflict, error) {
 	return list, nil
 }
 
+// ResolveConflict moves an active conflict into the resolved archive and then
+// rewrites its frontmatter with the resolution metadata. The rename happens
+// first so the original active conflict is never deleted or overwritten.
+func (s *FSStore) ResolveConflict(conflictID string, updated *core.Conflict) error {
+	if conflictID == "" || filepath.Base(conflictID) != conflictID {
+		return core.NewError(core.ErrNotFound, fmt.Sprintf("conflict %q not found", conflictID))
+	}
+	lock, err := s.lockDossier(updated.DossierID)
+	if err != nil {
+		return fmt.Errorf("failed to acquire dossier lock: %w", err)
+	}
+	defer lock.Unlock()
+
+	dossierDir, err := s.findDossierDir(updated.DossierID)
+	if err != nil {
+		return err
+	}
+	conflictsDir := filepath.Join(dossierDir, "conflicts")
+	activePath := filepath.Join(conflictsDir, conflictID+".md")
+	if _, err := os.Stat(activePath); err != nil {
+		if os.IsNotExist(err) {
+			return core.NewError(core.ErrNotFound, fmt.Sprintf("conflict %q not found", conflictID))
+		}
+		return err
+	}
+
+	resolvedDir := filepath.Join(conflictsDir, "resolved")
+	if err := os.MkdirAll(resolvedDir, 0755); err != nil {
+		return err
+	}
+	resolvedPath := filepath.Join(resolvedDir, conflictID+".md")
+	if err := os.Rename(activePath, resolvedPath); err != nil {
+		return fmt.Errorf("archive conflict %q: %w", conflictID, err)
+	}
+	serialized, err := formatConflictFile(updated)
+	if err != nil {
+		return fmt.Errorf("format resolved conflict %q: %w", conflictID, err)
+	}
+	if err := os.WriteFile(resolvedPath, []byte(serialized), 0644); err != nil {
+		return fmt.Errorf("write resolved conflict %q: %w", conflictID, err)
+	}
+	return nil
+}
+
 // Private helper methods
 
 func slugMatches(fm *core.Frontmatter, value string) bool {

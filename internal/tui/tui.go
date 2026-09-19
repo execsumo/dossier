@@ -63,6 +63,9 @@ const (
 	// person-specific terms for every `## Delegation Contracts` block in the
 	// Distilled State (guide.md §4), derived from core.ParseDelegationContracts.
 	ViewContracts
+	// ViewConflicts lists unresolved sync/merge conflicts and resolves them
+	// through the same Service operation as CLI and MCP.
+	ViewConflicts
 )
 
 // leadFilterKind enumerates the three ways the dashboard can be scoped by lead.
@@ -298,6 +301,18 @@ type artifactContentMsg struct {
 	err         error
 }
 
+type conflictsMsg struct {
+	requestID uint64
+	items     []core.Conflict
+	err       error
+}
+
+type conflictResolvedMsg struct {
+	requestID uint64
+	conflict  core.Conflict
+	err       error
+}
+
 type errMsg error
 
 type dossierUpdatedMsg struct{}
@@ -441,6 +456,8 @@ type Model struct {
 	mergeCursor            int
 	mergeConflict          *core.Conflict
 	conflictResolverCursor int // 0 = Resolve/Force, 1 = Cancel
+	conflicts              []core.Conflict
+	conflictCursor         int
 
 	// Kanban board view state. kanbanColumns is rebuilt by applyFilters — one
 	// bucket per canonical stage, holding the same filtered items the dashboard
@@ -793,6 +810,25 @@ func (m Model) listArtifactsCmd(dossierID string) tea.Cmd {
 
 // readArtifactCmd fetches one artifact's line-numbered content, mirroring
 // `dossier artifact <slug> <artifact-id>`.
+func (m Model) conflictsCmd() tea.Cmd {
+	requestID := m.nextRequestID()
+	return func() tea.Msg {
+		items, err := m.svc.ListConflicts(context.Background())
+		return conflictsMsg{requestID: requestID, items: items, err: err}
+	}
+}
+
+func (m Model) resolveConflictCmd(conflict core.Conflict, choice string) tea.Cmd {
+	requestID := m.nextRequestID()
+	return func() tea.Msg {
+		_, err := m.svc.ResolveConflict(context.Background(), core.ResolveConflictReq{
+			ConflictID: conflict.ID,
+			Choice:     choice,
+		})
+		return conflictResolvedMsg{requestID: requestID, conflict: conflict, err: err}
+	}
+}
+
 func (m Model) readArtifactCmd(dossierID, artifactID string) tea.Cmd {
 	requestID := m.nextRequestID()
 	return func() tea.Msg {
@@ -1700,6 +1736,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.contractsViewport, cmd = m.contractsViewport.Update(msg)
 			return m, cmd
 
+		case ViewConflicts:
+			switch msg.String() {
+			case "esc":
+				m.popOverlay()
+				return m, nil
+			case "up", "k":
+				if len(m.conflicts) > 0 {
+					m.conflictCursor = (m.conflictCursor - 1 + len(m.conflicts)) % len(m.conflicts)
+				}
+				return m, nil
+			case "down", "j":
+				if len(m.conflicts) > 0 {
+					m.conflictCursor = (m.conflictCursor + 1) % len(m.conflicts)
+				}
+				return m, nil
+			case "1", "2", "3":
+				if len(m.conflicts) == 0 || m.conflictCursor >= len(m.conflicts) {
+					return m, nil
+				}
+				choices := map[string]string{"1": core.ConflictChoiceKeepShared, "2": core.ConflictChoiceRestoreMine, "3": core.ConflictChoiceKeepBoth}
+				m.loading = true
+				m.err = nil
+				return m, m.resolveConflictCmd(m.conflicts[m.conflictCursor], choices[msg.String()])
+			}
+			return m, nil
+
 		case ViewEdit:
 			return m.updateEditor(msg)
 		case ViewRenameSlug:
@@ -1790,6 +1852,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if t, ok := m.getTargetDossier(); ok && t.id != "" {
 					return m.openInAgent(t)
 				}
+			}
+		case "x":
+			if m.isListView() || m.currentView == ViewDetail {
+				m.loading = true
+				m.err = nil
+				m.pushOverlay(ViewConflicts)
+				return m, m.conflictsCmd()
 			}
 		case "a":
 			if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
@@ -2029,6 +2098,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.recalculateArtifactViewportLayout()
 			m.artifactViewport.GotoTop()
 			m.err = nil
+		}
+
+	case conflictsMsg:
+		if !m.acceptsRequest(msg.requestID) {
+			return m, nil
+		}
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.conflicts = msg.items
+		m.conflictCursor = 0
+		m.err = nil
+
+	case conflictResolvedMsg:
+		if !m.acceptsRequest(msg.requestID) {
+			return m, nil
+		}
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.err = nil
+		cmds = append(cmds, m.conflictsCmd(), m.listDossiersCmd())
+		if m.recallResult.Frontmatter.ID == msg.conflict.DossierID {
+			cmds = append(cmds, m.recallDossierCmd(msg.conflict.DossierID))
 		}
 
 	case linkResultMsg:

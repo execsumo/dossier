@@ -9,25 +9,27 @@ import (
 
 // FakeStore implements core.Store in-memory for core unit tests.
 type FakeStore struct {
-	Dossiers  map[string]*core.Dossier
-	Revisions map[string]core.Revision
-	Artifacts map[string][]core.Artifact
-	Audits    map[string][]core.AuditEvent
-	Sessions  map[string]*core.SessionBinding
-	Conflicts map[string]*core.Conflict
-	History   map[core.Revision]*core.Dossier
+	Dossiers          map[string]*core.Dossier
+	Revisions         map[string]core.Revision
+	Artifacts         map[string][]core.Artifact
+	Audits            map[string][]core.AuditEvent
+	Sessions          map[string]*core.SessionBinding
+	Conflicts         map[string]*core.Conflict
+	ResolvedConflicts map[string]*core.Conflict
+	History           map[core.Revision]*core.Dossier
 }
 
 // NewFakeStore instantiates an in-memory FakeStore.
 func NewFakeStore() *FakeStore {
 	return &FakeStore{
-		Dossiers:  make(map[string]*core.Dossier),
-		Revisions: make(map[string]core.Revision),
-		Artifacts: make(map[string][]core.Artifact),
-		Audits:    make(map[string][]core.AuditEvent),
-		Sessions:  make(map[string]*core.SessionBinding),
-		Conflicts: make(map[string]*core.Conflict),
-		History:   make(map[core.Revision]*core.Dossier),
+		Dossiers:          make(map[string]*core.Dossier),
+		Revisions:         make(map[string]core.Revision),
+		Artifacts:         make(map[string][]core.Artifact),
+		Audits:            make(map[string][]core.AuditEvent),
+		Sessions:          make(map[string]*core.SessionBinding),
+		Conflicts:         make(map[string]*core.Conflict),
+		ResolvedConflicts: make(map[string]*core.Conflict),
+		History:           make(map[core.Revision]*core.Dossier),
 	}
 }
 
@@ -249,6 +251,19 @@ func (f *FakeStore) ListConflicts() ([]core.Conflict, error) {
 		list = append(list, *c)
 	}
 	return list, nil
+}
+
+func (f *FakeStore) ResolveConflict(conflictID string, updated *core.Conflict) error {
+	conflict, ok := f.Conflicts[conflictID]
+	if !ok {
+		return core.NewError(core.ErrNotFound, "conflict not found")
+	}
+	delete(f.Conflicts, conflictID)
+	if updated == nil {
+		updated = conflict
+	}
+	f.ResolvedConflicts[conflictID] = updated
+	return nil
 }
 
 func (f *FakeStore) WriteLibraryContext(data core.LibraryData) error {
