@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,52 @@ func TestConflictsOverlayResolvesThroughService(t *testing.T) {
 	}
 	if got := store.dossiers["dos_conflict"].DistilledState.Body; got != "mine\n" {
 		t.Fatalf("body = %q, want mine newline", got)
+	}
+}
+
+func TestConflictsOverlayFitsTerminalSizes(t *testing.T) {
+	for _, tc := range []struct {
+		width, height int
+	}{
+		{100, 30},
+		{120, 40},
+		{145, 46},
+		{200, 60},
+	} {
+		t.Run(fmt.Sprintf("%dx%d", tc.width, tc.height), func(t *testing.T) {
+			store := newTestStore()
+			seedDossier(store, "dos_conflict", "Conflict Dossier", core.StatusSpark)
+			store.dossiers["dos_conflict"].DistilledState.Body = "shared current\n"
+			store.conflicts["conf_tui"] = &core.Conflict{
+				ID: "conf_tui", DossierID: "dos_conflict", Kind: "sync_concurrent_edit",
+				TS: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), RejectedBody: "mine\n",
+			}
+			m := dashboardModel(t, store, tc.width, tc.height)
+			m, cmd := press(t, m, "x")
+			if cmd == nil {
+				t.Fatal("open conflicts did not return a command")
+			}
+			updated, _ := m.Update(cmd())
+			m = updated.(Model)
+			view := stripANSI(m.View())
+			for _, line := range strings.Split(view, "\n") {
+				if strings.TrimSpace(line) == "…" {
+					t.Fatalf("stray ellipsis row:\n%s", view)
+				}
+			}
+			var heading, body string
+			for _, line := range strings.Split(view, "\n") {
+				if strings.Contains(line, "Yours (preserved)") {
+					heading = line
+				}
+				if strings.Contains(line, "mine") {
+					body = line
+				}
+			}
+			if heading == "" || body == "" || strings.Index(heading, "Yours (preserved)") != strings.Index(body, "mine") {
+				t.Fatalf("right column is not aligned:\nheading=%q\nbody=%q", heading, body)
+			}
+		})
 	}
 }
 

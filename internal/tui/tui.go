@@ -2650,8 +2650,10 @@ func (m *Model) recalculateConflictViewportLayout() {
 	m.conflictViewport.Width = m.width - 6
 	m.conflictViewport.Height = m.height - 17
 	if m.currentView == ViewConflicts {
-		m.conflictViewport.Width = m.width - 12
-		m.conflictViewport.Height -= len(m.conflicts) + 2
+		m.conflictViewport.Width = conflictOverlayPanelWidth(m.width) - overlayPanelStyle.GetHorizontalFrameSize()
+		bodyHeight := m.height - overlayPanelStyle.GetVerticalFrameSize() - 3
+		footerHeight := lipgloss.Height(renderModalFooter(ViewConflicts))
+		m.conflictViewport.Height = bodyHeight - len(m.conflicts) - footerHeight - 5
 	}
 	if m.conflictViewport.Width < 3 {
 		m.conflictViewport.Width = 3

@@ -52,6 +52,17 @@ type externalLinkRow struct {
 	empty      bool
 }
 
+func conflictOverlayPanelWidth(screenWidth int) int {
+	panelWidth := screenWidth - 8
+	if panelWidth > 120 {
+		panelWidth = 120
+	}
+	if panelWidth < 32 {
+		panelWidth = 32
+	}
+	return panelWidth
+}
+
 func isOverlayView(v View) bool {
 	switch v {
 	case ViewLeadSelector, ViewEdit, ViewLinkInput, ViewLinkSelector, ViewMergeSelector, ViewMergeConflictResolver, ViewRenameSlug, ViewArtifactIndex, ViewArtifactContent, ViewLinks, ViewContracts, ViewConflicts, ViewHealth:
@@ -155,7 +166,9 @@ func (m Model) renderOverlay(background string, v View) string {
 	title := fmt.Sprintf("%s · %s · Esc back", context, m.overlayLabel(v))
 
 	panelWidth := m.width - 8
-	if v == ViewEdit {
+	if v == ViewConflicts {
+		panelWidth = conflictOverlayPanelWidth(m.width)
+	} else if v == ViewEdit {
 		panelWidth = m.width - 2
 	}
 	maxPanelWidth := 96
@@ -168,8 +181,12 @@ func (m Model) renderOverlay(background string, v View) string {
 	if panelWidth < 32 {
 		panelWidth = 32
 	}
+	contentWidth := panelWidth - overlayPanelStyle.GetHorizontalFrameSize()
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
 	footer := renderModalFooter(v)
-	if lipgloss.Width(footer) > panelWidth {
+	if lipgloss.Width(footer) > contentWidth {
 		footer = compactModalFooter(v)
 	}
 	if footer != "" {
@@ -179,10 +196,11 @@ func (m Model) renderOverlay(background string, v View) string {
 	if footer != "" {
 		footerHeight = lipgloss.Height(footer)
 	}
-	// A panel has a title, spacing, border, and padding outside its content.
-	// Budget the content before rendering rather than clipping the finished
-	// compositor, which used to remove the footer and trap the user.
-	content = fitScreen(content, panelWidth, m.height-6, footerHeight)
+	// Width is the panel's total width; its border and padding consume part of
+	// that budget. Fit the body to the same inner box before rendering so the
+	// compositor never turns padded rows into ellipsis-only lines.
+	contentHeight := m.height - overlayPanelStyle.GetVerticalFrameSize() - lipglossv2.Height(overlayTitleStyle.Render(title)+"\n\n")
+	content = fitScreen(content, contentWidth, contentHeight, footerHeight)
 	panel := overlayPanelStyle.Width(panelWidth).Render(
 		overlayTitleStyle.Render(title) + "\n\n" + content,
 	)
@@ -597,7 +615,7 @@ func (m Model) renderConflictComparison(detail core.ConflictDetail) string {
 	header := fmt.Sprintf("Dossier: %s (%s)", detail.DossierName, detail.DossierSlug)
 	width := m.conflictViewport.Width
 	if width <= 0 {
-		width = m.width - 12
+		width = conflictOverlayPanelWidth(m.width) - overlayPanelStyle.GetHorizontalFrameSize()
 	}
 	if width < 3 {
 		width = 3
