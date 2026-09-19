@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newSessionTestService builds a core.Service backed by a fake store holding one dossier.
@@ -152,6 +153,72 @@ func TestMCPSwitchResolvesSessionFromEnv(t *testing.T) {
 	raw, _ := json.Marshal(act.Data)
 	if !strings.Contains(string(raw), "dos_1") {
 		t.Errorf("expected active binding to reference dos_1, got %s", raw)
+	}
+}
+
+type attentionSyncer struct {
+	status      core.SyncStatus
+	statusDelay time.Duration
+}
+
+func (s *attentionSyncer) Sync(context.Context) (core.SyncReport, error) {
+	return core.SyncReport{}, nil
+}
+func (s *attentionSyncer) Status(context.Context) (core.SyncStatus, error) {
+	if s.statusDelay > 0 {
+		time.Sleep(s.statusDelay)
+	}
+	return s.status, nil
+}
+func (s *attentionSyncer) LocalStatus(context.Context) (core.SyncStatus, error) {
+	return s.status, nil
+}
+func (s *attentionSyncer) CheckRemoteEmpty(context.Context, string) error { return nil }
+func (s *attentionSyncer) Create(context.Context, string, string) error   { return nil }
+func (s *attentionSyncer) Clone(context.Context, string, string, int) error {
+	return nil
+}
+
+// TestMCPAttentionWarningsOnSessionAndRecall proves both primary MCP paths carry
+// health attention and actionable conflict hints.
+func TestMCPAttentionWarningsOnSessionAndRecall(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-attention")
+
+	fakeStore := store.NewFakeStore()
+	fakeStore.Dossiers["dos_1"] = &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID: "dos_1", Name: "Test", Slug: "test-dossier", Status: core.StatusActive, Priority: core.PriorityHigh,
+		},
+		DistilledState: core.DistilledState{Body: "# Test"},
+	}
+	fakeStore.Revisions["dos_1"] = "rev_1"
+	fakeStore.Conflicts["conf_1"] = &core.Conflict{ID: "conf_1", DossierID: "dos_1"}
+	syncer := &attentionSyncer{status: core.SyncStatus{LastError: "connection refused"}, statusDelay: 500 * time.Millisecond}
+	svc := core.NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, core.Config{}, syncer)
+
+	started := time.Now()
+	session := callTool(t, svc, "dossier_session", `{"id":"dos_1"}`)
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("dossier_session performed a remote status fetch: %s", elapsed)
+	}
+	if !session.OK || len(session.Warnings) == 0 {
+		t.Fatalf("session response warnings = %+v, result = %+v", session.Warnings, session)
+	}
+	sessionWarning := strings.Join(session.Warnings, " ")
+	if !strings.Contains(sessionWarning, "conf_1") || !strings.Contains(sessionWarning, "dossier_conflicts") {
+		t.Fatalf("session warning omitted conflict hint: %q", sessionWarning)
+	}
+
+	started = time.Now()
+	recall := callTool(t, svc, "dossier_recall", `{"id":"test-dossier"}`)
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("dossier_recall performed a remote status fetch: %s", elapsed)
+	}
+	if !recall.OK || len(recall.Warnings) == 0 {
+		t.Fatalf("recall response warnings = %+v, result = %+v", recall.Warnings, recall)
+	}
+	if !strings.Contains(strings.Join(recall.Warnings, " "), "conf_1") {
+		t.Fatalf("recall warning omitted conflict id: %+v", recall.Warnings)
 	}
 }
 

@@ -56,7 +56,7 @@ func modalHelpBindings(v View) []bubbleskey.Binding {
 	case ViewContracts, ViewHealth:
 		return withBack(tuiHelpKey("↑/↓", "scroll"))
 	case ViewConflicts:
-		return withBack(tuiHelpKey("↑/↓", "select"), tuiHelpKey("1/2/3", "resolve"))
+		return withBack(tuiHelpKey("j/k", "select"), tuiHelpKey("↑/↓", "scroll"), tuiHelpKey("d", "diff"), tuiHelpKey("1/2/3", "resolve"))
 	}
 	return nil
 }

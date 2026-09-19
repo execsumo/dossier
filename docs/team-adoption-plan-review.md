@@ -437,7 +437,50 @@ harness verification.
 | P0-9 | **Automated health in the TUI (pilot scope, owner 2026-09-18).** When the TUI starts, and on fsnotify refreshes (throttled, at most once a minute), it runs a health check **asynchronously with a timeout** and renders one footer line on the dashboard and detail views, e.g. `Team sync · synced 3m ago · 1 local change · 1 conflict · 2 issues`, or `Team sync · last sync failed 18m ago · work is safe locally`. A key (e.g. `H`) opens the full `doctor` report as an overlay. The summary is computed **in core**, from the same data `Doctor` uses (e.g. a `HealthSummary` on the doctor report or a `Service.Health`), so CLI (`dossier doctor`/`sync --status`) and the TUI cannot disagree; the TUI only renders it. `Syncer.Status` gets a context and bounded timeout, because it currently fetches with `context.Background()` (`internal/sync/status.go:67-80`). Without team sync configured, the footer shows local issues only. No role gating. **Depends on P0-3 and P0-4.** | Core table test: health summary from fixtures (never synced / synced / failed / conflicts / issues). TUI test: footer renders the summary and an unreachable remote doesn't block `Init`/first render. Golden test: TUI footer text matches the CLI summary for the same store. |
 | ~~P0-8~~ | ~~Live-GitHub drill (owner)~~. Not a development item. The owner runs it after P0-1 to P0-7, as Part D of [`team-sync-validation.md`](team-sync-validation.md). | — |
 
-### Smallest viable concierge pilot (after P0)
+### Post-P0 follow-ups (2026-09-18, branch `feat/conflict-view-and-sync-warnings`)
+
+| Item | Status |
+|---|---|
+| Side-by-side conflict view: `Service.ConflictDetail` (current shared body, preserved body, fresh diff); `dossier conflicts <id>`; MCP `dossier_conflicts` with `conflict_id`; TUI `x` overlay shows two aligned columns (stacked when narrow), `d` toggles the diff | **Done** (WS-E) |
+| `team join` accepts a pre-written `~/.dossier/credentials` (the default store is `~/.dossier`, so the documented setup was refused as "existing store") | **Done** |
+| Merge-adopt join | **Dropped** (owner): nobody on the team has a store |
+| Background-sync warnings (Increment 1 item 1): SessionStart line, `dossier_session`/`dossier_recall` warnings, one-time warning after an MCP background sync, `open` health line; plus the pre-existing ~35 s offline SessionStart hang it exposed (`GitSync.divergence` ignored the context), now 5.1 s against an unroutable remote | **Done** (WS-F) |
+| Manual `dossier sync` against an unreachable remote took ~90 s (three 30 s default dial timeouts) | **Done**: 10 s connect/TLS timeout on git HTTP(S); now ~10 s |
+
+### Team MVP (before the pilot; owner decisions 2026-09-18, recorded as BUILD-DECISIONS B17)
+
+**Goal:** a non-technical colleague on a work Mac or Windows PC joins with one
+command and a browser click, appears to the team under their name, and asks
+Claude "what's assigned to me?" with no setup beyond `gh`.
+
+**Constraints (owner):** the team has GitHub accounts and the GitHub CLI (`gh`),
+which the org allows; a new GitHub App would need org approval, so none is
+used. The org assigns usernames. One work machine per person. Both macOS and
+Windows must work.
+
+| # | Work | Acceptance |
+|---|---|---|
+| M1 | **Platform spike: macOS and Windows first-class.** CI runs `go test ./...` on `ubuntu-latest`, `macos-latest`, `windows-latest`; the release workflow publishes `windows/amd64` (and `windows/arm64` if cheap) next to darwin/linux. Fix what Windows breaks, at least: the `0600` credentials check (Windows has no Unix modes; use an owner-only check or skip with a documented rationale); replacing the read-only (`0444`) `dossier.md` by rename; file locks; Claude Code config, hook and MCP paths on Windows (`%USERPROFILE%`); the `.dossier` home and `gh` lookup. | CI green on all three OSes. A real-machine smoke test on one Mac and one Windows PC (owner or a colleague): `init`, `promote`, `team join` against a sandbox repo, `sync`, a Claude session that binds by name and saves. Record results in `docs/harness-capabilities.md`. |
+| M2 | **Identity = org username.** `author` defaults to the OS login name with any domain prefix (`DOMAIN\`, `AzureAD\`) stripped, lowercased; still overridable in `config.yaml`. | Table test of normalization for `ACME\PSmith`, `AzureAD\psmith`, `psmith`, `Priya.Shah`. Confirm on real machines what `id -un` (Mac) and `whoami` (Windows) return and that normalization yields the org username (owner provides the two outputs). **macOS confirmed 2026-09-18:** `id -un` on the owner's work laptop returns `hgill`, the org username, with no prefix. **Windows pending** (a colleague's `whoami`, expected within days). |
+| M3 | **Roster `team.yaml`** (synced, store root): `manager: <username>`, `members: {<username>: <Display Name>}`. Written by `team create` (manager = creator) and by `dossier team add <username> "<Display Name>"` / `team remove` (manager only, by convention; warn if the caller is not the manager). A concurrent edit is captured as a conflict (extend the `dossier.md` conflict path), never dropped. Core exposes `Service.Members()`; the per-machine `leads:` list is ignored when a roster exists. | Round-trip and conflict tests; `team add` on a non-manager machine warns; `doctor` flags a `lead` not in the roster. |
+| M4 | **Lead = username, shown as display name.** Lead pickers (TUI, CLI `lead`, MCP `dossier_update`) offer roster members; `lead` stores the username; list, detail, `ls` and MCP results render the display name. Matching "Priya", "Priya Shah" or "psmith" finds the same Dossiers. | Tests on all three surfaces; existing free-text leads keep working and are flagged by `doctor` when not in the roster. |
+| M5 | **"Me".** SessionStart context and the `dossier_session` / `dossier_list` responses state the current user ("You are working as Priya Shah (psmith)"); `dossier_list` accepts `lead: "me"`. | Test: the unbound SessionStart text names the user; `dossier_list` with `lead: me` returns only their Dossiers. Live check in Claude: "what's assigned to me?" binds without a name. |
+| M6 | **`gh`-assisted join.** When `team join` or `team create` finds no credentials and `gh` is installed, it offers to run `gh auth login --web` (confirm first; never silently), then verifies it can list the remote before cloning; if `gh` is missing, it prints the install link and the token fallback. Join prints "You'll appear to teammates as <Display Name> (<username>)", or asks the colleague to have the manager add them if they're not in the roster. | Tests with a fake `gh` runner (logged out → offers login; declined → clean exit; logged in → proceeds). Owner runs it live in validation Part D. |
+| M7 | **Docs.** Onboarding rewritten for the new flow (install Dossier + `gh`, run one command, click Authorize); runbook entries for `gh` sign-in failures and roster conflicts; SPEC §7/§8/§14; validation Part C gains checks for M2–M6. | Onboarding followed end to end by a non-developer in the smoke test. |
+
+**Order:** M1 first (largest unknown), with M2–M5 in parallel; M6 after M1
+(it touches process spawning on Windows); M7 last; then validation Part D
+(live GitHub) and Part E.
+
+**Not in the MVP:** GitHub App or our own OAuth flow; merge-adopt join;
+multiple devices per person; roles and permissions; a side-by-side merge
+editor.
+
+### Smallest viable concierge pilot (after P0 and the Team MVP)
+
+> *Sequencing (owner, 2026-09-18):* the pilot now follows the Team MVP. The
+> MVP replaces the concierge token setup with `gh` sign-in and the free-text
+> lead name with the roster; the rest of this section stands.
 
 1 manager, 1 colleague, 3 Dossiers, Claude Code only. Everyone uses a **single
 store**, the team store at `~/.dossier` (decision #3). Before `team create`,
@@ -466,10 +509,10 @@ assigned Dossier ends with a save, colleague interview answers decision #12.
 1. The **`dossier_session` bind response** (the primary path) and SessionStart
    carry one health line (last successful pull/push, pending changes) plus any
    unresolved conflict for the bound Dossier. `open` pulls (bounded) and prints
-   the same line.
-2. Resolve "me": link `lead` to `author` (or a display name in config), so
-   "what's assigned to me?" needs no name. `open --here` (cwd workspace) for the
-   non-MCP launchers.
+   the same line. *Done 2026-09-18 (WS-F); see "Post-P0 follow-ups".*
+2. ~~Resolve "me": link `lead` to `author` (or a display name in config), so
+   "what's assigned to me?" needs no name.~~ Moved into the Team MVP (M3–M5).
+   `open --here` (cwd workspace) for the non-MCP launchers remains here.
 3. A CLI `dossier save <slug> --distilled-file … --base-revision …` (Pi parity).
 4. ~~Transcripts local-only by default in team stores (gitignore compiled
    transcript artifacts or store them outside `artifacts/`), with explicit
@@ -484,7 +527,7 @@ assigned Dossier ends with a save, colleague interview answers decision #12.
 
 Assignment objects, inbox, Contributions, recovery queue UI, multi-store,
 ACLs/projections, Katana adapter, identity manifest, PLANv02 requirements /
-roster / timezone features. **Roles in config** (asked 2026-09-18): not yet.
+roster / timezone features (the Team MVP's `team.yaml` is a name map only, not the PLANv02 roster). **Roles in config** (asked 2026-09-18): not yet.
 `config.yaml` is machine-local and never syncs, so a role there is
 self-asserted and enforces nothing, since everyone with repo access can write
 everything. The one identity need, resolving "me" (Increment 1 item 2), is a
@@ -495,12 +538,14 @@ manifest, and they stay advisory until the transport enforces access.
 
 Revoked token mid-push; remote force-pushed; clock skew; two machines editing
 one body; offline week then reconnect; upgrade binary between two pilot
-machines; join from a machine with an existing `~/.dossier`; live Claude session
+machines; ~~join from a machine with an existing `~/.dossier`~~ (requirement dropped by the owner, 2026-09-18: no one on the team has a store); live Claude session
 ending without a save (confirm whether the warning is ever seen).
 
 ## 7. Open uncertainties and cheapest next tests
 
-> **Sequencing (owner, 2026-09-18):** the pilot waits for P0-1 to P0-7 and P0-9, which
+> **Sequencing (owner, 2026-09-18; updated):** P0-1 to P0-7 and P0-9 are done.
+> Next is the Team MVP (§6), then validation Part D and Part E, then the pilot.
+> Originally: the pilot waits for P0-1 to P0-7 and P0-9, which
 > are to be implemented in a separate session. After that session, run
 > [`team-sync-validation.md`](team-sync-validation.md) (sandbox checks, then
 > the owner's live GitHub test, then the pilot go/no-go). The first and fifth

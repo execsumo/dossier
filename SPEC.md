@@ -468,7 +468,7 @@ dossier artifact <slug-or-id> [<artifact-id>] [-L <a-b>] [--json]
 dossier sync [--status] [--json]
 dossier team create <url> [--yes] [--json]
 dossier team join <url> [--json]
-dossier conflicts [--json]
+dossier conflicts [<conflict-id>] [--json]
 dossier resolve <conflict-id> (--keep-shared|--restore-mine|--keep-both) [--json]
 dossier status <slug-or-id> <spark|define|execute|review|blocked|done>
 dossier lead <slug-or-id> "<lead-name>"
@@ -561,6 +561,12 @@ dossier doctor
 - Sync state lives in machine-local `.syncstate.json`. A failed attempt advances only `last_attempt` and `last_error`.
 - Supports `--json` output for MCP/TUI wrappers.
 - Oversized artifacts (>100 MB) are excluded with a warning on the run that saw them.
+- **Background syncs (follow-up to P0, 2026-09-18).** Automatic syncs report through the conversation, and only when something needs attention (last sync failed, credentials missing or rejected, or unresolved conflicts on the bound Dossier, or anywhere in the store when unbound):
+  - The SessionStart hook does its bounded pull (5 s total, including every network call), then injects one line near the top of the context: the `Health:` sentence plus " — tell the user; run dossier sync to see why." and the bound Dossier's conflict ids. Healthy ⇒ nothing added. The health line after the pull is built from local state; it never makes a second network call.
+  - `dossier_session` and `dossier_recall` add the same line as an envelope warning, with each bound-Dossier conflict id and a hint to call `dossier_conflicts` with it. They never wait on the network.
+  - After an MCP background (debounced) sync, a failure or new conflict is attached once to the next tool response: "Background team sync failed: <reason>. Your change is saved locally; it will be sent on the next successful sync." or "Background team sync found <n> conflict(s): <id> on <Dossier>. Both versions are kept; resolve it with dossier_conflicts." The same failure is not repeated; a success or a different failure re-arms it.
+  - SessionEnd's push stays silent (its output is not visible to the user); its outcome is persisted and reported by the next SessionStart.
+  - Every git HTTP(S) connection has a 10 s connect and TLS-handshake timeout, so a manual `dossier sync` against an unreachable remote fails in about 10 s. There is no overall time limit, so a large push on a slow but working link is not cut off.
 
 `dossier team create <url>` (Team Sync — implemented)
 
@@ -573,7 +579,7 @@ dossier doctor
 `dossier team join <url>` (Team Sync — implemented)
 
 - Clones the team repo into `DOSSIER_HOME`.
-- Refuses to clobber a non-empty unsynced store. *Not implemented:* the merge-adopt flow with confirmation.
+- Refuses to clobber a non-empty unsynced store: the store directory may hold only `config.yaml`, `.gitignore` and `credentials` (the token file lives in the default store and is written before joining). Joining into a store that already has Dossiers is not supported. *Requirement dropped (owner, 2026-09-18):* the merge-adopt flow with confirmation. Nobody on the team has an existing store; revisit if someone starts using Dossier on their own first.
 - Refuses a remote whose default branch is not `main`, naming the branch.
 - Writes `team.remote` to config only after the clone succeeded. A failed join moves whatever it created into a sibling `<DOSSIER_HOME>.failed-join-<UTC>/` directory, leaving pre-existing `config.yaml`/`.gitignore` in place, so a retry succeeds. Nothing is deleted.
 - *Not implemented (2026-09-18):* author confirmation and a PAT prompt. Credentials must pre-exist at `$HOME/.dossier/credentials` (mode `0600`; the path ignores `DOSSIER_HOME`) or come from `gh auth token`; see `dossier sync` for how their absence is reported.
@@ -583,6 +589,7 @@ dossier doctor
 `dossier conflicts` / `dossier resolve` (P0-5, 2026-09-18)
 
 - `conflicts` lists unresolved conflicts (id, Dossier id, kind, timestamp) across the store: sync conflicts (`sync_concurrent_edit`) and local concurrent-edit conflicts alike.
+- `conflicts <conflict-id>` shows the comparison needed to choose: the Dossier's name, the conflict's kind and time, **Shared (current)** — the Dossier's Distilled State now, **Yours (preserved)** — the preserved proposal, and a diff computed now (not the one stored when the conflict was written, which may be stale). `--json` returns `{conflict, dossier_name, dossier_slug, shared, mine, diff}`. Computed by `Service.ConflictDetail`; unknown or resolved ids return `not_found`.
 - `resolve <conflict-id>` requires exactly one choice:
   - `--keep-shared`: the current `dossier.md` stays as it is.
   - `--restore-mine`: the conflict's preserved proposal becomes the Distilled State, as a new revision saved through the normal write path with the current revision as base (never a raw overwrite).
@@ -591,7 +598,9 @@ dossier doctor
 - Appends a `conflict_resolved` audit event with the author, the choice, and the before/after revisions.
 - An unknown or already-resolved id returns `not_found`; a conflict whose Dossier no longer exists returns `not_found` and moves nothing; an invalid choice returns `invalid_frontmatter` before anything is read.
 - Sync conflict files store the rejected proposal as Distilled State Markdown (the `dossier.md` frontmatter envelope is removed; the full local file stays in the sync history).
-- The TUI offers the same operation: `x` on the dashboard or a detail view opens the conflicts overlay, and `1`/`2`/`3` choose keep shared / restore mine / keep both.
+- The TUI offers the same operation: `x` on the dashboard or a detail view opens the conflicts overlay, listing conflicts by Dossier name. The selected conflict shows Shared and Yours in two aligned columns (stacked on narrow terminals); `d` toggles the diff; `j`/`k` select; ↑/↓ and PgUp/PgDn scroll; `1`/`2`/`3` choose keep shared / restore mine / keep both.
+
+`dossier open` prints `Health: <line>` to stderr before launching the agent when Team Sync is configured, after a bounded (5 s) pull.
 
 `dossier doctor`
 
@@ -628,7 +637,7 @@ Required tools:
 - `dossier_conflicts`
 - `dossier_resolve_conflict`
 
-> **Note on `dossier_conflicts` / `dossier_resolve_conflict` (P0-5):** `dossier_conflicts` takes no arguments and returns the unresolved conflicts. `dossier_resolve_conflict` takes `conflict_id` and `choice` (`keep_shared`, `restore_mine`, `keep_both`) and behaves exactly as `dossier resolve`; it returns the resulting revision. Error codes: `not_found`, `invalid_frontmatter`, `concurrent_edit`.
+> **Note on `dossier_conflicts` / `dossier_resolve_conflict` (P0-5):** `dossier_conflicts` without arguments returns the unresolved conflicts; with `conflict_id` it returns the same comparison as `dossier conflicts <id>` (shared, mine, diff). `dossier_resolve_conflict` takes `conflict_id` and `choice` (`keep_shared`, `restore_mine`, `keep_both`) and behaves exactly as `dossier resolve`; it returns the resulting revision. Error codes: `not_found`, `invalid_frontmatter`, `concurrent_edit`.
 
 > **Note on `dossier_artifact`:** it takes `dossier_id` + `artifact_id`, and optionally either a `fragment` (a citation fragment such as `"L42-L68"`) or `start_line`/`end_line`. Content is returned with absolute 1-indexed line numbers, so the span read is the span cited. An unranged fetch returns the whole artifact and warns past 500 lines rather than truncating. `dossier_artifacts` returns the same evidence index that `dossier_recall` now carries in `artifacts[]`: one entry per archived artifact with its type, line count, and whether the Distilled State cites it.
 
@@ -1161,7 +1170,7 @@ Checks:
 
 ### 14.11 Team Sync
 
-> Status (2026-09-18): convergence, remote-wins conflict capture, oversized exclusion and machine-local exclusion are covered by tests against local bare repos. The P0 fixes (review `docs/team-adoption-plan-review.md` §6) add tested criteria below. Not met: two-command/one-sign-in onboarding (no auth prompt); visible warnings on background sync (hook and MCP results are still discarded; the TUI health footer is the surface); persistent oversized-file warning (per-run only). Never exercised against live GitHub (validation Part D).
+> Status (2026-09-18): convergence, remote-wins conflict capture, oversized exclusion and machine-local exclusion are covered by tests against local bare repos. The P0 fixes (review `docs/team-adoption-plan-review.md` §6) add tested criteria below. Not met: two-command/one-sign-in onboarding (no auth prompt; planned as Team MVP M6); persistent oversized-file warning (per-run only). Never exercised against live GitHub (validation Part D).
 - Two stores converge through one remote.
 - Concurrent `dossier.md` edit yields exactly one `conflicts/*.md` (`kind: sync_concurrent_edit`) on the later syncer with no content lost anywhere.
 - Save never blocks on network (offline save succeeds, push retries later with a visible warning).
@@ -1173,8 +1182,10 @@ Checks:
 - An unreachable remote makes `dossier sync` exit non-zero without "successful", and leaves `last_success_pull`/`last_success_push` unchanged; a no-op push reports `Pushed=false`.
 - The unresolved-conflict count survives a later clean sync, and `doctor`'s Team Sync block agrees with its issue list.
 - Missing credentials for an `http(s)` remote warn explicitly; 401/403 returns `sync_auth_failed` with a next step.
+- A conflict's shared and preserved versions and a current diff are viewable on CLI, MCP and TUI before resolving.
 - A conflict can be resolved (keep shared / restore mine / keep both) through CLI, MCP and TUI with the same result; the file moves to `conflicts/resolved/`, the audit log records who and how, and `doctor` stops reporting it.
 - Promote's byte-preserved raw JSONL artifact (`art_<n>_raw.*`, thinking included) never reaches the remote (`*/artifacts/*_raw.*` is gitignored); the compiled transcript does; a clone without the raw file has no `doctor` issue for it.
+- A failed or conflicting background sync is reported in the conversation (SessionStart context, `dossier_session`/`dossier_recall` warnings, or the next MCP response after a background sync) and not when healthy; SessionStart finishes within its 5 s budget against an unreachable remote.
 - The TUI shows a health footer computed in core, refreshed asynchronously (start, store changes at most once a minute, and a one-minute tick) with a bounded remote check, so an unreachable remote never blocks the first render; `H` opens the full doctor report; the footer text equals the CLI `Health:` line for the same store.
 
 ### 14.12 First-class Rename

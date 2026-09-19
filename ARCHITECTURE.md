@@ -66,7 +66,7 @@ dossier/
       service_session.go # context, binding, guide delivery, lifecycle
       service_harness.go # capability reporting + integration installation
       service_team.go    # TeamCreate (preview + confirmed)/Join and Sync/SyncStatus; sync_auth_failed mapping
-      service_conflict.go # ListConflicts/ResolveConflict (keep_shared|restore_mine|keep_both → conflicts/resolved/)
+      service_conflict.go # ListConflicts/ConflictDetail/ResolveConflict (keep_shared|restore_mine|keep_both → conflicts/resolved/)
       health.go          # HealthSummary + canonical Line(): the one health sentence CLI and TUI both print
     store/               # driven adapter: filesystem (implements core.Store)
       fsstore.go         # layout, read/write, atomic write protocol (§5)
@@ -89,6 +89,7 @@ dossier/
       gitsync.go         # GitSync + Config/report types; sync.go: pull→resolve→commit→push
       merge.go/tree.go   # remote-wins 3-way merge (no git markers ever); DiffTree + MergeBase
       credentials.go     # PAT resolution (~/.dossier/credentials 0600, `gh auth token` fallback) + auth state; ErrNoCredentials for http(s)
+      transport.go       # git HTTP(S) client with a 10 s connect/TLS timeout (no overall cap)
       state.go           # .syncstate.json: last attempt / last successful pull & push / last error / auth state
       gitignore.go       # machine-local exclusion set (config.yaml, root + per-slug sessions/, context/, raw promote artifacts) — B13
       adapter.go         # maps GitSync's internal types → core.Sync* DTOs (keeps core pure)
@@ -170,6 +171,7 @@ func (s *Service) TeamJoin(ctx, TeamJoinReq) (Result, error)
 func (s *Service) Sync(ctx) (Result, error)
 func (s *Service) SyncStatus(ctx) (Result, error)
 func (s *Service) ListConflicts(ctx) ([]Conflict, error)
+func (s *Service) ConflictDetail(ctx, conflictID) (ConflictDetail, error) // shared vs mine + fresh diff
 func (s *Service) ResolveConflict(ctx, ResolveConflictReq) (Result, error)
 func (s *Service) Health(ctx) (Result, error) // Doctor + HealthSummary
 ```
@@ -264,6 +266,7 @@ type Clock interface{ Now() time.Time }
 type Syncer interface {
     Sync(ctx context.Context) (SyncReport, error)     // pull→resolve(remote-wins)→commit→push
     Status(ctx context.Context) (SyncStatus, error)   // ahead/behind (bounded fetch), last attempt/success, auth; no mutation
+    LocalStatus(ctx context.Context) (SyncStatus, error) // same snapshot from persisted state + local refs; never touches the network
     CheckRemoteEmpty(ctx context.Context, url string) error // team create refuses a remote with refs
     Create(ctx context.Context, url, branch string) error   // initialize team store and push; on failure moves .git aside
     Clone(ctx context.Context, url, dir string, depth int) error // join; refuses non-main default branch; on failure moves aside
@@ -283,7 +286,7 @@ Why each is a port:
   `ActiveHarnessResolver` add adapter knowledge while lightweight test doubles
   keep implementing only the base ports.
 
-**Auto-sync (Phase 3b) — lifecycle, not a daemon.** Sync becomes automatic at three trigger points, all best-effort and non-blocking: (1) `Service.SessionStart`/`SessionEnd` (short-lived hook processes) do a bounded pull/push, gated on a configured syncer; (2) the long-lived `mcp serve` process runs a **debounced background sync goroutine** (`internal/mcp/server.go`) triggered after `dossier_save`/`dossier_recall`, coalescing rapid edits and **drained (bounded) on stdin EOF** so the last change is never stranded; (3) short-lived CLI commands do NOT debounce — they rely on the session-boundary hooks and explicit `dossier sync`. There is no daemon and nothing survives the process. Concurrent pushes from these independent paths are safe because the Phase 2 store-wide `.sync.lock` serializes every `Sync()`. `dossier doctor` surfaces sync health (configured / ahead / behind / last attempt / last successful pull and push / last error / auth state / unresolved conflicts) via `Syncer.Status`; the background paths discard their results but every run persists its outcome to `.syncstate.json`, which is what the TUI health footer reads. **The fast-forward pull path stashes machine-local files (`config.yaml`, root `sessions/`, `context/`, stable locks, sync state, and per-Dossier session stashes keyed by immutable ID) across go-git's Force checkout**, which would otherwise delete these gitignored files and silently un-team a joined colleague. Restoring per-Dossier stashes by ID makes them follow a remotely renamed slug directory.
+**Auto-sync (Phase 3b) — lifecycle, not a daemon.** Sync becomes automatic at three trigger points, all best-effort and non-blocking: (1) `Service.SessionStart`/`SessionEnd` (short-lived hook processes) do a bounded pull/push, gated on a configured syncer; (2) the long-lived `mcp serve` process runs a **debounced background sync goroutine** (`internal/mcp/server.go`) triggered after `dossier_save`/`dossier_recall`, coalescing rapid edits and **drained (bounded) on stdin EOF** so the last change is never stranded; (3) short-lived CLI commands do NOT debounce — they rely on the session-boundary hooks and explicit `dossier sync`. There is no daemon and nothing survives the process. Concurrent pushes from these independent paths are safe because the Phase 2 store-wide `.sync.lock` serializes every `Sync()`. `dossier doctor` surfaces sync health (configured / ahead / behind / last attempt / last successful pull and push / last error / auth state / unresolved conflicts) via `Syncer.Status`; every run persists its outcome to `.syncstate.json`, which the TUI health footer reads. Background paths surface only when something needs attention, through `Service.SyncAttention` (built on the same `HealthSummary.Line`): SessionStart injects it after its bounded pull, `dossier_session`/`dossier_recall` add it as a warning, and the MCP debouncer holds a one-shot warning for the next response. These use `Syncer.LocalStatus` (persisted state and local tracking refs), never a second network call; the sync path threads its context into every network operation so SessionStart stays within 5 s offline. **The fast-forward pull path stashes machine-local files (`config.yaml`, root `sessions/`, `context/`, stable locks, sync state, and per-Dossier session stashes keyed by immutable ID) across go-git's Force checkout**, which would otherwise delete these gitignored files and silently un-team a joined colleague. Restoring per-Dossier stashes by ID makes them follow a remotely renamed slug directory.
 
 ### Structured meeting interfaces
 

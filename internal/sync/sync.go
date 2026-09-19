@@ -39,7 +39,9 @@ func (g *GitSync) Clone(ctx context.Context, url, dir string, depth int) error {
 		existing = make(map[string]bool, len(entries))
 		for _, e := range entries {
 			existing[e.Name()] = true
-			if e.Name() != "config.yaml" && e.Name() != ".gitignore" {
+			// credentials lives at $HOME/.dossier/credentials, which is the
+			// default store, so it must be written before joining.
+			if e.Name() != "config.yaml" && e.Name() != ".gitignore" && e.Name() != "credentials" {
 				return errors.New("target directory is not empty; cannot join into an existing store")
 			}
 		}
@@ -238,11 +240,17 @@ func (g *GitSync) syncWithCtx(ctx context.Context) (SyncReport, error) {
 	}
 
 	// --- ahead/behind snapshot (after merge, before push) ---
-	report.Ahead, report.Behind = g.divergence(repo)
+	// A failed pull already consumed the bounded network budget. Use the last
+	// remote-tracking ref and do not fetch again (or attempt a push) offline.
+	if ferr != nil {
+		report.Ahead, report.Behind = g.localDivergence(repo)
+	} else {
+		report.Ahead, report.Behind = g.divergence(ctx, repo)
+	}
 
 	// --- PUSH ---
 	pushSuccess := false
-	if g.cfg.RemoteURL != "" {
+	if ferr == nil && g.cfg.RemoteURL != "" {
 		succ, pushed, perr := g.doPush(ctx, repo, g.cfg.Branch)
 		if perr != nil {
 			report.Error = appendErr(report.Error, perr.Error())

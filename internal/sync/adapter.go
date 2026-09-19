@@ -87,6 +87,24 @@ func (a *Adapter) Status(ctx context.Context) (core.SyncStatus, error) {
 	}, nil
 }
 
+// LocalStatus implements core.LocalSyncStatuser without fetching the remote.
+func (a *Adapter) LocalStatus(ctx context.Context) (core.SyncStatus, error) {
+	st, err := a.gs.LocalStatus(ctx)
+	if err != nil {
+		return core.SyncStatus{}, err
+	}
+	return core.SyncStatus{
+		Ahead:           st.Ahead,
+		Behind:          st.Behind,
+		LastAttempt:     st.LastAttempt,
+		LastSuccessPull: st.LastSuccessPull,
+		LastSuccessPush: st.LastSuccessPush,
+		LastError:       st.LastError,
+		AuthState:       st.AuthState,
+		Dirty:           st.Dirty,
+	}, nil
+}
+
 // CheckRemoteEmpty implements core.Syncer.
 func (a *Adapter) CheckRemoteEmpty(ctx context.Context, url string) error {
 	return a.gs.CheckRemoteEmpty(ctx, url)

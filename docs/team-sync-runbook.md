@@ -20,7 +20,7 @@
 | `sync_auth_failed` | PAT missing, expired, or lacks the right access | Follow the next step it prints: replace `~/.dossier/credentials` (mode `0600`) or sign in with `gh`; see §2 |
 | `Warning: no credentials found for <url>` on every command | No credentials file and no signed-in `gh` | See §2 |
 | a `<store>.failed-join-<time>` or `.failed-create-<time>` folder next to the store | An earlier join or create failed; what it created was moved aside | See §6 |
-| TUI footer: `Team sync · last sync failed …` | The most recent sync (manual or automatic) failed | Run `dossier sync` to see why; see §1/§2 |
+| TUI footer: `Team sync · last sync failed …`, or Claude says the team sync failed | The most recent sync (manual or automatic) failed | Run `dossier sync` to see why; see §1/§2 |
 | ">100 MB" exclusion warning | File exceeds GitHub's 100 MB hard limit | Stays local, never enters shared history; move it out of the store or reference it externally |
 | new `conflicts/<id>.md`, `kind: sync_concurrent_edit`; TUI footer shows `1 conflict` | Two machines edited the same `dossier.md` body | Remote won the working tree; local version preserved as the conflict note; resolve it (TUI `x`, `dossier resolve`, or ask Claude); see §4 |
 | machine-local files absent from the store | `config.yaml`, root `sessions/`, `context/`, locks are excluded by design | Nothing — this is correct; these are per-machine and must not sync |
@@ -47,7 +47,7 @@
 
   It reports unpushed commits, a diverged remote, or stale credentials: a `Health:` line (the same line as the TUI footer), then the last attempt, last successful pull and push, last error, auth state (`file`, `gh`, `none`, `missing`, `rejected`), ahead/behind, uncommitted changes, and unresolved conflicts. Only successful runs move the "last pull/push" times. The conflict count comes from the files in `conflicts/`, so it stays until each conflict is resolved.
 
-- The next successful sync catches everything up. A deferred push never blocks a save. A deferred push is a visible warning: a manual `dossier sync` exits 1 with "Sync failed", and "Pushed local changes" appears only when commits were actually sent. Session-hook and background syncs still print nothing themselves (`internal/core/service_session.go`, `internal/mcp/server.go`), but they record their result, so the TUI footer shows `last sync failed …` within about a minute.
+- The next successful sync catches everything up. A deferred push never blocks a save. A deferred push is a visible warning: a manual `dossier sync` exits 1 with "Sync failed", and "Pushed local changes" appears only when commits were actually sent. Background syncs report too: the next Claude session start tells the agent (and so the user) when the last sync failed or a conflict is waiting, and a failed background sync during a session is mentioned once in Claude's next Dossier response. The TUI footer shows `last sync failed …` within about a minute. Off VPN, a Claude session start waits at most about 5 seconds for the team remote; a manual `dossier sync` reports the failure within about 10 seconds.
 
 *Sources: `docs/adr/0005-team-sync-via-github.md` §5; `docs/team-sync-plan.md` Non-negotiables (Local-first); `SPEC.md` §7.2 `dossier sync`.*
 
@@ -92,10 +92,10 @@ Nothing is lost; there are **never merge markers** in the store.
 
 **What to do:**
 
-- ~~Reconcile in Dossier's **conflict-resolution view (the TUI)**, which steps through the local and remote sides so you can keep what you want.~~ **Actual (after P0-5):** there is a resolve operation, but no side-by-side view. First read the conflict file, `<slug>/conflicts/<id>.md`: your preserved version, then a diff against the shared one. Then choose one of three outcomes, from any surface:
-  - TUI: press `x` on the dashboard or a Dossier's detail view, select the conflict, then `1` keep shared, `2` restore mine, or `3` keep both.
-  - CLI: `dossier conflicts` lists ids; `dossier resolve <conflict-id> --keep-shared|--restore-mine|--keep-both`.
-  - Claude: `dossier_conflicts`, then `dossier_resolve_conflict`.
+- Reconcile in Dossier's **conflict-resolution view (the TUI)**, which shows the local and remote sides so you can keep what you want. It is a choice between three outcomes, not a line-by-line merge editor. From any surface:
+  - TUI: press `x` on the dashboard or a Dossier's detail view and select the conflict. The shared version and yours appear side by side (`d` shows the diff). Then `1` keep shared, `2` restore mine, or `3` keep both.
+  - CLI: `dossier conflicts` lists ids; `dossier conflicts <id>` shows both versions and the diff; `dossier resolve <conflict-id> --keep-shared|--restore-mine|--keep-both`.
+  - Claude: `dossier_conflicts` (with `conflict_id` for the comparison), then `dossier_resolve_conflict`.
   For a partial merge, choose **keep both**: the preserved version is appended under `## Unresolved disagreement (conflict <id>)`, and the lead edits the body down in a normal save.
   - Restore mine and keep both each create a new revision through the normal save path; nothing is overwritten.
   - The conflict file moves to `conflicts/resolved/`, stamped with who resolved it, when, and how. The audit log records a `conflict_resolved` event. Nothing is deleted.

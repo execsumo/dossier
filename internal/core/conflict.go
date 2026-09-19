@@ -17,3 +17,15 @@ type Conflict struct {
 	ResolvedBy         string     `yaml:"resolved_by,omitempty" json:"resolved_by,omitempty"`
 	Choice             string     `yaml:"choice,omitempty" json:"choice,omitempty"`
 }
+
+// ConflictDetail is the current, side-by-side view of a conflict. The stored
+// diff is intentionally not reused: the shared body may have changed since
+// the conflict was created.
+type ConflictDetail struct {
+	Conflict    Conflict `json:"conflict"`
+	DossierName string   `json:"dossier_name"`
+	DossierSlug string   `json:"dossier_slug"`
+	Shared      string   `json:"shared"`
+	Mine        string   `json:"mine"`
+	Diff        string   `json:"diff"`
+}

@@ -7,6 +7,8 @@
 > Treat this as an experimental feature.
 
 > **Status: operational but NOT ready for self-service (review 2026-09-18; updated after the P0 fixes, same day).** Do not hand this page to a colleague to follow alone. There is still no sign-in prompt, so the person who set up the store should do this setup *with* the colleague (see "Concierge setup" below). Claims that were untrue at review time and are now fixed have been restored. Claims that are still untrue stay struck through, with the actual behavior next to them. The fixes are checked in a sandbox, not yet against live GitHub. Evidence and fix list: [`team-adoption-plan-review.md`](team-adoption-plan-review.md) §6; validation: [`team-sync-validation.md`](team-sync-validation.md).
+>
+> **Coming next (Team MVP, BUILD-DECISIONS B17):** join will offer GitHub sign-in through the `gh` tool (a browser click, no token to create), and teammates will appear under names from a shared roster the manager keeps. This page describes today's flow until then.
 
 ## What a shared Dossier store is
 
@@ -35,7 +37,7 @@ Replace `<url>` with the link you were given. The command will:
 
 The store owner should do this with the colleague, screen-shared:
 
-1. Install Dossier. Confirm `~/.dossier` does not exist yet. Joining requires an empty store location.
+1. Install Dossier. Confirm `~/.dossier` does not exist yet, or holds nothing but the token file from step 2. Joining into a store that already has Dossiers is not supported.
 2. Create a fine-grained GitHub token that can read and write contents on the team repo. Save it to `~/.dossier/credentials` and set its permissions to `0600`.
 3. Run `dossier team join <url>`, then `dossier ls` and `dossier doctor`. Check that the team's Dossiers are listed.
 4. Have the colleague open Claude in their usual work folder and ask "what's assigned to <their name>?". Check that it finds their first assignment and binds it.
@@ -69,7 +71,7 @@ dossier sync
 
 ~~A later phase makes syncing happen **automatically** around your saves and lookups, so you won't have to think about it (currently in pilot testing).~~ **Actual:** automatic sync is partly built. It runs when a Claude session starts and ends (`internal/core/service_session.go:215-219`, `:498-502`), and in the background after the agent reads, saves or renames a Dossier (`internal/mcp/tools.go:324,419,611`). It does **not** run after changes you make with `dossier` commands or in the dashboard. Run `dossier sync` after those.
 
-Either way, a flaky connection never loses your work. If a sync can't reach the team store right now, Dossier tells you plainly and keeps your changes safe until the next sync. A failed `dossier sync` says "Sync failed" and why. Automatic syncs don't print anything, so the dashboard (`dossier tui`) shows a health line at the bottom, for example `Team sync · last sync failed 18m ago · work is safe locally`. It updates on its own about once a minute. Press `H` for the full report.
+Either way, a flaky connection never loses your work. If a sync can't reach the team store right now, Dossier tells you plainly and keeps your changes safe until the next sync. A failed `dossier sync` says "Sync failed" and why. When an automatic sync fails, Claude tells you at the start of your next session, or during the session after it saves. The dashboard (`dossier tui`) also shows a health line at the bottom, for example `Team sync · last sync failed 18m ago · work is safe locally`. It updates on its own about once a minute. Press `H` for the full report.
 
 ## If two of us edited the same thing
 
@@ -78,7 +80,7 @@ Sometimes you and a colleague both edit the same topic. That's fine.
 - **Nothing is lost**, and there are never any messy conflict markers in your files.
 - The version that's already in the shared store stays in the topic file.
 - **Your version is saved right alongside it** as a short note in a `conflicts/` folder, for you to reconcile.
-- You'll get a friendly heads-up that there's something to reconcile: the dashboard's health line shows `1 conflict`, and `dossier sync` tells you too. ~~Dossier's dashboard walks you through it step by step~~ There is no step-by-step view yet, but reconciling is one choice: in the dashboard press `x`, pick the conflict, then keep the shared version, restore yours, or keep both side by side so the topic's lead can merge them. To see what differs first, open the conflict note in the topic's `conflicts/` folder, or ask Claude to show it. You can also just ask Claude to resolve it. In the pilot, the topic's lead makes that call, so if it isn't your topic, tell them.
+- You'll get a friendly heads-up that there's something to reconcile: the dashboard's health line shows `1 conflict`, and `dossier sync` tells you too. Dossier's dashboard walks you through it: press `x` and pick the conflict. The shared version and yours appear side by side, and `d` shows exactly what differs. Then keep the shared version, restore yours, or keep both so the topic's lead can merge them. You can also ask Claude to show you the conflict and resolve it. You can also just ask Claude to resolve it. In the pilot, the topic's lead makes that call, so if it isn't your topic, tell them.
 
 Both perspectives are preserved — neither is silently overwritten. If you and a colleague disagree, the disagreement is recorded openly rather than smoothed over.
 

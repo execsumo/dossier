@@ -13,6 +13,7 @@ import (
 	lipglossv2 "charm.land/lipgloss/v2"
 	tea "github.com/charmbracelet/bubbletea"
 	lipgloss "github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 var (
@@ -49,6 +50,17 @@ type externalLinkRow struct {
 	entry      externalLinkEntry
 	entryIndex int
 	empty      bool
+}
+
+func conflictOverlayPanelWidth(screenWidth int) int {
+	panelWidth := screenWidth - 8
+	if panelWidth > 120 {
+		panelWidth = 120
+	}
+	if panelWidth < 32 {
+		panelWidth = 32
+	}
+	return panelWidth
 }
 
 func isOverlayView(v View) bool {
@@ -154,11 +166,13 @@ func (m Model) renderOverlay(background string, v View) string {
 	title := fmt.Sprintf("%s · %s · Esc back", context, m.overlayLabel(v))
 
 	panelWidth := m.width - 8
-	if v == ViewEdit {
+	if v == ViewConflicts {
+		panelWidth = conflictOverlayPanelWidth(m.width)
+	} else if v == ViewEdit {
 		panelWidth = m.width - 2
 	}
 	maxPanelWidth := 96
-	if v == ViewEdit {
+	if v == ViewEdit || v == ViewConflicts {
 		maxPanelWidth = 120
 	}
 	if panelWidth > maxPanelWidth {
@@ -167,8 +181,12 @@ func (m Model) renderOverlay(background string, v View) string {
 	if panelWidth < 32 {
 		panelWidth = 32
 	}
+	contentWidth := panelWidth - overlayPanelStyle.GetHorizontalFrameSize()
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
 	footer := renderModalFooter(v)
-	if lipgloss.Width(footer) > panelWidth {
+	if lipgloss.Width(footer) > contentWidth {
 		footer = compactModalFooter(v)
 	}
 	if footer != "" {
@@ -178,10 +196,11 @@ func (m Model) renderOverlay(background string, v View) string {
 	if footer != "" {
 		footerHeight = lipgloss.Height(footer)
 	}
-	// A panel has a title, spacing, border, and padding outside its content.
-	// Budget the content before rendering rather than clipping the finished
-	// compositor, which used to remove the footer and trap the user.
-	content = fitScreen(content, panelWidth, m.height-6, footerHeight)
+	// Width is the panel's total width; its border and padding consume part of
+	// that budget. Fit the body to the same inner box before rendering so the
+	// compositor never turns padded rows into ellipsis-only lines.
+	contentHeight := m.height - overlayPanelStyle.GetVerticalFrameSize() - lipglossv2.Height(overlayTitleStyle.Render(title)+"\n\n")
+	content = fitScreen(content, contentWidth, contentHeight, footerHeight)
 	panel := overlayPanelStyle.Width(panelWidth).Render(
 		overlayTitleStyle.Render(title) + "\n\n" + content,
 	)
@@ -224,7 +243,7 @@ func compactModalFooter(v View) string {
 	case ViewContracts, ViewHealth:
 		text = "↑/↓ scroll"
 	case ViewConflicts:
-		text = "↑/↓ select · 1 shared · 2 mine · 3 both"
+		text = "j/k select · ↑/↓ scroll · d diff · 1 shared · 2 mine · 3 both"
 	default:
 		return ""
 	}
@@ -567,7 +586,11 @@ func (m Model) renderConflicts() string {
 		if i == m.conflictCursor {
 			marker = "> "
 		}
-		line := fmt.Sprintf("%s%s  %s  %s  %s", marker, conflict.ID, conflict.DossierID, conflict.Kind, conflict.TS.Format(time.RFC3339))
+		name := conflict.DossierID
+		if detail, ok := m.conflictDetails[conflict.ID]; ok && detail.DossierName != "" {
+			name = detail.DossierName
+		}
+		line := fmt.Sprintf("%s%s  %s  %s  %s", marker, conflict.ID, name, conflict.Kind, conflict.TS.Format(time.RFC3339))
 		if i == m.conflictCursor {
 			sb.WriteString(focusedItemStyle.Render(line))
 		} else {
@@ -575,7 +598,89 @@ func (m Model) renderConflicts() string {
 		}
 		sb.WriteString("\n")
 	}
+	if detail, ok := m.conflictDetails[m.conflicts[m.conflictCursor].ID]; ok {
+		sb.WriteString("\n")
+		comparison := m.conflictViewport.View()
+		if comparison == "" {
+			comparison = m.renderConflictComparison(detail)
+		}
+		sb.WriteString(comparison)
+	} else {
+		sb.WriteString("\nComparison unavailable for this conflict.")
+	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+func (m Model) renderConflictComparison(detail core.ConflictDetail) string {
+	header := fmt.Sprintf("Dossier: %s (%s)", detail.DossierName, detail.DossierSlug)
+	width := m.conflictViewport.Width
+	if width <= 0 {
+		width = conflictOverlayPanelWidth(m.width) - overlayPanelStyle.GetHorizontalFrameSize()
+	}
+	if width < 3 {
+		width = 3
+	}
+	if m.conflictShowDiff {
+		lines := []string{header, "", overlaySectionStyle.Render("Diff (shared → yours)")}
+		lines = append(lines, wrapConflictLines(detail.Diff, width)...)
+		return strings.Join(lines, "\n")
+	}
+	if m.width >= 100 {
+		const gapWidth = 3
+		columnWidth := (width - gapWidth) / 2
+		if columnWidth < 1 {
+			columnWidth = 1
+		}
+		shared := conflictColumn("Shared (current)", detail.Shared, columnWidth)
+		yours := conflictColumn("Yours (preserved)", detail.Mine, columnWidth)
+		gap := modalFillStyle.Render(strings.Repeat(" ", gapWidth))
+		return header + "\n\n" + joinModalColumns(shared, gap, yours)
+	}
+	lines := []string{header, "", overlaySectionStyle.Render("Shared (current)")}
+	lines = append(lines, wrapConflictLines(detail.Shared, width)...)
+	lines = append(lines, "", overlaySectionStyle.Render("Yours (preserved)"))
+	lines = append(lines, wrapConflictLines(detail.Mine, width)...)
+	return strings.Join(lines, "\n")
+}
+
+func conflictColumn(title, body string, width int) string {
+	lines := append([]string{overlaySectionStyle.Render(title)}, wrapConflictLines(body, width)...)
+	for i := range lines {
+		lines[i] = padConflictLine(lines[i], width)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func wrapConflictLines(text string, width int) []string {
+	if width < 1 {
+		return []string{text}
+	}
+	var wrapped []string
+	for _, line := range strings.Split(text, "\n") {
+		for ansi.StringWidth(line) > width {
+			segment := ansi.Cut(line, 0, width)
+			if segment == "" {
+				break
+			}
+			consumed := width
+			part := segment
+			if space := strings.LastIndexByte(segment, ' '); space > 0 {
+				part = strings.TrimRight(segment[:space], " ")
+				consumed = ansi.StringWidth(segment[:space+1])
+			}
+			wrapped = append(wrapped, part)
+			line = strings.TrimLeft(ansi.Cut(line, consumed, ansi.StringWidth(line)), " ")
+		}
+		wrapped = append(wrapped, line)
+	}
+	return wrapped
+}
+
+func padConflictLine(line string, width int) string {
+	if padding := width - ansi.StringWidth(line); padding > 0 {
+		return line + modalFillStyle.Render(strings.Repeat(" ", padding))
+	}
+	return line
 }
 
 // renderContractsChecklist renders the person-specific terms of each

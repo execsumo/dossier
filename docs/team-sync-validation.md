@@ -22,9 +22,9 @@
 | Where a failed join/create is moved | `<DOSSIER_HOME>.failed-join-<UTC>/`, `<DOSSIER_HOME>.failed-create-<UTC>/` (siblings of the store) |
 | Auth failure code | `sync_auth_failed` (CLI exit 1; MCP error code) |
 | Missing credentials warning | `Warning: no credentials found for <url>` (stderr, every command wired to an http(s) remote) |
-| List / resolve conflicts (CLI) | `dossier conflicts`; `dossier resolve <id> --keep-shared\|--restore-mine\|--keep-both` |
-| List / resolve conflicts (MCP) | `dossier_conflicts`; `dossier_resolve_conflict` (`conflict_id`, `choice`) |
-| Resolve conflicts (TUI) | `x` opens the conflicts overlay; `1`/`2`/`3` choose |
+| List / compare / resolve conflicts (CLI) | `dossier conflicts`; `dossier conflicts <id>`; `dossier resolve <id> --keep-shared\|--restore-mine\|--keep-both` |
+| List / compare / resolve conflicts (MCP) | `dossier_conflicts` (optional `conflict_id`); `dossier_resolve_conflict` (`conflict_id`, `choice`) |
+| Resolve conflicts (TUI) | `x` opens the conflicts overlay (side by side; `d` diff); `1`/`2`/`3` choose |
 | Health line | `Health:` first line of `dossier doctor` and `dossier sync --status`; TUI footer |
 | Full report key (TUI) | `H` |
 | Raw promote transcript | `artifacts/art_<n>_raw.*`, gitignored as `*/artifacts/*_raw.*` |
@@ -266,7 +266,7 @@ Start the pilot only when all of these are true:
   compensation material, and no session that read such material is archived in
   it (transcripts sync). Anything else has been moved out of `~/.dossier`.
   Archiving is not enough.
-- The colleague's `~/.dossier` does not exist before joining.
+- The colleague's `~/.dossier` does not exist before joining, or holds only the `credentials` token file. (Joining into an existing store is not supported; requirement dropped by the owner, 2026-09-18.)
 - The colleague knows the one primary path: open Claude in the work folder, ask
   for their Dossier by name, and ask Claude to save as decisions land.
 

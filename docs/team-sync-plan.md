@@ -7,7 +7,7 @@
 >
 > - Phase 2 §4: `sync_auth_failed` warning and "exact re-auth command". Neither exists; auth failures surface as a generic `Sync network error`.
 > - Phase 3 §1: "validates it's empty". `team create` has no empty check and publishes the whole existing store (`internal/sync/sync.go:58-99`; dogfood).
-> - Phase 3 §2: merge-adopt flow, `author` confirmation, PAT prompt/store. None exist (`internal/cli/cli.go:1606-1650`).
+> - Phase 3 §2: merge-adopt flow, `author` confirmation, PAT prompt/store. None exist (`internal/cli/cli.go:1606-1650`). Merge-adopt is dropped (owner, 2026-09-18).
 > - Phase 3 §3: "pull-before-Recall, commit+push-after-Save". Built only for the session hooks and MCP `dossier_recall`/`dossier_save`/`dossier_rename`. Not built for CLI or TUI.
 > - Phase 3 §3: "failures degrade to warnings". Background results are discarded (`_, _ =`); see HANDOFF D8.
 > - Phase 3 §4: TUI footer and `dossier_list` sync-warning slot. Not built; `doctor` is the only surface.
