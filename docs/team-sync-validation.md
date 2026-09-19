@@ -22,9 +22,9 @@
 | Where a failed join/create is moved | `<DOSSIER_HOME>.failed-join-<UTC>/`, `<DOSSIER_HOME>.failed-create-<UTC>/` (siblings of the store) |
 | Auth failure code | `sync_auth_failed` (CLI exit 1; MCP error code) |
 | Missing credentials warning | `Warning: no credentials found for <url>` (stderr, every command wired to an http(s) remote) |
-| List / resolve conflicts (CLI) | `dossier conflicts`; `dossier resolve <id> --keep-shared\|--restore-mine\|--keep-both` |
-| List / resolve conflicts (MCP) | `dossier_conflicts`; `dossier_resolve_conflict` (`conflict_id`, `choice`) |
-| Resolve conflicts (TUI) | `x` opens the conflicts overlay; `1`/`2`/`3` choose |
+| List / compare / resolve conflicts (CLI) | `dossier conflicts`; `dossier conflicts <id>`; `dossier resolve <id> --keep-shared\|--restore-mine\|--keep-both` |
+| List / compare / resolve conflicts (MCP) | `dossier_conflicts` (optional `conflict_id`); `dossier_resolve_conflict` (`conflict_id`, `choice`) |
+| Resolve conflicts (TUI) | `x` opens the conflicts overlay (side by side; `d` diff); `1`/`2`/`3` choose |
 | Health line | `Health:` first line of `dossier doctor` and `dossier sync --status`; TUI footer |
 | Full report key (TUI) | `H` |
 | Raw promote transcript | `artifacts/art_<n>_raw.*`, gitignored as `*/artifacts/*_raw.*` |

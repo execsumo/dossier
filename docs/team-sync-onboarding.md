@@ -7,6 +7,8 @@
 > Treat this as an experimental feature.
 
 > **Status: operational but NOT ready for self-service (review 2026-09-18; updated after the P0 fixes, same day).** Do not hand this page to a colleague to follow alone. There is still no sign-in prompt, so the person who set up the store should do this setup *with* the colleague (see "Concierge setup" below). Claims that were untrue at review time and are now fixed have been restored. Claims that are still untrue stay struck through, with the actual behavior next to them. The fixes are checked in a sandbox, not yet against live GitHub. Evidence and fix list: [`team-adoption-plan-review.md`](team-adoption-plan-review.md) §6; validation: [`team-sync-validation.md`](team-sync-validation.md).
+>
+> **Coming next (Team MVP, BUILD-DECISIONS B17):** join will offer GitHub sign-in through the `gh` tool (a browser click, no token to create), and teammates will appear under names from a shared roster the manager keeps. This page describes today's flow until then.
 
 ## What a shared Dossier store is
 
@@ -78,7 +80,7 @@ Sometimes you and a colleague both edit the same topic. That's fine.
 - **Nothing is lost**, and there are never any messy conflict markers in your files.
 - The version that's already in the shared store stays in the topic file.
 - **Your version is saved right alongside it** as a short note in a `conflicts/` folder, for you to reconcile.
-- You'll get a friendly heads-up that there's something to reconcile: the dashboard's health line shows `1 conflict`, and `dossier sync` tells you too. ~~Dossier's dashboard walks you through it step by step~~ There is no step-by-step view yet, but reconciling is one choice: in the dashboard press `x`, pick the conflict, then keep the shared version, restore yours, or keep both side by side so the topic's lead can merge them. To see what differs first, open the conflict note in the topic's `conflicts/` folder, or ask Claude to show it. You can also just ask Claude to resolve it. In the pilot, the topic's lead makes that call, so if it isn't your topic, tell them.
+- You'll get a friendly heads-up that there's something to reconcile: the dashboard's health line shows `1 conflict`, and `dossier sync` tells you too. Dossier's dashboard walks you through it: press `x` and pick the conflict. The shared version and yours appear side by side, and `d` shows exactly what differs. Then keep the shared version, restore yours, or keep both so the topic's lead can merge them. You can also ask Claude to show you the conflict and resolve it. You can also just ask Claude to resolve it. In the pilot, the topic's lead makes that call, so if it isn't your topic, tell them.
 
 Both perspectives are preserved — neither is silently overwritten. If you and a colleague disagree, the disagreement is recorded openly rather than smoothed over.
 

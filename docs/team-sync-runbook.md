@@ -92,10 +92,10 @@ Nothing is lost; there are **never merge markers** in the store.
 
 **What to do:**
 
-- ~~Reconcile in Dossier's **conflict-resolution view (the TUI)**, which steps through the local and remote sides so you can keep what you want.~~ **Actual (after P0-5):** there is a resolve operation, but no side-by-side view. First read the conflict file, `<slug>/conflicts/<id>.md`: your preserved version, then a diff against the shared one. Then choose one of three outcomes, from any surface:
-  - TUI: press `x` on the dashboard or a Dossier's detail view, select the conflict, then `1` keep shared, `2` restore mine, or `3` keep both.
-  - CLI: `dossier conflicts` lists ids; `dossier resolve <conflict-id> --keep-shared|--restore-mine|--keep-both`.
-  - Claude: `dossier_conflicts`, then `dossier_resolve_conflict`.
+- Reconcile in Dossier's **conflict-resolution view (the TUI)**, which shows the local and remote sides so you can keep what you want. It is a choice between three outcomes, not a line-by-line merge editor. From any surface:
+  - TUI: press `x` on the dashboard or a Dossier's detail view and select the conflict. The shared version and yours appear side by side (`d` shows the diff). Then `1` keep shared, `2` restore mine, or `3` keep both.
+  - CLI: `dossier conflicts` lists ids; `dossier conflicts <id>` shows both versions and the diff; `dossier resolve <conflict-id> --keep-shared|--restore-mine|--keep-both`.
+  - Claude: `dossier_conflicts` (with `conflict_id` for the comparison), then `dossier_resolve_conflict`.
   For a partial merge, choose **keep both**: the preserved version is appended under `## Unresolved disagreement (conflict <id>)`, and the lead edits the body down in a normal save.
   - Restore mine and keep both each create a new revision through the normal save path; nothing is overwritten.
   - The conflict file moves to `conflicts/resolved/`, stamped with who resolved it, when, and how. The audit log records a `conflict_resolved` event. Nothing is deleted.

@@ -66,7 +66,7 @@ dossier/
       service_session.go # context, binding, guide delivery, lifecycle
       service_harness.go # capability reporting + integration installation
       service_team.go    # TeamCreate (preview + confirmed)/Join and Sync/SyncStatus; sync_auth_failed mapping
-      service_conflict.go # ListConflicts/ResolveConflict (keep_shared|restore_mine|keep_both → conflicts/resolved/)
+      service_conflict.go # ListConflicts/ConflictDetail/ResolveConflict (keep_shared|restore_mine|keep_both → conflicts/resolved/)
       health.go          # HealthSummary + canonical Line(): the one health sentence CLI and TUI both print
     store/               # driven adapter: filesystem (implements core.Store)
       fsstore.go         # layout, read/write, atomic write protocol (§5)
@@ -170,6 +170,7 @@ func (s *Service) TeamJoin(ctx, TeamJoinReq) (Result, error)
 func (s *Service) Sync(ctx) (Result, error)
 func (s *Service) SyncStatus(ctx) (Result, error)
 func (s *Service) ListConflicts(ctx) ([]Conflict, error)
+func (s *Service) ConflictDetail(ctx, conflictID) (ConflictDetail, error) // shared vs mine + fresh diff
 func (s *Service) ResolveConflict(ctx, ResolveConflictReq) (Result, error)
 func (s *Service) Health(ctx) (Result, error) // Doctor + HealthSummary
 ```

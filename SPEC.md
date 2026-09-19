@@ -468,7 +468,7 @@ dossier artifact <slug-or-id> [<artifact-id>] [-L <a-b>] [--json]
 dossier sync [--status] [--json]
 dossier team create <url> [--yes] [--json]
 dossier team join <url> [--json]
-dossier conflicts [--json]
+dossier conflicts [<conflict-id>] [--json]
 dossier resolve <conflict-id> (--keep-shared|--restore-mine|--keep-both) [--json]
 dossier status <slug-or-id> <spark|define|execute|review|blocked|done>
 dossier lead <slug-or-id> "<lead-name>"
@@ -583,6 +583,7 @@ dossier doctor
 `dossier conflicts` / `dossier resolve` (P0-5, 2026-09-18)
 
 - `conflicts` lists unresolved conflicts (id, Dossier id, kind, timestamp) across the store: sync conflicts (`sync_concurrent_edit`) and local concurrent-edit conflicts alike.
+- `conflicts <conflict-id>` shows the comparison needed to choose: the Dossier's name, the conflict's kind and time, **Shared (current)** — the Dossier's Distilled State now, **Yours (preserved)** — the preserved proposal, and a diff computed now (not the one stored when the conflict was written, which may be stale). `--json` returns `{conflict, dossier_name, dossier_slug, shared, mine, diff}`. Computed by `Service.ConflictDetail`; unknown or resolved ids return `not_found`.
 - `resolve <conflict-id>` requires exactly one choice:
   - `--keep-shared`: the current `dossier.md` stays as it is.
   - `--restore-mine`: the conflict's preserved proposal becomes the Distilled State, as a new revision saved through the normal write path with the current revision as base (never a raw overwrite).
@@ -591,7 +592,7 @@ dossier doctor
 - Appends a `conflict_resolved` audit event with the author, the choice, and the before/after revisions.
 - An unknown or already-resolved id returns `not_found`; a conflict whose Dossier no longer exists returns `not_found` and moves nothing; an invalid choice returns `invalid_frontmatter` before anything is read.
 - Sync conflict files store the rejected proposal as Distilled State Markdown (the `dossier.md` frontmatter envelope is removed; the full local file stays in the sync history).
-- The TUI offers the same operation: `x` on the dashboard or a detail view opens the conflicts overlay, and `1`/`2`/`3` choose keep shared / restore mine / keep both.
+- The TUI offers the same operation: `x` on the dashboard or a detail view opens the conflicts overlay, listing conflicts by Dossier name. The selected conflict shows Shared and Yours in two aligned columns (stacked on narrow terminals); `d` toggles the diff; `j`/`k` select; ↑/↓ and PgUp/PgDn scroll; `1`/`2`/`3` choose keep shared / restore mine / keep both.
 
 `dossier doctor`
 
@@ -628,7 +629,7 @@ Required tools:
 - `dossier_conflicts`
 - `dossier_resolve_conflict`
 
-> **Note on `dossier_conflicts` / `dossier_resolve_conflict` (P0-5):** `dossier_conflicts` takes no arguments and returns the unresolved conflicts. `dossier_resolve_conflict` takes `conflict_id` and `choice` (`keep_shared`, `restore_mine`, `keep_both`) and behaves exactly as `dossier resolve`; it returns the resulting revision. Error codes: `not_found`, `invalid_frontmatter`, `concurrent_edit`.
+> **Note on `dossier_conflicts` / `dossier_resolve_conflict` (P0-5):** `dossier_conflicts` without arguments returns the unresolved conflicts; with `conflict_id` it returns the same comparison as `dossier conflicts <id>` (shared, mine, diff). `dossier_resolve_conflict` takes `conflict_id` and `choice` (`keep_shared`, `restore_mine`, `keep_both`) and behaves exactly as `dossier resolve`; it returns the resulting revision. Error codes: `not_found`, `invalid_frontmatter`, `concurrent_edit`.
 
 > **Note on `dossier_artifact`:** it takes `dossier_id` + `artifact_id`, and optionally either a `fragment` (a citation fragment such as `"L42-L68"`) or `start_line`/`end_line`. Content is returned with absolute 1-indexed line numbers, so the span read is the span cited. An unranged fetch returns the whole artifact and warns past 500 lines rather than truncating. `dossier_artifacts` returns the same evidence index that `dossier_recall` now carries in `artifacts[]`: one entry per archived artifact with its type, line count, and whether the Distilled State cites it.
 
@@ -1173,6 +1174,7 @@ Checks:
 - An unreachable remote makes `dossier sync` exit non-zero without "successful", and leaves `last_success_pull`/`last_success_push` unchanged; a no-op push reports `Pushed=false`.
 - The unresolved-conflict count survives a later clean sync, and `doctor`'s Team Sync block agrees with its issue list.
 - Missing credentials for an `http(s)` remote warn explicitly; 401/403 returns `sync_auth_failed` with a next step.
+- A conflict's shared and preserved versions and a current diff are viewable on CLI, MCP and TUI before resolving.
 - A conflict can be resolved (keep shared / restore mine / keep both) through CLI, MCP and TUI with the same result; the file moves to `conflicts/resolved/`, the audit log records who and how, and `doctor` stops reporting it.
 - Promote's byte-preserved raw JSONL artifact (`art_<n>_raw.*`, thinking included) never reaches the remote (`*/artifacts/*_raw.*` is gitignored); the compiled transcript does; a clone without the raw file has no `doctor` issue for it.
 - The TUI shows a health footer computed in core, refreshed asynchronously (start, store changes at most once a minute, and a one-minute tick) with a bounded remote check, so an unreachable remote never blocks the first render; `H` opens the full doctor report; the footer text equals the CLI `Health:` line for the same store.
