@@ -466,7 +466,7 @@ dossier recall <slug-or-id> [--json]
 dossier search <query> [--dossier <slug-or-id>] [--json]
 dossier artifact <slug-or-id> [<artifact-id>] [-L <a-b>] [--json]
 dossier sync [--status] [--json]
-dossier team create <url> [--json]
+dossier team create <url> [--yes] [--json]
 dossier team join <url> [--json]
 dossier status <slug-or-id> <spark|define|execute|review|blocked|done>
 dossier lead <slug-or-id> "<lead-name>"
@@ -551,23 +551,29 @@ dossier doctor
 `dossier sync` (Team Sync — implemented)
 
 - Pulls, resolves, commits, and pushes to the configured team remote.
-- With `--status`: reports unpushed commits, diverged remote, or stale credentials without modifying state.
+- Exits non-zero and never prints "successful" when any network step failed; the message names the failure and says the local commit is kept for the next sync. "Pushed local changes" is printed only when a push actually sent commits.
+- Credentials rejected by the remote (HTTP 401/403), a credentials file with a mode other than `0600`, or no credentials at all for an `http(s)` remote return `sync_auth_failed` with the next step (write a fine-grained token to `~/.dossier/credentials` with mode `0600`, or `gh auth login`). Conflicts written in the same run are still announced.
+- Every command wired to an `http(s)` team remote warns once on stderr when no credentials were found. Local-path remotes need none.
+- With `--status`: reads without modifying state. Reports last attempt, last successful pull, last successful push, last error, auth state (`file`, `gh`, `none`, `missing`, `rejected`, `error`), ahead/behind (remote fetch bounded to 5 s; unknown degrades to 0), uncommitted changes, and unresolved conflicts counted from `conflicts/` files (not from the last run).
+- Sync state lives in machine-local `.syncstate.json`. A failed attempt advances only `last_attempt` and `last_error`.
 - Supports `--json` output for MCP/TUI wrappers.
-- Failure modes degrade visibly: network offline, expired/invalid auth, and oversized artifacts (>100 MB) return explicit surfaced warnings, never silent failures.
+- Oversized artifacts (>100 MB) are excluded with a warning on the run that saw them.
 
 `dossier team create <url>` (Team Sync — implemented)
 
 - Initializes and pushes the existing store to an empty private repo.
-- Validates the target repo is empty.
-- Writes `team.remote` to config.
+- Validates the target repo is empty before any local change: a remote with any refs is refused ("not empty") and nothing changes locally or remotely.
+- Lists every Dossier that will be published, archived ones included, warns that everything in the store directory syncs, and asks for confirmation. `--yes` skips the prompt; non-interactive input without `--yes` is refused.
+- Writes `team.remote` to config only after the push succeeded. A failed create moves the `.git/` it made (and a `.gitignore` it created) to a sibling `<DOSSIER_HOME>.failed-create-<UTC>/` directory, so a retry starts clean. Nothing is deleted.
 - Supports `--json`.
 
 `dossier team join <url>` (Team Sync — implemented)
 
 - Clones the team repo into `DOSSIER_HOME`.
-- Refuses to clobber a non-empty unsynced store (requires merge-adopt flow with confirmation).
-- Confirms `author` identity.
-- Prompts for and stores a GitHub PAT.
+- Refuses to clobber a non-empty unsynced store. *Not implemented:* the merge-adopt flow with confirmation.
+- Refuses a remote whose default branch is not `main`, naming the branch.
+- Writes `team.remote` to config only after the clone succeeded. A failed join moves whatever it created into a sibling `<DOSSIER_HOME>.failed-join-<UTC>/` directory, leaving pre-existing `config.yaml`/`.gitignore` in place, so a retry succeeds. Nothing is deleted.
+- *Not implemented (2026-09-18):* author confirmation and a PAT prompt. Credentials must pre-exist at `$HOME/.dossier/credentials` (mode `0600`; the path ignores `DOSSIER_HOME`) or come from `gh auth token`; see `dossier sync` for how their absence is reported.
 - Runs capability detect and hook install (existing `init` path).
 - Supports `--json`.
 
@@ -1134,13 +1140,18 @@ Checks:
 
 ### 14.11 Team Sync
 
-> Status (2026-07-16): implemented and integrated; all criteria are covered by automated tests against local bare repos (internal/sync, internal/cli) EXCEPT the "exactly two commands and one sign-in" PAT onboarding, which remains pending the Phase 4 real-GitHub pilot.
+> Status (2026-09-18): convergence, remote-wins conflict capture, oversized exclusion and machine-local exclusion are covered by tests against local bare repos. The P0 fixes (review `docs/team-adoption-plan-review.md` §6) add tested criteria below. Not met: two-command/one-sign-in onboarding (no auth prompt); visible warnings on background sync (hook and MCP results are still discarded; the TUI health footer is the surface); persistent oversized-file warning (per-run only). Never exercised against live GitHub (validation Part D).
 - Two stores converge through one remote.
 - Concurrent `dossier.md` edit yields exactly one `conflicts/*.md` (`kind: sync_concurrent_edit`) on the later syncer with no content lost anywhere.
 - Save never blocks on network (offline save succeeds, push retries later with a visible warning).
 - Machine-local files (`config.yaml`, credentials, root `sessions/`, `context/`) never appear in the remote.
 - >100 MB artifacts excluded from sync with a persistent visible warning.
-- `team join` onboarding completes with exactly two commands and one sign-in.
+- `team join` onboarding completes with exactly two commands and one sign-in. *(Not met.)*
+- `team create` refuses a non-empty remote and leaves it unchanged; it lists every Dossier (archived included) before publishing; declining leaves no `.git/` and no `team.remote`.
+- A failed `team create` or `team join` can be retried without manual cleanup; what it created is moved aside, not deleted.
+- An unreachable remote makes `dossier sync` exit non-zero without "successful", and leaves `last_success_pull`/`last_success_push` unchanged; a no-op push reports `Pushed=false`.
+- The unresolved-conflict count survives a later clean sync, and `doctor`'s Team Sync block agrees with its issue list.
+- Missing credentials for an `http(s)` remote warn explicitly; 401/403 returns `sync_auth_failed` with a next step.
 
 ### 14.12 First-class Rename
 

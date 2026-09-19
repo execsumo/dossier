@@ -1,6 +1,11 @@
 # ADR 0005 — Team Sync via an embedded git remote (GitHub)
 
 > Date: 2026-07-15 · Status: **accepted** (plan phase; supersedes the "single-user" premise in PRD §0 / CLAUDE.md)
+> *Implementation note (2026-09-18):* Decision §2's "one GitHub sign-in" and the
+> Consequences' "PAT entered once" are not built: there is no auth prompt. Credentials
+> must pre-exist at `~/.dossier/credentials` (mode 0600) or come from `gh auth token`;
+> since the P0 fixes, a missing or rejected credential is reported explicitly
+> (`sync_auth_failed`). See `docs/team-adoption-plan-review.md`.
 > Companion: `docs/team-sync-plan.md` (the phased development plan), `BUILD-DECISIONS.md` B12.
 
 ## Context

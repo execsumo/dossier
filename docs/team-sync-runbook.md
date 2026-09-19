@@ -5,9 +5,9 @@
 
 > **Status (Pilot):** The team sync commands are built and work locally, but the shared GitHub flow is being piloted and is not yet validated against live GitHub. Treat this as an experimental feature.
 
-> **Status: operational but needs correction (review 2026-09-18).** Several entries described warnings, commands and TUI screens that do not exist. Those claims are struck through below, with the actual behavior and evidence. New §6 covers a failed join, and new §7 covers `team create` publishing the whole store. Fix list: [`team-adoption-plan-review.md`](team-adoption-plan-review.md) §6.
+> **Status: corrected after the P0 fixes (review 2026-09-18, updated the same day).** The review struck claims about warnings, commands and TUI screens that did not exist. Those that the P0 fixes made true are restored below; those still untrue stay struck, with the actual behavior. The fixes are validated in a sandbox (`team-sync-validation.md` Parts A and C), not yet against live GitHub (Part D). Fix list: [`team-adoption-plan-review.md`](team-adoption-plan-review.md) §6.
 >
-> **Before creating a team store:** `team create` publishes **every Dossier already in the store**. It does not check that the remote is empty; pointed at a non-empty repo, it merges and pushes (dogfood 2026-09-18; `internal/sync/sync.go:58-99`). Use an empty repo whose default branch is `main` (the branch is hardcoded, `internal/cli/cli.go:1576`). Pilot policy is a **single store per person** (owner decision 2026-09-18), so your existing `~/.dossier` becomes the team store. First move every Dossier directory that isn't team-safe out of `~/.dossier` to a folder outside it. `dossier archive` is not enough: archived Dossiers stay in the store and sync. Then check `dossier ls --status all` (or the directory listing) before running `team create`.
+> **Before creating a team store:** `team create` publishes **every Dossier already in the store**, archived ones included. It lists them and asks you to confirm, and it refuses a remote that is not empty. Use an empty repo whose default branch is `main`. Pilot policy is a **single store per person** (owner decision 2026-09-18), so your existing `~/.dossier` becomes the team store. First move every Dossier directory that isn't team-safe out of `~/.dossier` to a folder outside it. `dossier archive` is not enough: archived Dossiers stay in the store and sync. Read the list `team create` prints before you answer yes.
 
 **Setup recap (you, once):** you created the team store with `dossier team create <url>`, which initializes and pushes the existing store to an empty private repo and writes `team.remote` to config. Each colleague then joins with `dossier team join <url>`. Sync transport is fully hidden inside the binary; this runbook may reference the mechanism (commits, push/pull, the remote, the working tree) but you never run raw version-control commands yourself.
 
@@ -16,9 +16,11 @@
 | Symptom | What happened | Immediate action |
 |---|---|---|
 | "can't reach the team store" / sync deferred | Remote unreachable (offline or bad URL) | Local commit still landed; retry `dossier sync`; inspect with `dossier sync --status` |
-| `Warning: Sync network error: …` followed by "Sync successful" | Any remote failure, including auth. The command still exits 0 | Treat as a failure; see §1/§2 |
-| ~~`sync_auth_failed` warning~~ (does not exist) | PAT missing, expired, or lacks the right access | Replace `~/.dossier/credentials` (mode `0600`) or sign in with `gh`; see §2 |
-| `team join` retry says "target directory is not empty" | An earlier join failed and left a partial setup | See §6 |
+| `Sync failed: …` (exit code 1) | Any remote failure. The local commit landed | See §1 |
+| `sync_auth_failed` | PAT missing, expired, or lacks the right access | Follow the next step it prints: replace `~/.dossier/credentials` (mode `0600`) or sign in with `gh`; see §2 |
+| `Warning: no credentials found for <url>` on every command | No credentials file and no signed-in `gh` | See §2 |
+| a `<store>.failed-join-<time>` or `.failed-create-<time>` folder next to the store | An earlier join or create failed; what it created was moved aside | See §6 |
+| TUI footer: `Team sync · last sync failed …` | The most recent sync (manual or automatic) failed | Run `dossier sync` to see why; see §1/§2 |
 | ">100 MB" exclusion warning | File exceeds GitHub's 100 MB hard limit | Stays local, never enters shared history; move it out of the store or reference it externally |
 | new `conflicts/<id>.md`, `kind: sync_concurrent_edit` | Two machines edited the same `dossier.md` body | Remote won the working tree; local version preserved as the conflict note; reconcile in the TUI, verify with `dossier doctor` |
 | machine-local files absent from the store | `config.yaml`, root `sessions/`, `context/`, locks are excluded by design | Nothing — this is correct; these are per-machine and must not sync |
@@ -43,23 +45,23 @@
   dossier sync --status
   ```
 
-  ~~It reports unpushed commits, a diverged remote, or stale credentials.~~ **Actual:** it prints Ahead, Behind, Dirty, Conflicts and Last Sync (`internal/cli/cli.go:1512-1517`). It says nothing about credentials. Two caveats: **Last Sync is the last *attempt*, including failed ones** (`internal/sync/sync.go:170`). **Conflicts counts only the most recent sync run**, so it drops to 0 on the next run even when conflict files remain. Use `dossier doctor`'s issue list for unresolved conflicts.
+  It reports unpushed commits, a diverged remote, or stale credentials: a `Health:` line (the same line as the TUI footer), then the last attempt, last successful pull and push, last error, auth state (`file`, `gh`, `none`, `missing`, `rejected`), ahead/behind, uncommitted changes, and unresolved conflicts. Only successful runs move the "last pull/push" times. The conflict count comes from the files in `conflicts/`, so it stays until each conflict is resolved.
 
-- The next successful sync catches everything up. A deferred push never blocks a save. ~~A deferred push is a visible warning~~ **Actual:** it is visible only when you run `dossier sync` by hand. Session-hook and background syncs discard their result (`internal/core/service_session.go:218`, `:501`; `internal/mcp/server.go:77,96,106`). "Pushed local changes" can also be printed when nothing was pushed (`internal/sync/status.go:56`). Confirm with `--status` that Ahead is 0.
+- The next successful sync catches everything up. A deferred push never blocks a save. A deferred push is a visible warning: a manual `dossier sync` exits 1 with "Sync failed", and "Pushed local changes" appears only when commits were actually sent. Session-hook and background syncs still print nothing themselves (`internal/core/service_session.go`, `internal/mcp/server.go`), but they record their result, so the TUI footer shows `last sync failed …` within about a minute.
 
 *Sources: `docs/adr/0005-team-sync-via-github.md` §5; `docs/team-sync-plan.md` Non-negotiables (Local-first); `SPEC.md` §7.2 `dossier sync`.*
 
 ## 2. PAT missing / expired / wrong mode
 
-**Symptom:** ~~a `sync_auth_failed` warning (the token is absent, expired, or invalid).~~ **Actual:** a generic `Warning: Sync network error: …` (typically "authentication required" or a 401/403), followed by "Sync successful". `sync_auth_failed` does not exist in the code. If there is *no* credentials file and `gh` is not signed in, Dossier tries without credentials and does not say so (`internal/sync/credentials.go:59`).
+**Symptom:** a `sync_auth_failed` error (the token is absent, expired, or invalid). `dossier sync` exits 1 and prints the next step. If there is *no* credentials file and `gh` is not signed in, every command also warns `no credentials found for <url>`. `sync --status` shows the auth state (`missing` or `rejected`).
 
 **What happened:** Dossier authenticates to the team remote over HTTPS with a fine-grained personal access token (contents: **read and write** on the team repo), stored at `~/.dossier/credentials`. If that file is missing, the token has expired, or the token lacks the required access, the sync cannot authenticate.
 
 **What to do:**
 
-- ~~Re-run the **re-auth command printed in the `sync_auth_failed` warning.** It re-prompts for a fine-grained PAT (contents read/write on the team repo) and stores it at `~/.dossier/credentials`.~~ **Actual:** there is no re-auth command. Write a new fine-grained PAT (contents read/write on the team repo) to `$HOME/.dossier/credentials` by hand. That path is fixed and ignores `DOSSIER_HOME` (`internal/sync/credentials.go:29`).
-- The credentials file **must be exactly `0600`**; any other mode makes every command warn "failed to load credentials" (`credentials.go:33-35`). ~~Dossier sets this when it writes the file~~ **Actual:** Dossier never writes this file. Set the mode yourself.
-- Convenience: if the `gh` CLI is installed and signed in, Dossier uses `gh auth token` automatically when no credentials file exists (`credentials.go:51`). ~~instead of prompting~~ Note that this is your broad `gh` token, not a repo-scoped one. It is looked up again on every `dossier` command.
+- ~~Re-run the **re-auth command printed in the `sync_auth_failed` warning.** It re-prompts for a fine-grained PAT (contents read/write on the team repo) and stores it at `~/.dossier/credentials`.~~ **Actual:** there is still no re-auth command or prompt; the warning names the manual step instead. Write a new fine-grained PAT (contents read/write on the team repo) to `$HOME/.dossier/credentials` by hand. That path is fixed and ignores `DOSSIER_HOME` (`internal/sync/credentials.go`).
+- The credentials file **must be exactly `0600`**; any other mode makes every command warn "failed to load credentials", and sync fails with `sync_auth_failed`. ~~Dossier sets this when it writes the file~~ **Actual:** Dossier never writes this file. Set the mode yourself.
+- Convenience: if the `gh` CLI is installed and signed in, Dossier uses `gh auth token` automatically when no credentials file exists, and `sync --status` shows auth state `gh`. ~~instead of prompting~~ Note that this is your broad `gh` token, not a repo-scoped one. It is looked up again on every `dossier` command.
 
 *Sources: `docs/team-sync-plan.md` Phase 2 §4; `docs/adr/0005-team-sync-via-github.md` Consequences; `SPEC.md` §7.2 `dossier team join`.*
 
@@ -126,29 +128,29 @@ Nothing is lost; there are **never merge markers** in the store.
 
 ## Healthy-state checks
 
-- `dossier sync --status` — read-only: unpushed commits, diverged remote, or stale credentials.
+- `dossier sync --status` — read-only: health line, last successful pull/push, last error, auth state, unpushed commits, diverged remote, unresolved conflicts.
 - `dossier doctor` — store integrity, unresolved conflicts, provenance references, and harness/capability status.
-- TUI footer (later surfacing phase) — a glanceable status line, e.g. `synced 2m ago · 1 conflict`. **Not built** (no sync reference in `internal/tui/`). **In pilot scope as P0-9** (review §6). Once built, the footer replaces the daily `doctor` run, and a key opens the full report.
+- TUI footer — a glanceable status line on the dashboard and detail views, e.g. `Team sync · synced 2m ago · 1 conflict`, or `Team sync · last sync failed 18m ago · work is safe locally`. It is checked in the background when the TUI starts, when the store changes (at most once a minute), and every minute. It never blocks the TUI, even offline. `H` opens the full `doctor` report. The line is the same as the `Health:` line of `dossier doctor` and `dossier sync --status`. The footer replaces the daily `doctor` run.
 
 *Sources: `SPEC.md` §7.2; `docs/team-sync-plan.md` Phase 3 §4 (Surfacing).*
 
-## 6. `team join` failed and a retry says "target directory is not empty"
+## 6. `team join` or `team create` failed
 
-**What happened:** `team join` saves `team.remote` into `config.yaml` *before* cloning (`internal/cli/cli.go:1621`). A failed clone (wrong link, no access, no network, or a remote whose default branch is not `main`) leaves a partial `.git/` folder. The next join sees it and refuses (`internal/sync/sync.go:35-48`). Verified by dogfood, 2026-09-18.
+**What happened:** the command printed why (wrong link, no access, no network, a remote that is not empty, or a remote whose default branch is not `main`) and exited non-zero. It saved nothing to `config.yaml`. Whatever it had created was moved to a folder next to the store, named `<store>.failed-join-<UTC time>` or `<store>.failed-create-<UTC time>`, so the store is back where it started. Nothing is deleted.
 
-**What to do (operator, on the colleague's machine):**
+~~A failed clone leaves a partial `.git/` folder and the retry is refused as "not empty".~~ Fixed (P0-2); verified in the sandbox (validation C2).
 
-1. Move the store folder aside rather than deleting it, e.g. rename `~/.dossier` to `~/.dossier.failed-join-<date>`.
-2. Fix the cause: the link, credentials (§2), or the repo's default branch.
-3. Run `dossier team join <url>` again.
+**What to do:**
 
-Do **not** run `dossier sync` in a half-joined store. In the dogfood run it synced on the wrong local branch and printed "Pushed local changes" while nothing reached the remote.
+1. Fix the cause: the link, credentials (§2), or the repo's default branch.
+2. Run the same `dossier team join <url>` or `dossier team create <url>` again.
+3. Once joined, you may delete the moved-aside folder. It only holds the failed attempt.
 
 ## 7. `team create` published more than intended
 
-**What happened:** `team create` turns the *entire current store* into the team repo and pushes all of it (`internal/sync/sync.go:58-99`). It does not check that the remote is empty. If the remote already had content, the two are merged and both sides are pushed.
+**What happened:** `team create` publishes the *entire current store*, archived Dossiers included. Since the P0 fixes it lists every Dossier and asks before pushing, and it refuses a remote that already has content. Anything you confirmed is published.
 
-**What to do:** treat anything pushed as disclosed to everyone with repo access, because git history is kept on every clone. Removing it needs a history rewrite on GitHub plus a re-clone on every machine. That is outside Dossier; escalate. To prevent it, follow the pre-create check in the status note at the top: move non-team-safe Dossiers out of the store, including archived ones, and confirm the remote is empty.
+**What to do:** treat anything pushed as disclosed to everyone with repo access, because git history is kept on every clone. Removing it needs a history rewrite on GitHub plus a re-clone on every machine. That is outside Dossier; escalate. To prevent it, follow the pre-create check in the status note at the top and read the list before answering yes.
 
 ## Sources
 
