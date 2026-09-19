@@ -129,4 +129,9 @@ func TestSync_CloneReceivesExistingRemoteContent(t *testing.T) {
 	}
 
 	assertFile(t, storeB, "topic/dossier.md", "# Topic\nExisting content on remote\n")
+
+	// The clone is the joiner's first successful pull.
+	if st := loadState(storeB); st.LastSuccessPull.IsZero() || st.LastAttempt.IsZero() {
+		t.Fatalf("clone did not record a successful pull: %+v", st)
+	}
 }
