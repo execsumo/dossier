@@ -13,6 +13,7 @@ import (
 	lipglossv2 "charm.land/lipgloss/v2"
 	tea "github.com/charmbracelet/bubbletea"
 	lipgloss "github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 var (
@@ -594,15 +595,74 @@ func (m Model) renderConflicts() string {
 
 func (m Model) renderConflictComparison(detail core.ConflictDetail) string {
 	header := fmt.Sprintf("Dossier: %s (%s)", detail.DossierName, detail.DossierSlug)
+	width := m.conflictViewport.Width
+	if width <= 0 {
+		width = m.width - 12
+	}
+	if width < 3 {
+		width = 3
+	}
 	if m.conflictShowDiff {
-		return header + "\n\n" + overlaySectionStyle.Render("Diff (shared → yours)") + "\n" + detail.Diff
+		lines := []string{header, "", overlaySectionStyle.Render("Diff (shared → yours)")}
+		lines = append(lines, wrapConflictLines(detail.Diff, width)...)
+		return strings.Join(lines, "\n")
 	}
 	if m.width >= 100 {
-		shared := overlaySectionStyle.Render("Shared (current)") + "\n" + detail.Shared
-		yours := overlaySectionStyle.Render("Yours (preserved)") + "\n" + detail.Mine
-		return header + "\n\n" + joinModalColumns(shared, yours)
+		const gapWidth = 3
+		columnWidth := (width - gapWidth) / 2
+		if columnWidth < 1 {
+			columnWidth = 1
+		}
+		shared := conflictColumn("Shared (current)", detail.Shared, columnWidth)
+		yours := conflictColumn("Yours (preserved)", detail.Mine, columnWidth)
+		gap := modalFillStyle.Render(strings.Repeat(" ", gapWidth))
+		return header + "\n\n" + joinModalColumns(shared, gap, yours)
 	}
-	return header + "\n\n" + overlaySectionStyle.Render("Shared (current)") + "\n" + detail.Shared + "\n\n" + overlaySectionStyle.Render("Yours (preserved)") + "\n" + detail.Mine
+	lines := []string{header, "", overlaySectionStyle.Render("Shared (current)")}
+	lines = append(lines, wrapConflictLines(detail.Shared, width)...)
+	lines = append(lines, "", overlaySectionStyle.Render("Yours (preserved)"))
+	lines = append(lines, wrapConflictLines(detail.Mine, width)...)
+	return strings.Join(lines, "\n")
+}
+
+func conflictColumn(title, body string, width int) string {
+	lines := append([]string{overlaySectionStyle.Render(title)}, wrapConflictLines(body, width)...)
+	for i := range lines {
+		lines[i] = padConflictLine(lines[i], width)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func wrapConflictLines(text string, width int) []string {
+	if width < 1 {
+		return []string{text}
+	}
+	var wrapped []string
+	for _, line := range strings.Split(text, "\n") {
+		for ansi.StringWidth(line) > width {
+			segment := ansi.Cut(line, 0, width)
+			if segment == "" {
+				break
+			}
+			consumed := width
+			part := segment
+			if space := strings.LastIndexByte(segment, ' '); space > 0 {
+				part = strings.TrimRight(segment[:space], " ")
+				consumed = ansi.StringWidth(segment[:space+1])
+			}
+			wrapped = append(wrapped, part)
+			line = strings.TrimLeft(ansi.Cut(line, consumed, ansi.StringWidth(line)), " ")
+		}
+		wrapped = append(wrapped, line)
+	}
+	return wrapped
+}
+
+func padConflictLine(line string, width int) string {
+	if padding := width - ansi.StringWidth(line); padding > 0 {
+		return line + modalFillStyle.Render(strings.Repeat(" ", padding))
+	}
+	return line
 }
 
 // renderContractsChecklist renders the person-specific terms of each
