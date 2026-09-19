@@ -1534,11 +1534,11 @@ func NewRootCmd() *cobra.Command {
 					printJSON(map[string]any{"ok": false, "error": err.Error()})
 					os.Exit(1)
 				}
-				errStr := err.Error()
-				if dErr, ok := err.(*core.DomainError); ok {
-					errStr = dErr.Error()
+				// Conflicts written in the same run must still be announced.
+				for _, warning := range res.Warnings {
+					fmt.Printf("Warning: %s\n", warning)
 				}
-				fmt.Printf("Sync failed: %v\n", errStr)
+				fmt.Printf("Sync failed: %v\n", err)
 				os.Exit(1)
 			}
 

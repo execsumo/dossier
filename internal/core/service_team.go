@@ -48,7 +48,7 @@ func (s *Service) TeamCreate(ctx context.Context, req TeamCreateReq) (Result, er
 			return Result{}, NewError(ErrConflictDetected, "store is already a team store")
 		}
 		if strings.Contains(err.Error(), "authentication required") || strings.Contains(err.Error(), "authorization failed") || strings.Contains(err.Error(), "insecure permissions") {
-			return Result{}, NewError(ErrSyncAuthFailed, "GitHub rejected the token. Create a fine-grained token with Contents read/write on <repo>, write it to ~/.dossier/credentials (chmod 600), or run `gh auth login`, then `dossier sync`.")
+			return Result{}, NewError(ErrSyncAuthFailed, authFailedMessage(req.RemoteURL))
 		}
 		return Result{}, fmt.Errorf("team create failed: %w", err)
 	}
@@ -80,7 +80,7 @@ func (s *Service) TeamJoin(ctx context.Context, req TeamJoinReq) (Result, error)
 			return Result{}, NewError(ErrConflictDetected, "target directory is not empty; cannot join into an existing store")
 		}
 		if strings.Contains(err.Error(), "authentication required") || strings.Contains(err.Error(), "authorization failed") || strings.Contains(err.Error(), "insecure permissions") {
-			return Result{}, NewError(ErrSyncAuthFailed, "GitHub rejected the token. Create a fine-grained token with Contents read/write on <repo>, write it to ~/.dossier/credentials (chmod 600), or run `gh auth login`, then `dossier sync`.")
+			return Result{}, NewError(ErrSyncAuthFailed, authFailedMessage(req.RemoteURL))
 		}
 		return Result{}, fmt.Errorf("team join failed: %w", err)
 	}
@@ -164,8 +164,7 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 	}
 
 	if report.AuthFailed {
-		errMsg := fmt.Sprintf("GitHub rejected the token. Create a fine-grained token with Contents read/write on %s, write it to ~/.dossier/credentials (chmod 600), or run `gh auth login`, then `dossier sync`.", s.cfg.TeamRemote)
-		return Result{OK: false, Data: report, Warnings: warnings}, NewError(ErrSyncAuthFailed, errMsg)
+		return Result{OK: false, Data: report, Warnings: warnings}, NewError(ErrSyncAuthFailed, authFailedMessage(s.cfg.TeamRemote))
 	}
 
 	return Result{
@@ -194,4 +193,9 @@ func (s *Service) SyncStatus(ctx context.Context) (Result, error) {
 		OK:   true,
 		Data: status,
 	}, nil
+}
+
+// authFailedMessage is the next step shown for sync_auth_failed on every surface.
+func authFailedMessage(remote string) string {
+	return fmt.Sprintf("GitHub rejected the credentials, or none were found. Create a fine-grained token with Contents read/write on %s, write it to ~/.dossier/credentials (chmod 600), or run `gh auth login`, then `dossier sync`.", remote)
 }
