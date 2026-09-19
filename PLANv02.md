@@ -1,11 +1,16 @@
 # PLAN v02 — Dossier for a distributed team
 
-> Drafted: 2026-08-05 · Status: **superseded historical proposal**
-> Scope: retained for design history only.
-> Precedence note: this document is not an implementation contract. The current
-> breaking schema is defined by `SPEC.md`: canonical `priority` only, no legacy
-> frontmatter migration, and open questions in the Markdown body. Its original
-> seven-field delegation-contract model is superseded by
+> **DOCUMENT STATUS: HISTORICAL / SUPERSEDED — DO NOT IMPLEMENT DIRECTLY.**
+>
+> Drafted: 2026-08-05 · Retained for design history and product rationale only.
+> This document is not an implementation contract and should not be used to
+> resolve current behavior. Use `SPEC.md`, `BUILD-DECISIONS.md`, the ADRs, and
+> `HANDOFF.md` for current mechanics. Use
+> `docs/team-adoption-architecture-plan.md` for the current adoption direction.
+>
+> The current breaking schema is defined by `SPEC.md`: canonical `priority`
+> only, no legacy frontmatter migration, and open questions in the Markdown
+> body. Its original seven-field delegation-contract model is superseded by
 > [ADR 0008](docs/adr/0008-dossier-as-canonical-operational-brief.md): the
 > Dossier owns work truth and Constraints; delegation stores only
 > person-specific terms.

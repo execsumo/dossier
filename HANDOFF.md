@@ -1,6 +1,6 @@
 # Dossier / chainlink — Handoff
 
-> Updated: 2026-09-04
+> Updated: 2026-09-18
 > Purpose: the entry point for the dev agent picking up implementation. Read this first.
 
 ## Start here (reading order)
@@ -12,6 +12,7 @@
 5. **`SPEC.md`** — the contract: data model, CLI (§7), MCP (§8), algorithms (§11), acceptance criteria (§14), milestones (§15).
 6. **`PRD.md`** / **`PRFAQ.md`** — the product *why*, when a decision's intent is unclear.
 7. **`VISION.md`** / **`PLANv02.md`** — where the product is going next (the team dimension) and the plan for getting there. Written for a business audience; read them before starting v02 work.
+8. **`docs/team-adoption-architecture-plan.md`** — proposed adoption architecture and rollout gates. It is strategic guidance, not an implementation contract.
 
 Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `PRD.md`/`PRFAQ.md`.
 
