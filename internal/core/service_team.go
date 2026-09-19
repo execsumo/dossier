@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -144,6 +145,9 @@ func (s *Service) TeamCreate(ctx context.Context, req TeamCreateReq) (Result, er
 		return Result{}, NewError(ErrInternal, "syncer is not configured")
 	}
 	if err := s.syncer.CheckRemoteEmpty(ctx, req.RemoteURL); err != nil {
+		if isHTTPRemote(req.RemoteURL) && isRemoteAuthFailure(err) {
+			return Result{}, NewError(ErrSyncAuthFailed, remoteAccessMessage(req.RemoteURL, err))
+		}
 		return Result{}, err
 	}
 	if !req.Confirmed {
@@ -180,7 +184,7 @@ func (s *Service) TeamCreate(ctx context.Context, req TeamCreateReq) (Result, er
 		if strings.Contains(err.Error(), "already a team store") {
 			return Result{}, NewError(ErrConflictDetected, "store is already a team store")
 		}
-		if strings.Contains(err.Error(), "authentication required") || strings.Contains(err.Error(), "authorization failed") || strings.Contains(err.Error(), "insecure permissions") {
+		if isHTTPRemote(req.RemoteURL) && (strings.Contains(err.Error(), "authentication required") || strings.Contains(err.Error(), "authorization failed") || strings.Contains(err.Error(), "insecure permissions")) {
 			return Result{}, NewError(ErrSyncAuthFailed, authFailedMessage(req.RemoteURL))
 		}
 		return Result{}, err // adapters prefix "Team create failed"
@@ -207,13 +211,22 @@ func (s *Service) TeamJoin(ctx context.Context, req TeamJoinReq) (Result, error)
 		return Result{}, NewError(ErrInternal, "syncer is not configured")
 	}
 
+	if checker, ok := s.syncer.(RemoteAccessChecker); ok && isHTTPRemote(req.RemoteURL) {
+		if err := checker.CheckRemoteAccess(ctx, req.RemoteURL); err != nil {
+			if isRemoteAuthFailure(err) {
+				return Result{}, NewError(ErrSyncAuthFailed, remoteAccessMessage(req.RemoteURL, err))
+			}
+			return Result{}, err
+		}
+	}
+
 	err := s.syncer.Clone(ctx, req.RemoteURL, s.cfg.DossierHome, 50)
 	if err != nil {
 		if strings.Contains(err.Error(), "target directory is not empty") {
 			return Result{}, NewError(ErrConflictDetected, "target directory is not empty; cannot join into an existing store")
 		}
-		if strings.Contains(err.Error(), "authentication required") || strings.Contains(err.Error(), "authorization failed") || strings.Contains(err.Error(), "insecure permissions") {
-			return Result{}, NewError(ErrSyncAuthFailed, authFailedMessage(req.RemoteURL))
+		if isHTTPRemote(req.RemoteURL) && isRemoteAuthFailure(err) {
+			return Result{}, NewError(ErrSyncAuthFailed, remoteAccessMessage(req.RemoteURL, err))
 		}
 		return Result{}, err // adapters prefix "Team join failed"
 	}
@@ -360,7 +373,61 @@ func conflictBody(content string) string {
 	return content[end+9:]
 }
 
+func isHTTPRemote(remote string) bool {
+	remote = strings.ToLower(strings.TrimSpace(remote))
+	return strings.HasPrefix(remote, "http://") || strings.HasPrefix(remote, "https://")
+}
+
+func isRemoteAuthFailure(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "authentication required") ||
+		strings.Contains(message, "authorization failed") ||
+		strings.Contains(message, "401") || strings.Contains(message, "403") || strings.Contains(message, "404") ||
+		strings.Contains(message, "insecure permissions") || strings.Contains(message, "no credentials") ||
+		strings.Contains(message, "saml") || strings.Contains(message, "sso")
+}
+
+// RemoteAccessMessage translates a remote access failure into the next step
+// shown by adapters before any local store mutation.
+func RemoteAccessMessage(remote string, err error) string {
+	return remoteAccessMessage(remote, err)
+}
+
+func remoteAccessMessage(remote string, err error) string {
+	message := err.Error()
+	lower := strings.ToLower(message)
+	if strings.Contains(lower, "saml") || strings.Contains(lower, "sso") {
+		return fmt.Sprintf("%s\nAuthorize the GitHub CLI for your organization (GitHub → Settings → Applications).", message)
+	}
+	var accessErr RemoteAccessError
+	if errors.As(err, &accessErr) {
+		switch accessErr.AccessKind() {
+		case "authentication":
+			return authFailedMessage(remote)
+		case "visibility":
+			return fmt.Sprintf("Your GitHub account can't see %s. Ask the manager or the person who invited you to add you as a collaborator, and accept the invitation email from GitHub.", remoteRepository(remote))
+		}
+	}
+	if strings.Contains(lower, "403") || strings.Contains(lower, "404") || strings.Contains(lower, "repository not found") || strings.Contains(lower, "authorization failed") {
+		return fmt.Sprintf("Your GitHub account can't see %s. Ask the manager or the person who invited you to add you as a collaborator, and accept the invitation email from GitHub.", remoteRepository(remote))
+	}
+	return authFailedMessage(remote)
+}
+
+func remoteRepository(remote string) string {
+	value := strings.TrimSuffix(strings.TrimSpace(remote), "/")
+	value = strings.TrimSuffix(value, ".git")
+	if i := strings.LastIndex(value, "/"); i >= 0 && i+1 < len(value) {
+		owner := value[:i]
+		if j := strings.LastIndex(owner, "/"); j >= 0 {
+			owner = owner[j+1:]
+		}
+		return owner + "/" + value[i+1:]
+	}
+	return value
+}
+
 // authFailedMessage is the next step shown for sync_auth_failed on every surface.
 func authFailedMessage(remote string) string {
-	return fmt.Sprintf("GitHub rejected the credentials, or none were found. Create a fine-grained token with Contents read/write on %s, write it to ~/.dossier/credentials (chmod 600), or run `gh auth login`, then run the command again.", remote)
+	return "GitHub rejected the credentials, or none were found; run `dossier signin` (or write a token to ~/.dossier/credentials), then run the command again."
 }

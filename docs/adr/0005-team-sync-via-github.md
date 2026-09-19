@@ -1,6 +1,8 @@
 # ADR 0005 — Team Sync via an embedded git remote (GitHub)
 
 > Date: 2026-07-15 · Status: **accepted** (plan phase; supersedes the "single-user" premise in PRD §0 / CLAUDE.md)
+> *Implementation note (2026-09-19):* sign-in now happens at `team join` through the GitHub CLI's browser flow (BUILD-DECISIONS B17, Team MVP M6); there is still no Dossier-owned GitHub App or token prompt. The note below describes the state before that.
+>
 > *Implementation note (2026-09-18):* Decision §2's "one GitHub sign-in" and the
 > Consequences' "PAT entered once" are not built: there is no auth prompt. Credentials
 > must pre-exist at `~/.dossier/credentials` (mode 0600) or come from `gh auth token`;

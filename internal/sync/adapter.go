@@ -105,6 +105,11 @@ func (a *Adapter) LocalStatus(ctx context.Context) (core.SyncStatus, error) {
 	}, nil
 }
 
+// CheckRemoteAccess implements core.RemoteAccessChecker.
+func (a *Adapter) CheckRemoteAccess(ctx context.Context, url string) error {
+	return a.gs.CheckRemoteAccess(ctx, url)
+}
+
 // CheckRemoteEmpty implements core.Syncer.
 func (a *Adapter) CheckRemoteEmpty(ctx context.Context, url string) error {
 	return a.gs.CheckRemoteEmpty(ctx, url)

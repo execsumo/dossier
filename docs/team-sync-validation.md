@@ -225,6 +225,68 @@ repeat C3's offline step and C4's conflict step in the first terminal.
 | Per-slug raw session stash never reaches the remote | No `*/sessions/*` paths in the listing above |
 | >100 MB file excluded with a warning | `truncate -s 101M col/team-pricing-review/files/big.bin; col sync` warns; file absent from remote |
 
+### C10 — Identity is the org username (Team MVP M2)
+
+The sandbox shares one OS user, so give the colleague's store its own username
+and check the default separately. Leave the manager's store alone: the roster's
+manager is whoever ran `team create` in C1 (your login name).
+
+```bash
+DOSSIER_HOME="$T/fresh" "$D" init --yes >/dev/null; grep '^author' fresh/config.yaml
+sed -i 's/^author: .*/author: psmith/' col/config.yaml
+```
+
+**Pass:** the fresh store's `author` is your login name, lowercased, with no
+domain prefix. (On a real Windows PC, compare with `whoami`: `ACME\psmith`
+must give `psmith`.)
+
+### C11 — The roster names people (M3)
+
+```bash
+mgr team add psmith "Priya Shah"; col team add jlee "Jordan Lee"   # the second is not the manager
+mgr sync; col sync; col team members
+```
+
+**Pass:** `col team add` warns that the colleague is not the roster's manager.
+After both syncs, `team members` lists the manager first, then members sorted by
+name. If both machines edited `team.yaml` before syncing, `conflicts` shows a
+"Team roster" conflict; `conflicts <id>` shows both rosters, and
+`resolve <id> --keep-both` keeps everyone.
+
+### C12 — Leads show names; the agent knows "me" (M4–M5)
+
+```bash
+mgr lead team-pricing-review Priya; mgr ls; mgr sync; col sync
+col ls --mine
+echo '{"session_id":"s1"}' | col hook session-start | grep "working as"
+mgr lead team-pricing-review Nobody; echo "exit=$?"
+```
+
+**Pass:** `ls` shows `Priya Shah` as the lead and `dossier.md` stores `lead:
+psmith`. `col ls --mine` lists the Dossier. The hook prints `You are working as
+Priya Shah (psmith).`. The unknown name is refused (exit non-zero), naming no
+guess. Over MCP (`col mcp serve`), `dossier_list` with `{"lead":"me"}` returns
+the Dossier and the response carries `current_user`.
+
+### C13 — Joining signs in through `gh` (M6)
+
+Put a fake `gh` first on `PATH` that records its arguments, reports "not logged
+in" until `auth login` has run, and then prints a token for `auth token`. Use a
+fresh `DOSSIER_HOME` with no `~/.dossier/credentials`, and an http(s) remote
+served locally.
+
+**Pass:**
+- With `gh` absent, join exits non-zero, prints how to install it (macOS
+  `brew install gh`, Windows `winget install --id GitHub.cli`) and the token
+  fallback, and leaves the store untouched.
+- With `gh` logged out, join asks before opening the browser; answering no
+  exits non-zero with nothing changed; answering yes runs
+  `gh auth login --hostname github.com --git-protocol https --web`, then joins.
+- With non-interactive input, it never starts the login.
+- After joining, it prints `You'll appear to teammates as <Name> (<username>).`,
+  or asks the joiner to have the manager add them to the roster.
+- `dossier signin` runs the same sign-in on its own.
+
 ## Part D — Live GitHub test (owner)
 
 Run once, on one machine, with two separate `DOSSIER_HOME`s standing in for the

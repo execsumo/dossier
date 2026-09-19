@@ -1605,6 +1605,48 @@ func NewRootCmd() *cobra.Command {
 	// Match `dossier version` output for the built-in `--version` flag.
 	rootCmd.SetVersionTemplate("dossier {{.Version}}\n")
 
+	var signinJSON bool
+	signinCmd := &cobra.Command{
+		Use:   "signin",
+		Short: "Sign in to GitHub for team sync",
+		Args:  cobra.NoArgs,
+		// A failed sign-in or join is not a usage mistake; don't print usage.
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			homeDir := resolveHomeDir()
+			cfg, err := config.Load(filepath.Join(homeDir, "config.yaml"))
+			if err != nil {
+				return fmt.Errorf("error loading config: %w", err)
+			}
+			remote := cfg.Team.Remote
+			if remote == "" {
+				remote = "https://github.com/"
+			}
+			if err := ensureRemoteCredentials(cmd, remote); err != nil {
+				return fmt.Errorf("sign-in failed: %w", err)
+			}
+			_, method, err := sync.GetAuth("", remote)
+			if err != nil {
+				return fmt.Errorf("sign-in failed: %w", err)
+			}
+			if signinJSON {
+				printJSON(map[string]string{"method": method})
+				return nil
+			}
+			switch method {
+			case "gh":
+				fmt.Fprintln(cmd.OutOrStdout(), "GitHub sign-in active via gh.")
+			case "file":
+				fmt.Fprintln(cmd.OutOrStdout(), "GitHub sign-in active via ~/.dossier/credentials.")
+			default:
+				fmt.Fprintf(cmd.OutOrStdout(), "GitHub sign-in method: %s\n", method)
+			}
+			return nil
+		},
+	}
+	signinCmd.Flags().BoolVar(&signinJSON, "json", false, "Output results in JSON format")
+	rootCmd.AddCommand(signinCmd)
+
 	var syncStatusFlag bool
 	syncCmd := &cobra.Command{
 		Use:   "sync",
@@ -1712,7 +1754,12 @@ func NewRootCmd() *cobra.Command {
 		Use:   "create <url>",
 		Short: "Turn the current store into a team's shared store",
 		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
+		// A failed sign-in or join is not a usage mistake; don't print usage.
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkRemoteBeforeStore(cmd, args[0]); err != nil {
+				return fmt.Errorf("Team create failed: %w", err)
+			}
 			homeDir := resolveHomeDir()
 			cfgPath := filepath.Join(homeDir, "config.yaml")
 			cfg, err := config.Load(cfgPath)
@@ -1779,9 +1826,10 @@ func NewRootCmd() *cobra.Command {
 			}
 			if teamCreateJSON {
 				printJSON(res)
-				return
+				return nil
 			}
 			fmt.Println("Team store created successfully.")
+			return nil
 		},
 	}
 	teamCreateCmd.Flags().BoolVarP(&teamCreateYes, "yes", "y", false, "Skip confirmation prompt")
@@ -1793,7 +1841,12 @@ func NewRootCmd() *cobra.Command {
 		Use:   "join <url>",
 		Short: "Join an existing team store",
 		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
+		// A failed sign-in or join is not a usage mistake; don't print usage.
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkRemoteBeforeStore(cmd, args[0]); err != nil {
+				return fmt.Errorf("Team join failed: %w", err)
+			}
 			homeDir := resolveHomeDir()
 			cfgPath := filepath.Join(homeDir, "config.yaml")
 			cfg, err := config.Load(cfgPath)
@@ -1823,12 +1876,14 @@ func NewRootCmd() *cobra.Command {
 			}
 			if teamJoinJSON {
 				printJSON(res)
-				return
+				return nil
 			}
-			fmt.Println("Successfully joined team store.")
+			fmt.Fprintln(cmd.OutOrStdout(), "Successfully joined team store.")
 			for _, warning := range res.Warnings {
-				fmt.Printf("Warning: %s\n", warning)
+				fmt.Fprintf(cmd.OutOrStdout(), "Warning: %s\n", warning)
 			}
+			printJoinRosterMessage(cmd.OutOrStdout(), svc)
+			return nil
 		},
 	}
 	teamJoinCmd.Flags().BoolVar(&teamJoinJSON, "json", false, "Output results in JSON format")
@@ -2069,6 +2124,130 @@ func printJSON(data any) {
 		os.Exit(1)
 	}
 	fmt.Println(string(jsonBytes))
+}
+
+func isHTTPRemote(remote string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(remote)), "http://") || strings.HasPrefix(strings.ToLower(strings.TrimSpace(remote)), "https://")
+}
+
+// interactiveReader is a small seam for CLI tests; production uses the
+// terminal check below. ModeCharDevice is set for Windows console handles as
+// well as Unix terminals, while pipes/buffers stay non-interactive.
+var interactiveReader = isInteractiveReader
+
+func isInteractiveReader(reader io.Reader) bool {
+	file, ok := reader.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+// printGitHubFallback tells the user how to get signed in. Install
+// instructions only make sense when gh is missing; otherwise point at gh's own
+// sign-in, which works in any terminal.
+func printGitHubFallback(w io.Writer, ghInstalled, nonInteractive bool) {
+	if nonInteractive {
+		fmt.Fprintln(w, "Non-interactive input: browser sign-in was not started.")
+	}
+	if ghInstalled {
+		fmt.Fprintln(w, "Run this command again in a terminal to sign in, or run `gh auth login` first.")
+	} else {
+		fmt.Fprintln(w, "Install GitHub CLI with `brew install gh` (macOS), `winget install --id GitHub.cli` (Windows), or https://cli.github.com, then run the same command again.")
+	}
+	fmt.Fprintln(w, "Alternatively, write a fine-grained token with Contents read/write to ~/.dossier/credentials (chmod 600).")
+}
+
+func ensureRemoteCredentials(cmd *cobra.Command, remote string) error {
+	if !isHTTPRemote(remote) {
+		return nil
+	}
+	if _, _, err := sync.GetAuth("", remote); err == nil {
+		return nil
+	} else if !errors.Is(err, sync.ErrNoCredentials) {
+		return err
+	}
+
+	installed, loggedIn := sync.GitHubAuthStatus()
+	if !installed {
+		printGitHubFallback(cmd.ErrOrStderr(), false, false)
+		return errors.New("GitHub credentials are required")
+	}
+	if loggedIn {
+		printGitHubFallback(cmd.ErrOrStderr(), true, false)
+		return errors.New("gh is installed but did not return a token")
+	}
+	if !interactiveReader(cmd.InOrStdin()) {
+		printGitHubFallback(cmd.ErrOrStderr(), true, true)
+		return errors.New("GitHub sign-in requires an interactive terminal")
+	}
+
+	fmt.Fprint(cmd.OutOrStdout(), "Sign in to GitHub now? Your browser will open. [Y/n] ")
+	answer, readErr := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	answer = strings.ToLower(strings.TrimSpace(answer))
+	if readErr != nil && answer == "" || (answer != "" && answer != "y" && answer != "yes") {
+		fmt.Fprintln(cmd.OutOrStdout(), "Sign-in declined.")
+		printGitHubFallback(cmd.ErrOrStderr(), true, false)
+		return errors.New("GitHub sign-in was declined")
+	}
+	if err := sync.GitHubLogin(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "GitHub sign-in failed: %v\n", err)
+		printGitHubFallback(cmd.ErrOrStderr(), true, false)
+		return err
+	}
+	if _, _, err := sync.GetAuth("", remote); err != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), "GitHub sign-in completed, but no token was returned.")
+		printGitHubFallback(cmd.ErrOrStderr(), true, false)
+		return err
+	}
+	return nil
+}
+
+func checkRemoteBeforeStore(cmd *cobra.Command, remote string) error {
+	if !isHTTPRemote(remote) {
+		return nil
+	}
+	if err := ensureRemoteCredentials(cmd, remote); err != nil {
+		return err
+	}
+	auth, _, err := sync.GetAuth("", remote)
+	if err != nil {
+		return err
+	}
+	if err := sync.CheckRemoteAccess(context.Background(), remote, auth); err != nil {
+		return errors.New(core.RemoteAccessMessage(remote, err))
+	}
+	return nil
+}
+
+func printJoinRosterMessage(w io.Writer, svc *core.Service) {
+	roster, err := svc.Members(context.Background())
+	if err != nil {
+		return
+	}
+	username, displayName := svc.CurrentUser()
+	message := joinRosterMessage(roster, username, displayName)
+	if message != "" {
+		fmt.Fprintln(w, message)
+	}
+}
+
+func joinRosterMessage(roster core.Roster, username, displayName string) string {
+	if len(roster.Members) == 0 && len(roster.Former) == 0 {
+		return ""
+	}
+	if roster.Has(username) {
+		if memberName := roster.DisplayName(username); strings.TrimSpace(memberName) != "" {
+			displayName = memberName
+		}
+		return fmt.Sprintf("You'll appear to teammates as %s (%s).", displayName, username)
+	}
+	managerName := roster.DisplayName(roster.Manager)
+	if managerName == "" {
+		managerName = roster.Manager
+	}
+	return fmt.Sprintf("You're not in the team roster yet. Ask %s to run: dossier team add %s \"Your Name\"", managerName, username)
 }
 
 type realClock struct{}

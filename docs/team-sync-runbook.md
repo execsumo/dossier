@@ -17,8 +17,10 @@
 |---|---|---|
 | "can't reach the team store" / sync deferred | Remote unreachable (offline or bad URL) | Local commit still landed; retry `dossier sync`; inspect with `dossier sync --status` |
 | `Sync failed: …` (exit code 1) | Any remote failure. The local commit landed | See §1 |
-| `sync_auth_failed` | PAT missing, expired, or lacks the right access | Follow the next step it prints: replace `~/.dossier/credentials` (mode `0600`) or sign in with `gh`; see §2 |
-| `Warning: no credentials found for <url>` on every command | No credentials file and no signed-in `gh` | See §2 |
+| `sync_auth_failed` | Sign-in missing, expired, or lacks access | Run `dossier signin`; see §2 |
+| "Your GitHub account can't see <owner/repo>" | Not added to the repo, or invitation not accepted | Add them as a collaborator; they accept and rerun; see §2a |
+| "Install GitHub CLI with …" on join | `gh` not installed | Install `gh`, run the same command again |
+| `Warning: no credentials found for <url>` on every command | No token file and `gh` not signed in | Run `dossier signin`; see §2 |
 | a `<store>.failed-join-<time>` or `.failed-create-<time>` folder next to the store | An earlier join or create failed; what it created was moved aside | See §6 |
 | TUI footer: `Team sync · last sync failed …`, or Claude says the team sync failed | The most recent sync (manual or automatic) failed | Run `dossier sync` to see why; see §1/§2 |
 | ">100 MB" exclusion warning | File exceeds GitHub's 100 MB hard limit | Stays local, never enters shared history; move it out of the store or reference it externally |
@@ -51,19 +53,28 @@
 
 *Sources: `docs/adr/0005-team-sync-via-github.md` §5; `docs/team-sync-plan.md` Non-negotiables (Local-first); `SPEC.md` §7.2 `dossier sync`.*
 
-## 2. PAT missing / expired / wrong mode
+## 2. Sign-in missing, expired or rejected
 
-**Symptom:** a `sync_auth_failed` error (the token is absent, expired, or invalid). `dossier sync` exits 1 and prints the next step. If there is *no* credentials file and `gh` is not signed in, every command also warns `no credentials found for <url>`. `sync --status` shows the auth state (`missing` or `rejected`).
+**Symptom:** a `sync_auth_failed` error. `dossier sync` exits 1 and prints the next step. If there is no token file and `gh` is not signed in, every command also warns `no credentials found for <url>`. `sync --status` shows the auth state (`missing` or `rejected`).
 
-**What happened:** Dossier authenticates to the team remote over HTTPS with a fine-grained personal access token (contents: **read and write** on the team repo), stored at `~/.dossier/credentials`. If that file is missing, the token has expired, or the token lacks the required access, the sync cannot authenticate.
+**What happened:** Dossier reaches the team repository over HTTPS with a GitHub credential. It first looks for a token file at `~/.dossier/credentials`; if there is none, it asks the GitHub CLI (`gh auth token`). The credential is missing, expired, revoked, or lacks access.
 
 **What to do:**
 
-- ~~Re-run the **re-auth command printed in the `sync_auth_failed` warning.** It re-prompts for a fine-grained PAT (contents read/write on the team repo) and stores it at `~/.dossier/credentials`.~~ **Actual:** there is still no re-auth command or prompt; the warning names the manual step instead. Write a new fine-grained PAT (contents read/write on the team repo) to `$HOME/.dossier/credentials` by hand. That path is fixed and ignores `DOSSIER_HOME` (`internal/sync/credentials.go`).
-- The credentials file **must be exactly `0600`**; any other mode makes every command warn "failed to load credentials", and sync fails with `sync_auth_failed`. ~~Dossier sets this when it writes the file~~ **Actual:** Dossier never writes this file. Set the mode yourself.
-- Convenience: if the `gh` CLI is installed and signed in, Dossier uses `gh auth token` automatically when no credentials file exists, and `sync --status` shows auth state `gh`. ~~instead of prompting~~ Note that this is your broad `gh` token, not a repo-scoped one. It is looked up again on every `dossier` command.
+- Re-run the **re-auth command printed in the `sync_auth_failed` warning**: `dossier signin`. It offers the same browser sign-in as `team join` (`Sign in to GitHub now? Your browser will open. [Y/n]`, then a one-time code on github.com) and reports which method is active (`gh` or the token file). It needs `gh` installed; if it isn't, it prints how to install it (macOS `brew install gh`, Windows `winget install --id GitHub.cli`).
+- Token file alternative: a fine-grained PAT with Contents read/write on the team repo, saved to `~/.dossier/credentials`. On macOS and Linux it **must be exactly `0600`**, or every command warns "failed to load credentials"; on Windows the user-profile folder's permissions protect it and the mode is not checked. Dossier never writes this file itself. The path ignores `DOSSIER_HOME`.
+- A token file, when present, wins over `gh`. Remove or fix a stale one if `gh` is signed in but sync still fails.
+- The `gh` credential is the person's general GitHub sign-in, not limited to the team repo (accepted in BUILD-DECISIONS B17). It is looked up on every `dossier` command that syncs.
 
-*Sources: `docs/team-sync-plan.md` Phase 2 §4; `docs/adr/0005-team-sync-via-github.md` Consequences; `SPEC.md` §7.2 `dossier team join`.*
+## 2a. "Your GitHub account can't see <owner/repo>"
+
+**What happened:** sign-in worked, but GitHub says the account has no access to the team repository. For a private repository GitHub answers "not found" in this case. Usually the colleague hasn't been added yet, or hasn't accepted the invitation email.
+
+**What to do:** add them in the repository's Settings → Collaborators; they accept the email invitation; they run the same `dossier team join <link>` again. Nothing was written to their computer by the failed attempt.
+
+If the message mentions SAML or single sign-on, the organization requires the GitHub CLI to be authorized for it: GitHub → Settings → Applications → authorize the GitHub CLI for the organization, then run the command again.
+
+*Sources: BUILD-DECISIONS B17; `docs/team-adoption-plan-review.md` §6 Team MVP M6; `SPEC.md` §7 `dossier team join` and `dossier signin`.*
 
 ## 3. Oversized artifact (>100 MB)
 

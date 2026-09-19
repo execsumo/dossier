@@ -2,11 +2,89 @@ package sync
 
 import (
 	"errors"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+
+	"github.com/go-git/go-git/v5/plumbing/transport"
 )
+
+func TestGitHubAuthStatusAndLogin(t *testing.T) {
+	origRunner, origLogin := runner, loginRunner
+	defer func() {
+		runner = origRunner
+		loginRunner = origLogin
+	}()
+
+	var calls []string
+	runner = func(name string, args ...string) ([]byte, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		if len(args) == 4 && args[0] == "auth" && args[1] == "status" {
+			return nil, errors.New("not logged in")
+		}
+		return []byte("token\n"), nil
+	}
+	installed, loggedIn := GitHubAuthStatus()
+	if !installed || loggedIn {
+		t.Fatalf("GitHubAuthStatus() = %v, %v", installed, loggedIn)
+	}
+	var gotName string
+	var gotArgs []string
+	var gotIn io.Reader
+	var gotOut, gotErr io.Writer
+	loginRunner = func(name string, args []string, in io.Reader, out, errOut io.Writer) error {
+		gotName, gotArgs = name, args
+		gotIn, gotOut, gotErr = in, out, errOut
+		return nil
+	}
+	in, out, errOut := strings.NewReader(""), &strings.Builder{}, &strings.Builder{}
+	if err := GitHubLogin(in, out, errOut); err != nil {
+		t.Fatal(err)
+	}
+	if gotName != "gh" || strings.Join(gotArgs, " ") != "auth login --hostname github.com --git-protocol https --web" {
+		t.Fatalf("unexpected login command: %s %v", gotName, gotArgs)
+	}
+	if gotIn != in || gotOut != out || gotErr != errOut {
+		t.Fatal("GitHubLogin did not preserve terminal streams")
+	}
+	if len(calls) != 1 || calls[0] != "gh auth status --hostname github.com" {
+		t.Fatalf("unexpected auth status calls: %v", calls)
+	}
+}
+
+func TestGitHubAuthStatusMissing(t *testing.T) {
+	origRunner := runner
+	defer func() { runner = origRunner }()
+	runner = func(string, ...string) ([]byte, error) { return nil, exec.ErrNotFound }
+	installed, loggedIn := GitHubAuthStatus()
+	if installed || loggedIn {
+		t.Fatalf("missing gh reported as installed/logged in: %v, %v", installed, loggedIn)
+	}
+}
+
+func TestClassifyAccessError(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		kind AccessKind
+	}{
+		{"authentication", transport.ErrAuthenticationRequired, AccessAuthentication},
+		{"authorization", transport.ErrAuthorizationFailed, AccessVisibility},
+		{"repository not found", transport.ErrRepositoryNotFound, AccessVisibility},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifyAccessError(tt.err)
+			accessErr, ok := got.(*AccessError)
+			if !ok || accessErr.Kind != tt.kind {
+				t.Fatalf("classifyAccessError(%v) = %#v, want %s", tt.err, got, tt.kind)
+			}
+		})
+	}
+}
 
 func TestGetAuth_FileMode(t *testing.T) {
 	dir := t.TempDir()
