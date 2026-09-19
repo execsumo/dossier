@@ -65,6 +65,22 @@ func GitHubLogin(in io.Reader, out, errOut io.Writer) error {
 	return loginRunner("gh", []string{"auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--web"}, in, out, errOut)
 }
 
+// SetGHRunnerForTests replaces the gh command hooks and returns a restore
+// function. It is intentionally narrow: callers can test CLI onboarding
+// without installing gh or opening a browser.
+func SetGHRunnerForTests(command func(string, ...string) ([]byte, error), login func(string, []string, io.Reader, io.Writer, io.Writer) error) func() {
+	oldRunner, oldLogin := runner, loginRunner
+	if command != nil {
+		runner = command
+	}
+	if login != nil {
+		loginRunner = login
+	}
+	return func() {
+		runner, loginRunner = oldRunner, oldLogin
+	}
+}
+
 // GetAuth resolves the GitHub PAT and returns a basic auth configured for go-git,
 // the auth state ("file", "gh", "missing", "error", "none"), and any error.
 func GetAuth(credsPath string, remoteURL string) (*http.BasicAuth, string, error) {

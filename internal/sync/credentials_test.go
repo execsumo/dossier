@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
 func TestGitHubAuthStatusAndLogin(t *testing.T) {
@@ -61,6 +63,26 @@ func TestGitHubAuthStatusMissing(t *testing.T) {
 	installed, loggedIn := GitHubAuthStatus()
 	if installed || loggedIn {
 		t.Fatalf("missing gh reported as installed/logged in: %v, %v", installed, loggedIn)
+	}
+}
+
+func TestClassifyAccessError(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		kind AccessKind
+	}{
+		{"authentication", transport.ErrAuthenticationRequired, AccessAuthentication},
+		{"authorization", transport.ErrAuthorizationFailed, AccessVisibility},
+		{"repository not found", transport.ErrRepositoryNotFound, AccessVisibility},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifyAccessError(tt.err)
+			accessErr, ok := got.(*AccessError)
+			if !ok || accessErr.Kind != tt.kind {
+				t.Fatalf("classifyAccessError(%v) = %#v, want %s", tt.err, got, tt.kind)
+			}
+		})
 	}
 }
 

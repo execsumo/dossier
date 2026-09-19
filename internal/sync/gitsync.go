@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"errors"
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing/transport"
@@ -39,6 +40,35 @@ type Config struct {
 // docs/spikes/gitsync-findings.md.
 type GitSync struct {
 	cfg Config
+}
+
+// AccessKind identifies the user-facing class of a remote access failure.
+type AccessKind string
+
+const (
+	AccessAuthentication AccessKind = "authentication"
+	AccessVisibility     AccessKind = "visibility"
+)
+
+// AccessError preserves go-git's typed access failure for core and adapters
+// without making the pure core import go-git.
+type AccessError struct {
+	Kind AccessKind
+	Err  error
+}
+
+func (e *AccessError) Error() string      { return e.Err.Error() }
+func (e *AccessError) Unwrap() error      { return e.Err }
+func (e *AccessError) AccessKind() string { return string(e.Kind) }
+
+func classifyAccessError(err error) error {
+	if errors.Is(err, transport.ErrAuthenticationRequired) {
+		return &AccessError{Kind: AccessAuthentication, Err: err}
+	}
+	if errors.Is(err, transport.ErrAuthorizationFailed) || errors.Is(err, transport.ErrRepositoryNotFound) {
+		return &AccessError{Kind: AccessVisibility, Err: err}
+	}
+	return err
 }
 
 // New returns a GitSync with defaults applied.

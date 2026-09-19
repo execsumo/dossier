@@ -1610,38 +1610,36 @@ func NewRootCmd() *cobra.Command {
 		Use:   "signin",
 		Short: "Sign in to GitHub for team sync",
 		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			homeDir := resolveHomeDir()
 			cfg, err := config.Load(filepath.Join(homeDir, "config.yaml"))
 			if err != nil {
-				fmt.Printf("Error loading config: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("error loading config: %w", err)
 			}
 			remote := cfg.Team.Remote
 			if remote == "" {
 				remote = "https://github.com/"
 			}
 			if err := ensureRemoteCredentials(cmd, remote); err != nil {
-				fmt.Printf("Sign-in failed: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("sign-in failed: %w", err)
 			}
 			_, method, err := sync.GetAuth("", remote)
 			if err != nil {
-				fmt.Printf("Sign-in failed: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("sign-in failed: %w", err)
 			}
 			if signinJSON {
 				printJSON(map[string]string{"method": method})
-				return
+				return nil
 			}
 			switch method {
 			case "gh":
-				fmt.Println("GitHub sign-in active via gh.")
+				fmt.Fprintln(cmd.OutOrStdout(), "GitHub sign-in active via gh.")
 			case "file":
-				fmt.Println("GitHub sign-in active via ~/.dossier/credentials.")
+				fmt.Fprintln(cmd.OutOrStdout(), "GitHub sign-in active via ~/.dossier/credentials.")
 			default:
-				fmt.Printf("GitHub sign-in method: %s\n", method)
+				fmt.Fprintf(cmd.OutOrStdout(), "GitHub sign-in method: %s\n", method)
 			}
+			return nil
 		},
 	}
 	signinCmd.Flags().BoolVar(&signinJSON, "json", false, "Output results in JSON format")
@@ -1754,10 +1752,9 @@ func NewRootCmd() *cobra.Command {
 		Use:   "create <url>",
 		Short: "Turn the current store into a team's shared store",
 		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := checkRemoteBeforeStore(cmd, args[0]); err != nil {
-				fmt.Printf("Team create failed: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("Team create failed: %w", err)
 			}
 			homeDir := resolveHomeDir()
 			cfgPath := filepath.Join(homeDir, "config.yaml")
@@ -1825,9 +1822,10 @@ func NewRootCmd() *cobra.Command {
 			}
 			if teamCreateJSON {
 				printJSON(res)
-				return
+				return nil
 			}
 			fmt.Println("Team store created successfully.")
+			return nil
 		},
 	}
 	teamCreateCmd.Flags().BoolVarP(&teamCreateYes, "yes", "y", false, "Skip confirmation prompt")
@@ -1839,10 +1837,9 @@ func NewRootCmd() *cobra.Command {
 		Use:   "join <url>",
 		Short: "Join an existing team store",
 		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := checkRemoteBeforeStore(cmd, args[0]); err != nil {
-				fmt.Printf("Team join failed: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("Team join failed: %w", err)
 			}
 			homeDir := resolveHomeDir()
 			cfgPath := filepath.Join(homeDir, "config.yaml")
@@ -1873,13 +1870,14 @@ func NewRootCmd() *cobra.Command {
 			}
 			if teamJoinJSON {
 				printJSON(res)
-				return
+				return nil
 			}
-			fmt.Println("Successfully joined team store.")
+			fmt.Fprintln(cmd.OutOrStdout(), "Successfully joined team store.")
 			for _, warning := range res.Warnings {
-				fmt.Printf("Warning: %s\n", warning)
+				fmt.Fprintf(cmd.OutOrStdout(), "Warning: %s\n", warning)
 			}
-			printJoinRosterMessage(svc)
+			printJoinRosterMessage(cmd.OutOrStdout(), svc)
+			return nil
 		},
 	}
 	teamJoinCmd.Flags().BoolVar(&teamJoinJSON, "json", false, "Output results in JSON format")
@@ -2126,6 +2124,11 @@ func isHTTPRemote(remote string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(remote)), "http://") || strings.HasPrefix(strings.ToLower(strings.TrimSpace(remote)), "https://")
 }
 
+// interactiveReader is a small seam for CLI tests; production uses the
+// terminal check below. ModeCharDevice is set for Windows console handles as
+// well as Unix terminals, while pipes/buffers stay non-interactive.
+var interactiveReader = isInteractiveReader
+
 func isInteractiveReader(reader io.Reader) bool {
 	file, ok := reader.(*os.File)
 	if !ok {
@@ -2162,7 +2165,7 @@ func ensureRemoteCredentials(cmd *cobra.Command, remote string) error {
 		printGitHubFallback(cmd.ErrOrStderr(), false)
 		return errors.New("gh is installed but did not return a token")
 	}
-	if !isInteractiveReader(cmd.InOrStdin()) {
+	if !interactiveReader(cmd.InOrStdin()) {
 		printGitHubFallback(cmd.ErrOrStderr(), true)
 		return errors.New("GitHub sign-in requires an interactive terminal")
 	}
@@ -2205,24 +2208,33 @@ func checkRemoteBeforeStore(cmd *cobra.Command, remote string) error {
 	return nil
 }
 
-func printJoinRosterMessage(svc *core.Service) {
+func printJoinRosterMessage(w io.Writer, svc *core.Service) {
 	roster, err := svc.Members(context.Background())
-	if err != nil || (len(roster.Members) == 0 && len(roster.Former) == 0) {
+	if err != nil {
 		return
 	}
 	username, displayName := svc.CurrentUser()
+	message := joinRosterMessage(roster, username, displayName)
+	if message != "" {
+		fmt.Fprintln(w, message)
+	}
+}
+
+func joinRosterMessage(roster core.Roster, username, displayName string) string {
+	if len(roster.Members) == 0 && len(roster.Former) == 0 {
+		return ""
+	}
 	if roster.Has(username) {
 		if memberName := roster.DisplayName(username); strings.TrimSpace(memberName) != "" {
 			displayName = memberName
 		}
-		fmt.Printf("You'll appear to teammates as %s (%s).\n", displayName, username)
-		return
+		return fmt.Sprintf("You'll appear to teammates as %s (%s).", displayName, username)
 	}
 	managerName := roster.DisplayName(roster.Manager)
 	if managerName == "" {
 		managerName = roster.Manager
 	}
-	fmt.Printf("You're not in the team roster yet. Ask %s to run: dossier team add %s \"Your Name\"\n", managerName, username)
+	return fmt.Sprintf("You're not in the team roster yet. Ask %s to run: dossier team add %s \"Your Name\"", managerName, username)
 }
 
 type realClock struct{}

@@ -263,6 +263,13 @@ type RemoteAccessChecker interface {
 	CheckRemoteAccess(ctx context.Context, url string) error
 }
 
+// RemoteAccessError is implemented by sync adapters that preserve typed
+// authentication versus visibility failures without importing their package.
+type RemoteAccessError interface {
+	error
+	AccessKind() string
+}
+
 // LocalSyncStatuser is the optional no-network status capability used by
 // session and MCP attention paths. A normal Status may fetch the remote, which
 // is not acceptable while returning an interactive response.

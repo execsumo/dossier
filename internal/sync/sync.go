@@ -82,7 +82,7 @@ func (g *GitSync) CheckRemoteAccess(ctx context.Context, url string) error {
 	}
 	_, err := g.remoteRefs(ctx, url)
 	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "remote repository is empty") {
-		return fmt.Errorf("unable to access remote %s: %w", url, err)
+		return classifyAccessError(fmt.Errorf("unable to access remote %s: %w", url, err))
 	}
 	return nil
 }
@@ -102,7 +102,7 @@ func (g *GitSync) CheckRemoteEmpty(ctx context.Context, url string) error {
 		if strings.Contains(strings.ToLower(err.Error()), "remote repository is empty") {
 			return nil
 		}
-		return fmt.Errorf("unable to inspect remote %s: %w", url, err)
+		return classifyAccessError(fmt.Errorf("unable to inspect remote %s: %w", url, err))
 	}
 	for _, ref := range refs {
 		if ref.Name() == plumbing.HEAD {

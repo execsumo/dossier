@@ -16,6 +16,7 @@ func TestRemoteAccessMessages(t *testing.T) {
 		{"unauthorized", "unable to access remote https://github.com/acme/team.git: authentication required", "https://github.com/acme/team.git", "dossier signin"},
 		{"forbidden", "unable to access remote: authorization failed (403)", "https://github.com/acme/team.git", "Your GitHub account can't see acme/team"},
 		{"not found", "remote returned 404", "https://github.com/acme/team.git", "Your GitHub account can't see acme/team"},
+		{"repository not found", "repository not found", "https://github.com/acme/team.git", "Your GitHub account can't see acme/team"},
 		{"sso", "remote returned SAML SSO authorization required", "https://github.com/acme/team.git", "Authorize the GitHub CLI for your organization"},
 	}
 	for _, tt := range tests {

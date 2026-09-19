@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -398,7 +399,16 @@ func remoteAccessMessage(remote string, err error) string {
 	if strings.Contains(lower, "saml") || strings.Contains(lower, "sso") {
 		return fmt.Sprintf("%s\nAuthorize the GitHub CLI for your organization (GitHub → Settings → Applications).", message)
 	}
-	if strings.Contains(lower, "403") || strings.Contains(lower, "404") || strings.Contains(lower, "authorization failed") {
+	var accessErr RemoteAccessError
+	if errors.As(err, &accessErr) {
+		switch accessErr.AccessKind() {
+		case "authentication":
+			return authFailedMessage(remote)
+		case "visibility":
+			return fmt.Sprintf("Your GitHub account can't see %s. Ask the manager or the person who invited you to add you as a collaborator, and accept the invitation email from GitHub.", remoteRepository(remote))
+		}
+	}
+	if strings.Contains(lower, "403") || strings.Contains(lower, "404") || strings.Contains(lower, "repository not found") || strings.Contains(lower, "authorization failed") {
 		return fmt.Sprintf("Your GitHub account can't see %s. Ask the manager or the person who invited you to add you as a collaborator, and accept the invitation email from GitHub.", remoteRepository(remote))
 	}
 	return authFailedMessage(remote)
