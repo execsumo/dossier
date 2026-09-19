@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
@@ -18,6 +20,13 @@ var ErrNoCredentials = errors.New("no credentials found")
 
 // runner is a hook for tests to intercept exec.Command
 var runner = func(name string, arg ...string) ([]byte, error) {
+	// exec.Command resolves PATHEXT on Windows, but use LookPath explicitly so
+	// the installed gh.exe is found consistently there.
+	if runtime.GOOS == "windows" && name == "gh" {
+		if path, err := exec.LookPath("gh.exe"); err == nil {
+			name = path
+		}
+	}
 	return exec.Command(name, arg...).Output()
 }
 
@@ -29,13 +38,15 @@ func GetAuth(credsPath string, remoteURL string) (*http.BasicAuth, string, error
 		if err != nil {
 			return nil, "missing", nil // can't find home, fallback to no auth
 		}
-		credsPath = home + "/.dossier/credentials"
+		credsPath = filepath.Join(home, ".dossier", "credentials")
 	}
 
 	info, err := os.Stat(credsPath)
 	if err == nil {
-		// Must be exactly 0600
-		if info.Mode().Perm() != 0600 {
+		// Windows reports synthetic Unix permission bits for ACL-protected files;
+		// the user's profile ACL is the access control boundary there. Keep the
+		// strict 0600 check on Unix, where those bits are meaningful.
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 			return nil, "error", ErrInsecureCredentials
 		}
 		data, err := os.ReadFile(credsPath)

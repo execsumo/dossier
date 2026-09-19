@@ -17,7 +17,7 @@ import (
 func TestSync_UnreachableRemote(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	dossierPath := filepath.Join(tmpDir, "dossier")
+	dossierPath := filepath.Join(tmpDir, stableBinaryName())
 	cmd := exec.Command("go", "build", "-o", dossierPath, "../../cmd/dossier")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("build failed: %v", err)

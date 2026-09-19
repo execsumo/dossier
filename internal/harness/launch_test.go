@@ -4,11 +4,28 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 var uuidV4Re = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+func writeFakeExecutable(t *testing.T, dir, name string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		name += ".cmd"
+	}
+	path := filepath.Join(dir, name)
+	content := "#!/bin/sh\n"
+	if runtime.GOOS == "windows" {
+		content = "@echo off\r\n"
+	}
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
 
 func TestNewClaudeSessionID(t *testing.T) {
 	a, err := NewClaudeSessionID()
@@ -102,10 +119,7 @@ func TestPlanCursorHandoff(t *testing.T) {
 
 func TestPlanPiHandoff(t *testing.T) {
 	dir := t.TempDir()
-	fake := filepath.Join(dir, "pi")
-	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeFakeExecutable(t, dir, "pi")
 	// Prepend dir to PATH so pathBin finds it
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
@@ -144,10 +158,7 @@ func TestPlanPiHandoff(t *testing.T) {
 
 func TestPlanOpenWithCursorResolvesConfiguredBinary(t *testing.T) {
 	dir := t.TempDir()
-	fake := filepath.Join(dir, "cursor-agent")
-	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fake := writeFakeExecutable(t, dir, "cursor-agent")
 	t.Setenv(CursorBinEnv, fake)
 
 	plan, err := PlanOpenWith("cursor", LaunchRequest{
@@ -199,10 +210,7 @@ func TestNormalizeOpenWith(t *testing.T) {
 
 func TestClaudeBinHonoursOverride(t *testing.T) {
 	dir := t.TempDir()
-	fake := filepath.Join(dir, "my-claude")
-	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fake := writeFakeExecutable(t, dir, "my-claude")
 	t.Setenv(ClaudeBinEnv, fake)
 	t.Setenv("PATH", dir) // deliberately no "claude" here
 

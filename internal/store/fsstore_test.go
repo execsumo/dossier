@@ -12,6 +12,24 @@ import (
 	"time"
 )
 
+func TestReadOnlyReplacementCanReplaceExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dossier.md")
+	if err := os.WriteFile(path, []byte("old"), 0444); err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceReadOnlyFile(path, []byte("new")); err != nil {
+		t.Fatalf("replaceReadOnlyFile() error = %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new" {
+		t.Fatalf("content = %q, want new", got)
+	}
+}
+
 func TestConflictRoundTripPreservesProposalBody(t *testing.T) {
 	home := t.TempDir()
 	store := NewFSStore(home)

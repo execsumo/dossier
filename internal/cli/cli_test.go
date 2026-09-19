@@ -114,7 +114,9 @@ func TestCLICommands(t *testing.T) {
 }
 
 func TestCLIRenameSlugMovesDirectoryAndDropsOldReference(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	tempHome := t.TempDir()
 	svc, err := wire(tempHome)
 	if err != nil {
@@ -156,7 +158,9 @@ func TestCLIRenameSlugMovesDirectoryAndDropsOldReference(t *testing.T) {
 }
 
 func TestCLIRenameTitleKeepsSlugAndPath(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	tempHome := t.TempDir()
 	svc, err := wire(tempHome)
 	if err != nil {
@@ -195,7 +199,9 @@ func TestCLIRenameTitleKeepsSlugAndPath(t *testing.T) {
 }
 
 func TestCLIPromoteDistilledFile(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	tempHome := t.TempDir()
 	svc, err := wire(tempHome)
 	if err != nil {
@@ -706,7 +712,7 @@ func TestCLIInstall(t *testing.T) {
 		t.Fatalf("install cmd execution failed: %v", err)
 	}
 
-	destPath := filepath.Join(tempTargetDir, "dossier")
+	destPath := filepath.Join(tempTargetDir, stableBinaryName())
 	info, err := os.Stat(destPath)
 	if err != nil {
 		t.Fatalf("expected installed binary at %s, but got error: %v", destPath, err)
