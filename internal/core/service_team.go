@@ -213,5 +213,5 @@ func conflictBody(content string) string {
 
 // authFailedMessage is the next step shown for sync_auth_failed on every surface.
 func authFailedMessage(remote string) string {
-	return fmt.Sprintf("GitHub rejected the credentials, or none were found. Create a fine-grained token with Contents read/write on %s, write it to ~/.dossier/credentials (chmod 600), or run `gh auth login`, then `dossier sync`.", remote)
+	return fmt.Sprintf("GitHub rejected the credentials, or none were found. Create a fine-grained token with Contents read/write on %s, write it to ~/.dossier/credentials (chmod 600), or run `gh auth login`, then run the command again.", remote)
 }

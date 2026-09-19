@@ -39,7 +39,9 @@ func (g *GitSync) Clone(ctx context.Context, url, dir string, depth int) error {
 		existing = make(map[string]bool, len(entries))
 		for _, e := range entries {
 			existing[e.Name()] = true
-			if e.Name() != "config.yaml" && e.Name() != ".gitignore" {
+			// credentials lives at $HOME/.dossier/credentials, which is the
+			// default store, so it must be written before joining.
+			if e.Name() != "config.yaml" && e.Name() != ".gitignore" && e.Name() != "credentials" {
 				return errors.New("target directory is not empty; cannot join into an existing store")
 			}
 		}

@@ -109,3 +109,31 @@ func TestCloneRejectsNonMainDefaultBranch(t *testing.T) {
 		t.Fatalf("expected named default-branch error, got %v", err)
 	}
 }
+
+// The documented setup writes the token to ~/.dossier/credentials before
+// joining, and ~/.dossier is the default store, so join must accept it.
+func TestCloneAcceptsPreexistingCredentials(t *testing.T) {
+	bareDir := filepath.Join(t.TempDir(), "bare.git")
+	seedBareRepo(t, bareDir)
+
+	store := filepath.Join(t.TempDir(), "store")
+	if err := os.MkdirAll(store, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	creds := filepath.Join(store, "credentials")
+	if err := os.WriteFile(creds, []byte("token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	g := New(Config{StoreDir: store, RemoteURL: bareDir, Branch: "main"})
+	if err := g.Clone(context.Background(), bareDir, store, 0); err != nil {
+		t.Fatalf("join with pre-existing credentials: %v", err)
+	}
+	info, err := os.Stat(creds)
+	if err != nil {
+		t.Fatalf("credentials lost by join: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("credentials mode changed to %v", info.Mode().Perm())
+	}
+}
