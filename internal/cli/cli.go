@@ -328,8 +328,15 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
+			printListWarnings := func() {
+				for _, w := range res.Warnings {
+					fmt.Printf("Warning: %s\n", w)
+				}
+			}
+
 			if len(items) == 0 {
 				fmt.Println("No dossiers found.")
+				printListWarnings()
 				return
 			}
 
@@ -358,6 +365,7 @@ func NewRootCmd() *cobra.Command {
 
 				fmt.Printf("%-30s %-15s %-11s %-8s %-5s %s\n", nameOrSlug, lead, item.Status, item.Priority, item.DueDate, nextAction)
 			}
+			printListWarnings()
 		},
 	}
 	lsCmd.Flags().StringVar(&statusFlag, "status", "", "Filter by status (spark|define|execute|review|blocked|done|all)")

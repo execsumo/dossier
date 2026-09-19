@@ -35,8 +35,11 @@ func TestNewLeadScope(t *testing.T) {
 		{name: "first name", query: "Priya", hasRoster: true, want: leadScope{active: true, username: "psmith"}, stored: "psmith", matches: true},
 		{name: "former member", query: "Former Person", hasRoster: true, want: leadScope{active: true, username: "old"}, stored: "old", matches: true},
 		{name: "ambiguous", query: "Bob", hasRoster: true, want: leadScope{active: true}, candidates: []string{"bthree", "btwo"}},
-		{name: "unknown roster", query: "Nobody", hasRoster: true, want: leadScope{active: true, literal: "nobody"}, stored: "nobody", matches: true},
-		{name: "free form", query: "Alice", want: leadScope{active: true, literal: "alice"}, stored: "Alice@corp.com", matches: true},
+		{name: "unknown roster", query: "Nobody", hasRoster: true, want: leadScope{active: true, unresolved: true, literal: "nobody"}, stored: "nobody", matches: true},
+		{name: "free form", query: "Alice", want: leadScope{active: true, unresolved: true, literal: "alice"}, stored: "Alice@corp.com", matches: true},
+		// A query that normalizes away entirely must not become an unassigned filter.
+		{name: "normalizes to nothing", query: "@corp.com", hasRoster: true, want: leadScope{active: true, unresolved: true}, stored: "", matches: false},
+		{name: "normalizes to nothing matches no lead", query: "/", hasRoster: true, want: leadScope{active: true, unresolved: true}, stored: "psmith", matches: false},
 	}
 
 	for _, tt := range tests {

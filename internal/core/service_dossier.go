@@ -1125,7 +1125,7 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 		if !scope.matches(fm.Lead) {
 			continue
 		}
-		if scope.literal != "" {
+		if scope.unresolved {
 			leadMatches++
 		}
 		if !matchesInterfaces(fm.Interfaces, req.Interfaces) {
@@ -1179,7 +1179,7 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 	}
 
 	warnings := []Warning(nil)
-	if scope.literal != "" && leadMatches == 0 {
+	if scope.unresolved && leadMatches == 0 {
 		warnings = append(warnings, Warning(fmt.Sprintf("lead %q did not match any team member; check dossier_team for the roster.", strings.TrimSpace(req.Lead))))
 	}
 	return Result{

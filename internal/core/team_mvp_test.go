@@ -127,6 +127,28 @@ func TestServiceListLeadAmbiguous(t *testing.T) {
 	}
 }
 
+// TestServiceListLeadDegenerateQueryHidesUnassigned guards the case where a lead
+// query normalizes to the empty string: it must return nothing and warn, not
+// quietly turn into an "unassigned" filter.
+func TestServiceListLeadDegenerateQueryHidesUnassigned(t *testing.T) {
+	store := &rosterTestStore{localFakeStore: newLocalFakeStore(), roster: Roster{
+		Members: map[string]string{"hgill": "Herwin Gill"},
+	}}
+	store.dossiers["dos_unassigned"] = &Dossier{Frontmatter: Frontmatter{ID: "dos_unassigned", Name: "Unassigned", Slug: "unassigned", Status: StatusExecute, Priority: PriorityHigh}}
+	store.revisions["dos_unassigned"] = Revision("rev_unassigned")
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{}, nil)
+	res, err := svc.List(context.Background(), ListReq{Lead: "@corp.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if items, _ := res.Data.([]ListItem); len(items) != 0 {
+		t.Fatalf("degenerate lead query returned %+v", items)
+	}
+	if len(res.Warnings) != 1 || !strings.Contains(string(res.Warnings[0]), "@corp.com") {
+		t.Fatalf("warnings = %+v", res.Warnings)
+	}
+}
+
 func TestServiceListLeadUnknownWarns(t *testing.T) {
 	store := &rosterTestStore{localFakeStore: newLocalFakeStore(), roster: Roster{
 		Members: map[string]string{"hgill": "Herwin Gill"},

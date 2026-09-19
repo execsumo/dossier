@@ -509,7 +509,7 @@ dossier doctor
 - Reads frontmatter across `*/dossier.md`.
 - Default status filter: open work (`spark`, `define`, `execute`, `review`, `blocked`).
 - Sorts by priority (`max` first, then `high`, `medium`, `low`).
-- `--lead` filters by `me`, a teammate username, display name, or unique first-name prefix; ambiguous names return the candidates instead of guessing.
+- `--lead` filters by `me`, a teammate username, display name, or unique first-name prefix; ambiguous names return the candidates instead of guessing, and a name the roster does not know returns a warning rather than a silently empty list. `--lead` takes precedence over `--mine` when both are given.
 - `--query` narrows the result to Dossiers whose `name`, `description`, `lead`, any `interface`, or `slug` contains every whitespace-separated term (case-insensitive substring; AND across terms, OR across fields). A term never matches across a field boundary. Filtering only — result ordering is unchanged.
 - Includes capability warning column if invoked inside a known harness/session.
 

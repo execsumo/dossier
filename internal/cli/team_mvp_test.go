@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"bytes"
+	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"dossier/internal/core"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -41,5 +46,40 @@ func TestLeadCommandAcceptsFirstNameAndReportsCandidates(t *testing.T) {
 	}
 	if code, output := runDossier(t, binary, store, fakeHome, "", "lead", "assigned", "Nobody"); code == 0 || !strings.Contains(output, "unknown team member") {
 		t.Fatalf("unknown lead = (%d, %s)", code, output)
+	}
+}
+
+// TestLsLeadFlagSurfacesUnknownLeadWarning keeps the CLI honest about a lead
+// filter that matched nobody: "No dossiers found." alone reads as "this person
+// has no work", which is the failure the core warning exists to prevent.
+func TestLsLeadFlagSurfacesUnknownLeadWarning(t *testing.T) {
+	tempHome := t.TempDir()
+	svc, err := wire(tempHome)
+	if err != nil {
+		t.Fatalf("failed to wire: %v", err)
+	}
+	if _, err := svc.Init(context.Background(), core.InitReq{YesToAll: true}); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	var buf bytes.Buffer
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	cmd := NewRootCmd()
+	cmd.SetArgs([]string{"ls", "--lead", "Nobody", "--home", tempHome})
+	execErr := cmd.Execute()
+
+	w.Close()
+	os.Stdout = oldStdout
+	buf.ReadFrom(r)
+
+	if execErr != nil {
+		t.Fatalf("ls --lead failed: %v", execErr)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "Warning:") || !strings.Contains(output, "Nobody") {
+		t.Fatalf("ls --lead Nobody output = %q, want an unknown-lead warning", output)
 	}
 }

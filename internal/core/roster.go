@@ -139,9 +139,10 @@ func (r Roster) Has(username string) bool {
 // leadScope is the resolved form of a requested lead filter. Resolving once
 // before the scan keeps lead identity matching consistent across every dossier.
 type leadScope struct {
-	active   bool
-	username string
-	literal  string
+	active     bool
+	unresolved bool // the roster could not name this lead; literal is a best-effort comparison
+	username   string
+	literal    string
 }
 
 // newLeadScope resolves a lead filter against the roster. A non-empty
@@ -164,15 +165,17 @@ func newLeadScope(roster *Roster, hasRoster bool, raw, currentUsername string) (
 		}
 	}
 	// Preserve free-form and legacy leads when the roster cannot resolve the query.
-	return leadScope{active: true, literal: NormalizeUsername(raw)}, nil
+	return leadScope{active: true, unresolved: true, literal: NormalizeUsername(raw)}, nil
 }
 
 func (l leadScope) matches(storedLead string) bool {
 	if !l.active {
 		return true
 	}
-	if l.literal != "" {
-		return NormalizeUsername(storedLead) == l.literal
+	if l.unresolved {
+		// A query that normalizes away entirely ("@corp.com", "/") must match
+		// nothing rather than silently become an unassigned-lead filter.
+		return l.literal != "" && NormalizeUsername(storedLead) == l.literal
 	}
 	return NormalizeUsername(storedLead) == l.username
 }
