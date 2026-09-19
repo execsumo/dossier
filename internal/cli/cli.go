@@ -1610,6 +1610,8 @@ func NewRootCmd() *cobra.Command {
 		Use:   "signin",
 		Short: "Sign in to GitHub for team sync",
 		Args:  cobra.NoArgs,
+		// A failed sign-in or join is not a usage mistake; don't print usage.
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			homeDir := resolveHomeDir()
 			cfg, err := config.Load(filepath.Join(homeDir, "config.yaml"))
@@ -1752,6 +1754,8 @@ func NewRootCmd() *cobra.Command {
 		Use:   "create <url>",
 		Short: "Turn the current store into a team's shared store",
 		Args:  cobra.ExactArgs(1),
+		// A failed sign-in or join is not a usage mistake; don't print usage.
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := checkRemoteBeforeStore(cmd, args[0]); err != nil {
 				return fmt.Errorf("Team create failed: %w", err)
@@ -1837,6 +1841,8 @@ func NewRootCmd() *cobra.Command {
 		Use:   "join <url>",
 		Short: "Join an existing team store",
 		Args:  cobra.ExactArgs(1),
+		// A failed sign-in or join is not a usage mistake; don't print usage.
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := checkRemoteBeforeStore(cmd, args[0]); err != nil {
 				return fmt.Errorf("Team join failed: %w", err)
@@ -2138,11 +2144,18 @@ func isInteractiveReader(reader io.Reader) bool {
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
-func printGitHubFallback(w io.Writer, nonInteractive bool) {
+// printGitHubFallback tells the user how to get signed in. Install
+// instructions only make sense when gh is missing; otherwise point at gh's own
+// sign-in, which works in any terminal.
+func printGitHubFallback(w io.Writer, ghInstalled, nonInteractive bool) {
 	if nonInteractive {
 		fmt.Fprintln(w, "Non-interactive input: browser sign-in was not started.")
 	}
-	fmt.Fprintln(w, "Install GitHub CLI with `brew install gh` (macOS), `winget install --id GitHub.cli` (Windows), or https://cli.github.com, then run the same command again.")
+	if ghInstalled {
+		fmt.Fprintln(w, "Run this command again in a terminal to sign in, or run `gh auth login` first.")
+	} else {
+		fmt.Fprintln(w, "Install GitHub CLI with `brew install gh` (macOS), `winget install --id GitHub.cli` (Windows), or https://cli.github.com, then run the same command again.")
+	}
 	fmt.Fprintln(w, "Alternatively, write a fine-grained token with Contents read/write to ~/.dossier/credentials (chmod 600).")
 }
 
@@ -2158,15 +2171,15 @@ func ensureRemoteCredentials(cmd *cobra.Command, remote string) error {
 
 	installed, loggedIn := sync.GitHubAuthStatus()
 	if !installed {
-		printGitHubFallback(cmd.ErrOrStderr(), false)
+		printGitHubFallback(cmd.ErrOrStderr(), false, false)
 		return errors.New("GitHub credentials are required")
 	}
 	if loggedIn {
-		printGitHubFallback(cmd.ErrOrStderr(), false)
+		printGitHubFallback(cmd.ErrOrStderr(), true, false)
 		return errors.New("gh is installed but did not return a token")
 	}
 	if !interactiveReader(cmd.InOrStdin()) {
-		printGitHubFallback(cmd.ErrOrStderr(), true)
+		printGitHubFallback(cmd.ErrOrStderr(), true, true)
 		return errors.New("GitHub sign-in requires an interactive terminal")
 	}
 
@@ -2175,17 +2188,17 @@ func ensureRemoteCredentials(cmd *cobra.Command, remote string) error {
 	answer = strings.ToLower(strings.TrimSpace(answer))
 	if readErr != nil && answer == "" || (answer != "" && answer != "y" && answer != "yes") {
 		fmt.Fprintln(cmd.OutOrStdout(), "Sign-in declined.")
-		printGitHubFallback(cmd.ErrOrStderr(), false)
+		printGitHubFallback(cmd.ErrOrStderr(), true, false)
 		return errors.New("GitHub sign-in was declined")
 	}
 	if err := sync.GitHubLogin(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "GitHub sign-in failed: %v\n", err)
-		printGitHubFallback(cmd.ErrOrStderr(), false)
+		printGitHubFallback(cmd.ErrOrStderr(), true, false)
 		return err
 	}
 	if _, _, err := sync.GetAuth("", remote); err != nil {
 		fmt.Fprintln(cmd.ErrOrStderr(), "GitHub sign-in completed, but no token was returned.")
-		printGitHubFallback(cmd.ErrOrStderr(), false)
+		printGitHubFallback(cmd.ErrOrStderr(), true, false)
 		return err
 	}
 	return nil
