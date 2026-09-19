@@ -136,7 +136,9 @@ Name the missing fact or say the work is ready.
 
 ## 3. Persist in the correct place
 
-Write incrementally with dossier_save and the recalled base revision. Do not
+Write incrementally with dossier_save and the recalled base revision. For active
+work, include the current `status` and concise `next_action` on every explicit
+save; treat `next_action` as the baton for the next person or timezone. Do not
 leave settled work only in conversation.
 
 ### Canonical Dossier content

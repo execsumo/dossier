@@ -40,6 +40,31 @@ func TestToolDefinitionsUseConfiguredValues(t *testing.T) {
 	}
 }
 
+func TestDossierSaveAdvertisesCheckpointFields(t *testing.T) {
+	definitions := getToolDefinitions()
+	frontmatter := toolProperty(t, definitions, "dossier_save", "frontmatter_updates")
+	properties, ok := frontmatter["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("dossier_save.frontmatter_updates properties have type %T", frontmatter["properties"])
+	}
+
+	status, ok := properties["status"].(map[string]any)
+	if !ok {
+		t.Fatalf("dossier_save.frontmatter_updates.status schema has type %T", properties["status"])
+	}
+	if got, want := status["enum"], []string{"spark", "define", "execute", "review", "blocked", "done"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("dossier_save status enum = %v, want %v", got, want)
+	}
+
+	nextAction, ok := properties["next_action"].(map[string]any)
+	if !ok {
+		t.Fatalf("dossier_save.frontmatter_updates.next_action schema has type %T", properties["next_action"])
+	}
+	if got, want := nextAction["type"], "string"; got != want {
+		t.Fatalf("dossier_save next_action type = %v, want %v", got, want)
+	}
+}
+
 func TestToolDefinitionsHandleEmptyConfiguredLists(t *testing.T) {
 	definitions := getToolDefinitions([]string{}, []string{})
 	interfaces := toolProperty(t, definitions, "dossier_update", "interfaces")
