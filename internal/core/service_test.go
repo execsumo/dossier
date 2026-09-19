@@ -1109,7 +1109,8 @@ func (m *mockSyncer) Sync(ctx context.Context) (SyncReport, error) {
 func (m *mockSyncer) Status(ctx context.Context) (SyncStatus, error) {
 	return SyncStatus{Ahead: 1, Behind: 2}, nil
 }
-func (m *mockSyncer) Create(ctx context.Context) error                            { return nil }
+func (m *mockSyncer) CheckRemoteEmpty(ctx context.Context, url string) error      { return nil }
+func (m *mockSyncer) Create(ctx context.Context, url, branch string) error        { return nil }
 func (m *mockSyncer) Clone(ctx context.Context, url, dir string, depth int) error { return nil }
 
 func TestSessionBoundarySyncs(t *testing.T) {

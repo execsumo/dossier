@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"dossier/internal/config"
@@ -1559,13 +1560,13 @@ func NewRootCmd() *cobra.Command {
 		Short: "Manage team sync setup",
 	}
 
+	var teamCreateYes, teamCreateJSON bool
 	teamCreateCmd := &cobra.Command{
 		Use:   "create <url>",
 		Short: "Turn the current store into a team's shared store",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			homeDir := resolveHomeDir()
-
 			cfgPath := filepath.Join(homeDir, "config.yaml")
 			cfg, err := config.Load(cfgPath)
 			if err != nil {
@@ -1574,42 +1575,63 @@ func NewRootCmd() *cobra.Command {
 			}
 			cfg.Team.Remote = args[0]
 			cfg.Team.Branch = "main"
-			if err := cfg.Save(cfgPath); err != nil {
-				fmt.Printf("Error saving config: %v\n", err)
-				os.Exit(1)
-			}
-
-			svc, err := wire(homeDir)
+			svc, _, err := wireWithLoadedConfig(homeDir, cfg, cfgPath)
 			if err != nil {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
 
-			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{
-				RemoteURL: args[0],
-				Branch:    "main",
-			})
+			preview, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{RemoteURL: args[0], Branch: "main"})
 			if err != nil {
 				fmt.Printf("Team create failed: %v\n", err)
 				os.Exit(1)
 			}
-
-			if jsonFlag {
+			if !teamCreateYes {
+				for _, warning := range preview.Warnings {
+					fmt.Printf("Warning: %s\n", warning)
+				}
+				fmt.Println("Dossiers to publish:")
+				for _, dossier := range preview.Data.([]core.ListedFrontmatter) {
+					fmt.Printf("- %s (%s) [%s]\n", dossier.Name, dossier.Slug, dossier.Status)
+				}
+				fmt.Fprint(cmd.OutOrStdout(), "Publish these Dossiers? [y/N]: ")
+				answer, readErr := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+				answer = strings.ToLower(strings.TrimSpace(answer))
+				if readErr != nil && answer == "" {
+					fmt.Println("Team create refused: confirmation required; use --yes in non-interactive mode")
+					os.Exit(1)
+				}
+				if answer != "y" && answer != "yes" {
+					fmt.Println("Team create refused.")
+					os.Exit(1)
+				}
+			}
+			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{RemoteURL: args[0], Branch: "main", Confirmed: true})
+			if err != nil {
+				fmt.Printf("Team create failed: %v\n", err)
+				os.Exit(1)
+			}
+			if err := cfg.Save(cfgPath); err != nil {
+				fmt.Printf("Team create succeeded but saving config failed: %v\n", err)
+				os.Exit(1)
+			}
+			if teamCreateJSON {
 				printJSON(res)
 				return
 			}
 			fmt.Println("Team store created successfully.")
 		},
 	}
-	teamCreateCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
+	teamCreateCmd.Flags().BoolVarP(&teamCreateYes, "yes", "y", false, "Skip confirmation prompt")
+	teamCreateCmd.Flags().BoolVar(&teamCreateJSON, "json", false, "Output results in JSON format")
 
+	var teamJoinJSON bool
 	teamJoinCmd := &cobra.Command{
 		Use:   "join <url>",
 		Short: "Join an existing team store",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			homeDir := resolveHomeDir()
-
 			cfgPath := filepath.Join(homeDir, "config.yaml")
 			cfg, err := config.Load(cfgPath)
 			if err != nil {
@@ -1618,27 +1640,21 @@ func NewRootCmd() *cobra.Command {
 			}
 			cfg.Team.Remote = args[0]
 			cfg.Team.Branch = "main"
-			if err := cfg.Save(cfgPath); err != nil {
-				fmt.Printf("Error saving config: %v\n", err)
-				os.Exit(1)
-			}
-
-			svc, err := wire(homeDir)
+			svc, _, err := wireWithLoadedConfig(homeDir, cfg, cfgPath)
 			if err != nil {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
-
-			res, err := svc.TeamJoin(context.Background(), core.TeamJoinReq{
-				RemoteURL: args[0],
-				Branch:    "main",
-			})
+			res, err := svc.TeamJoin(context.Background(), core.TeamJoinReq{RemoteURL: args[0], Branch: "main"})
 			if err != nil {
 				fmt.Printf("Team join failed: %v\n", err)
 				os.Exit(1)
 			}
-
-			if jsonFlag {
+			if err := cfg.Save(cfgPath); err != nil {
+				fmt.Printf("Team join succeeded but saving config failed: %v\n", err)
+				os.Exit(1)
+			}
+			if teamJoinJSON {
 				printJSON(res)
 				return
 			}
@@ -1648,7 +1664,7 @@ func NewRootCmd() *cobra.Command {
 			}
 		},
 	}
-	teamJoinCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
+	teamJoinCmd.Flags().BoolVar(&teamJoinJSON, "json", false, "Output results in JSON format")
 
 	teamCmd.AddCommand(teamCreateCmd)
 	teamCmd.AddCommand(teamJoinCmd)
@@ -1793,16 +1809,23 @@ func wireWithConfig(dossierHome string) (*core.Service, *config.Config, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	return wireWithLoadedConfig(dossierHome, cfg, cfgPath)
+}
+
+func wireWithLoadedConfig(dossierHome string, cfg *config.Config, cfgPath string) (*core.Service, *config.Config, error) {
 	if canonical, err := harness.NormalizeOpenWith(cfg.OpenWith); err != nil {
 		return nil, nil, err
 	} else {
 		cfg.OpenWith = canonical
 	}
 
-	// Write default config to disk if not exists
+	// Write default config to disk if not exists. Team onboarding passes a
+	// loaded config with team.remote only in memory and saves it after success.
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-		if err := cfg.SaveDefault(cfgPath); err != nil {
-			return nil, nil, fmt.Errorf("failed to save default config: %w", err)
+		if cfg.Team.Remote == "" {
+			if err := cfg.SaveDefault(cfgPath); err != nil {
+				return nil, nil, fmt.Errorf("failed to save default config: %w", err)
+			}
 		}
 	}
 

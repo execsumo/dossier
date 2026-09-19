@@ -11,6 +11,7 @@ import (
 type TeamCreateReq struct {
 	RemoteURL string
 	Branch    string
+	Confirmed bool
 }
 
 // TeamCreate initializes the current store as a team store and pushes to the remote.
@@ -24,8 +25,24 @@ func (s *Service) TeamCreate(ctx context.Context, req TeamCreateReq) (Result, er
 	if s.syncer == nil {
 		return Result{}, NewError(ErrInternal, "syncer is not configured")
 	}
+	if err := s.syncer.CheckRemoteEmpty(ctx, req.RemoteURL); err != nil {
+		return Result{}, err
+	}
+	if !req.Confirmed {
+		dossiers, err := s.store.List("all")
+		if err != nil {
+			return Result{}, fmt.Errorf("list dossiers for team create: %w", err)
+		}
+		return Result{
+			OK:   true,
+			Data: dossiers,
+			Warnings: []Warning{
+				"everything in the store directory syncs, including archived Dossiers",
+			},
+		}, nil
+	}
 
-	err := s.syncer.Create(ctx)
+	err := s.syncer.Create(ctx, req.RemoteURL, req.Branch)
 	if err != nil {
 		if strings.Contains(err.Error(), "already a team store") {
 			return Result{}, NewError(ErrConflictDetected, "store is already a team store")

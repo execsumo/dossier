@@ -35,7 +35,8 @@ func (b *blockingSyncer) Sync(ctx context.Context) (core.SyncReport, error) {
 func (b *blockingSyncer) Status(ctx context.Context) (core.SyncStatus, error) {
 	return core.SyncStatus{}, nil
 }
-func (b *blockingSyncer) Create(ctx context.Context) error                            { return nil }
+func (b *blockingSyncer) CheckRemoteEmpty(ctx context.Context, url string) error      { return nil }
+func (b *blockingSyncer) Create(ctx context.Context, url, branch string) error        { return nil }
 func (b *blockingSyncer) Clone(ctx context.Context, url, dir string, depth int) error { return nil }
 
 func TestServiceConcurrentVocabularyMutationAndDebouncedSync(t *testing.T) {

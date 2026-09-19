@@ -226,6 +226,7 @@ type Renamer interface {
 type Syncer interface {
 	Sync(ctx context.Context) (SyncReport, error)
 	Status(ctx context.Context) (SyncStatus, error)
-	Create(ctx context.Context) error
+	CheckRemoteEmpty(ctx context.Context, url string) error
+	Create(ctx context.Context, url, branch string) error
 	Clone(ctx context.Context, url, dir string, depth int) error
 }
