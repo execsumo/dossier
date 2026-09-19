@@ -468,6 +468,7 @@ dossier artifact <slug-or-id> [<artifact-id>] [-L <a-b>] [--json]
 dossier sync [--status] [--json]
 dossier team create <url> [--yes] [--name "<Display Name>"] [--json]
 dossier team join <url> [--json]
+dossier signin [--json]
 dossier team add <username> "<Display Name>"
 dossier team remove <username>
 dossier team members [--json]
@@ -586,9 +587,19 @@ dossier doctor
 - Refuses to clobber a non-empty unsynced store: the store directory may hold only `config.yaml`, `.gitignore` and `credentials` (the token file lives in the default store and is written before joining). Joining into a store that already has Dossiers is not supported. *Requirement dropped (owner, 2026-09-18):* the merge-adopt flow with confirmation. Nobody on the team has an existing store; revisit if someone starts using Dossier on their own first.
 - Refuses a remote whose default branch is not `main`, naming the branch.
 - Writes `team.remote` to config only after the clone succeeded. A failed join moves whatever it created into a sibling `<DOSSIER_HOME>.failed-join-<UTC>/` directory, leaving pre-existing `config.yaml`/`.gitignore` in place, so a retry succeeds. Nothing is deleted.
-- *Not implemented (2026-09-18):* author confirmation and a PAT prompt. Credentials must pre-exist at `$HOME/.dossier/credentials` (mode `0600`; the path ignores `DOSSIER_HOME`) or come from `gh auth token`; see `dossier sync` for how their absence is reported.
+- **Sign-in (Team MVP M6, 2026-09-19).** For an http(s) remote, before touching the store: if neither `~/.dossier/credentials` nor a signed-in `gh` provides a credential —
+  - `gh` installed, interactive terminal: asks `Sign in to GitHub now? Your browser will open. [Y/n]`; yes runs `gh auth login --hostname github.com --git-protocol https --web` attached to the terminal, then re-resolves the credential; no ⇒ exits non-zero, nothing changed.
+  - `gh` not installed: exits non-zero with install instructions (macOS `brew install gh`, Windows `winget install --id GitHub.cli`, https://cli.github.com) and the token-file fallback.
+  - non-interactive input: never starts the browser sign-in; prints the same instructions and exits non-zero. `--yes` (publish confirmation on `create`) does not imply consent to sign in.
+  - Dossier never writes a `gh` credential to disk; it calls `gh auth token` when it needs one.
+- **Access check.** It then lists the remote and, on failure, explains the next step: repository not found / authorization failed (GitHub's answer for a private repo the account can't see) ⇒ "Your GitHub account can't see <owner/repo>. Ask the manager or the person who invited you to add you as a collaborator, and accept the invitation email from GitHub."; a SAML/SSO response is shown verbatim plus how to authorize the GitHub CLI for the organization; authentication required ⇒ the `sync_auth_failed` next step. Nothing is written on these failures.
+- **Identity line.** After a successful join: `You'll appear to teammates as <Display Name> (<username>).` when the joiner is in the roster, or `You're not in the team roster yet. Ask <manager> to run: dossier team add <username> "Your Name"`; nothing when the store has no roster. Author confirmation as a prompt is not implemented; the roster supplies the name (B17).
 - Runs capability detect and hook install (existing `init` path).
 - Supports `--json`.
+
+`dossier signin` (Team MVP M6)
+
+- Runs the same credential check and `gh` browser sign-in as `team join`, for an expired or revoked sign-in; reports the active method (`GitHub sign-in active via gh.` or `… via ~/.dossier/credentials.`); `--json` returns `{method}`. The `sync_auth_failed` next step points to it.
 
 `dossier team add` / `remove` / `members` and `team.yaml` (Team MVP M2–M3, BUILD-DECISIONS B17)
 
@@ -1194,13 +1205,13 @@ Checks:
 
 ### 14.11 Team Sync
 
-> Status (2026-09-18): convergence, remote-wins conflict capture, oversized exclusion and machine-local exclusion are covered by tests against local bare repos. The P0 fixes (review `docs/team-adoption-plan-review.md` §6) add tested criteria below. Not met: two-command/one-sign-in onboarding (no auth prompt; planned as Team MVP M6); persistent oversized-file warning (per-run only). Never exercised against live GitHub (validation Part D).
+> Status (2026-09-18): convergence, remote-wins conflict capture, oversized exclusion and machine-local exclusion are covered by tests against local bare repos. The P0 fixes (review `docs/team-adoption-plan-review.md` §6) add tested criteria below. Sign-in at join is built (M6) but not yet run against live GitHub; persistent oversized-file warning (per-run only). Never exercised against live GitHub (validation Part D).
 - Two stores converge through one remote.
 - Concurrent `dossier.md` edit yields exactly one `conflicts/*.md` (`kind: sync_concurrent_edit`) on the later syncer with no content lost anywhere.
 - Save never blocks on network (offline save succeeds, push retries later with a visible warning).
 - Machine-local files (`config.yaml`, credentials, root `sessions/`, `context/`) never appear in the remote.
 - >100 MB artifacts excluded from sync with a persistent visible warning.
-- `team join` onboarding completes with exactly two commands and one sign-in. *(Not met.)*
+- `team join` onboarding completes with exactly two commands and one sign-in. *(Met in the sandbox since M6: install `gh`, run `team join`, one browser authorization. Not yet verified against live GitHub.)*
 - `team create` refuses a non-empty remote and leaves it unchanged; it lists every Dossier (archived included) before publishing; declining leaves no `.git/` and no `team.remote`.
 - A failed `team create` or `team join` can be retried without manual cleanup; what it created is moved aside, not deleted.
 - An unreachable remote makes `dossier sync` exit non-zero without "successful", and leaves `last_success_pull`/`last_success_push` unchanged; a no-op push reports `Pushed=false`.

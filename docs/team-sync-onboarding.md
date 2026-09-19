@@ -3,12 +3,7 @@
 > Audience: the least-technical teammate joining a shared Dossier store.
 > You do **not** need any developer tools for this. If you can run one command and sign in once, you're in.
 
-> **Status (Pilot): The team sync commands are built and work locally, but the shared GitHub flow is being piloted and is not yet validated against live GitHub.**
-> Treat this as an experimental feature.
-
-> **Status: operational but NOT ready for self-service (review 2026-09-18; updated after the P0 fixes, same day).** Do not hand this page to a colleague to follow alone. There is still no sign-in prompt, so the person who set up the store should do this setup *with* the colleague (see "Concierge setup" below). Claims that were untrue at review time and are now fixed have been restored. Claims that are still untrue stay struck through, with the actual behavior next to them. The fixes are checked in a sandbox, not yet against live GitHub. Evidence and fix list: [`team-adoption-plan-review.md`](team-adoption-plan-review.md) §6; validation: [`team-sync-validation.md`](team-sync-validation.md).
->
-> **Coming next (Team MVP, BUILD-DECISIONS B17):** join will offer GitHub sign-in through the `gh` tool (a browser click, no token to create), and teammates will appear under names from a shared roster the manager keeps. This page describes today's flow until then.
+> **Status (2026-09-19, Team MVP):** joining now signs you in to GitHub through the GitHub CLI (`gh`) with a browser click, and shows the name teammates will see. Checked in a sandbox and in CI on macOS, Windows and Linux; **not yet validated against live GitHub or on a real Windows PC** (see [`team-sync-validation.md`](team-sync-validation.md) Part D and `docs/harness-capabilities.md` "Windows and macOS"). Until then, the person who set up the store should be available during the first join. Claims that are still untrue stay struck through, with the actual behavior next to them. Background: [`team-adoption-plan-review.md`](team-adoption-plan-review.md) §6, BUILD-DECISIONS B17.
 
 ## What a shared Dossier store is
 
@@ -18,29 +13,39 @@ A **shared team store** is that memory, shared with your colleagues. Everyone's 
 
 Your work is saved on your own machine first, and only then shared. Nothing you do is ever lost.
 
-## One-time setup: joining the team store
+## Before you start (once)
 
-You'll get a link to the team store from whoever set it up.
+1. **Accept the GitHub invitation.** Whoever set up the team store adds you to its private GitHub repository. GitHub emails you an invitation; accept it.
+2. **Install two programs:**
+   - **Dossier**, from the link the person who set up the store gives you.
+   - **The GitHub CLI (`gh`)**: on a Mac, `brew install gh`; on Windows, `winget install --id GitHub.cli`; or download it from https://cli.github.com.
+3. **Get the link** to the team store from whoever set it up.
+
+## Joining the team store
 
 ```text
-dossier team join <url>
+dossier team join <link>
 ```
 
-Replace `<url>` with the link you were given. The command will:
+Replace `<link>` with the link you were given. The command:
 
-1. ~~**Ask for your name.** This is how your contributions are attributed to you across the team.~~ **Actual:** it does not ask. Your name is your computer's login name (`internal/config/config.go:62`). To change it, edit `author:` in `~/.dossier/config.yaml`.
-2. ~~**Ask you to sign in once** with a **personal access token (PAT)** — a private, password-like code from GitHub that lets Dossier talk to the shared store on your behalf.~~ **Actual:** it never prompts (`internal/cli/cli.go:1606-1650`). Sign-in must be set up *before* running `join`: either a token saved at `~/.dossier/credentials` with permissions `0600`, or GitHub's `gh` tool already signed in. If neither is present, every `dossier` command warns "no credentials found", and `dossier sync` fails with `sync_auth_failed` and tells you what to do.
+1. **Signs you in to GitHub** if you aren't already. It asks `Sign in to GitHub now? Your browser will open. [Y/n]`. Press Enter. `gh` shows a one-time code and opens github.com; paste the code and click **Authorize**. That's the only sign-in. Dossier doesn't store a password or token itself; it asks `gh` each time.
+2. **Checks that your GitHub account can see the team repository.** If it can't, it tells you to ask the person who invited you to add you, and to accept the invitation email. Nothing on your computer changes.
+3. **Downloads the team's topics** to your computer.
+4. **Tells you how you'll appear**, for example `You'll appear to teammates as Priya Shah (psmith).` Your name comes from the team roster that the manager keeps, matched to your computer's login name. If you see `You're not in the team roster yet`, send the manager the command it prints; you can keep working meanwhile.
 
-> **If `join` fails** (wrong link, no sign-in, no network), it says why and changes nothing you need to clean up. Fix the cause and run the same command again. Anything the failed attempt created is moved to a folder next to your store, named like `~/.dossier.failed-join-<time>`. It is kept, not deleted, and you can remove it once you've joined.
+~~**Ask for your name.**~~ Dossier doesn't ask for your name; it uses your work login name (for example `psmith`) and the display name the manager entered. To change how your name is shown, ask the manager.
 
-### Concierge setup (use this for now)
+> **If `join` fails** (wrong link, no access, no network), it says why and changes nothing you need to clean up. Fix the cause and run the same command again. Anything the failed attempt created is moved to a folder next to your store, named like `~/.dossier.failed-join-<time>`. It is kept, not deleted, and you can remove it once you've joined.
 
-The store owner should do this with the colleague, screen-shared:
+**If `gh` isn't installed**, `join` stops and prints how to install it. **If your GitHub sign-in later expires** (Dossier or Claude says `sync_auth_failed`), run `dossier signin`.
 
-1. Install Dossier. Confirm `~/.dossier` does not exist yet, or holds nothing but the token file from step 2. Joining into a store that already has Dossiers is not supported.
-2. Create a fine-grained GitHub token that can read and write contents on the team repo. Save it to `~/.dossier/credentials` and set its permissions to `0600`.
-3. Run `dossier team join <url>`, then `dossier ls` and `dossier doctor`. Check that the team's Dossiers are listed.
-4. Have the colleague open Claude in their usual work folder and ask "what's assigned to me?". Check that it finds their first assignment and binds it. (This needs them to be in the team roster: `dossier team add <username> "<Name>"` on the manager's machine, then sync.)
+### Manager checklist for a new teammate
+
+1. Add them to the GitHub repository (Settings → Collaborators).
+2. Add them to the roster: `dossier team add <their username> "<Their Name>"`, then `dossier sync`. Their username is their work login name (what `id -un` shows on a Mac, or the part after the `\` in `whoami` on Windows).
+3. Send them the store link and this page.
+4. After they join, have them open Claude in their usual work folder and ask "what's assigned to me?". Check that it finds their first assignment and binds it.
 
 ### Starting work on an assignment (primary path)
 
@@ -52,12 +57,11 @@ You don't need any Dossier commands or topic IDs.
 
 Prefer a list? Run `dossier sync`, then `dossier tui`. Press `f` to show only your topics, and `c` to open one in Claude. The list shows only what has already reached your machine, which is why you sync first.
 
-### About the sign-in token
+### About sign-in
 
-- **Where it goes:** a private file on your machine at `~/.dossier/credentials`. It never leaves your computer, and it is never shared with anyone.
-- **Why it's needed:** it's how Dossier proves to GitHub that you're allowed to read and write the shared store — so you don't have to sign in every time.
-- **Keep it private:** treat it like a password. Dossier stores it so that only you can read it.
-- **Convenience path:** if you already use GitHub's command-line tool and are signed in, Dossier can reuse that sign-in automatically (`gh auth token`) — no token to paste.
+- **How it works:** Dossier uses the GitHub CLI's sign-in. `gh` keeps the credential, normally in your system's secure storage (Keychain on a Mac, Credential Manager on Windows); Dossier asks `gh` for it when it syncs and never writes it anywhere itself.
+- **What it can reach:** it is your normal GitHub sign-in, so it is not limited to the team repository. Your organization allows the GitHub CLI.
+- **Alternative (no `gh`):** a fine-grained token with Contents read/write on the team repository, saved to `~/.dossier/credentials` (on a Mac, `chmod 600` it). Ask the person who set up the store if you need this.
 
 ## Day-to-day: it mostly just works
 
