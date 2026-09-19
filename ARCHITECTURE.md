@@ -265,6 +265,7 @@ type Clock interface{ Now() time.Time }
 type Syncer interface {
     Sync(ctx context.Context) (SyncReport, error)     // pull→resolve(remote-wins)→commit→push
     Status(ctx context.Context) (SyncStatus, error)   // ahead/behind (bounded fetch), last attempt/success, auth; no mutation
+    LocalStatus(ctx context.Context) (SyncStatus, error) // same snapshot from persisted state + local refs; never touches the network
     CheckRemoteEmpty(ctx context.Context, url string) error // team create refuses a remote with refs
     Create(ctx context.Context, url, branch string) error   // initialize team store and push; on failure moves .git aside
     Clone(ctx context.Context, url, dir string, depth int) error // join; refuses non-main default branch; on failure moves aside
