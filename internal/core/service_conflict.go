@@ -25,6 +25,36 @@ func (s *Service) ListConflicts(ctx context.Context) ([]Conflict, error) {
 	return s.store.ListConflicts()
 }
 
+// ConflictDetail reads the current shared body and computes a fresh diff
+// against the preserved proposal. Resolved or unknown conflicts, and conflicts
+// whose dossier no longer exists, all return the typed not_found error.
+func (s *Service) ConflictDetail(ctx context.Context, conflictID string) (ConflictDetail, error) {
+	conflict, err := s.store.ReadConflict(conflictID)
+	if err != nil {
+		return ConflictDetail{}, err
+	}
+	dossier, _, err := s.store.Read(conflict.DossierID)
+	if err != nil {
+		var domainErr *DomainError
+		if errors.As(err, &domainErr) && domainErr.Code == ErrNotFound {
+			return ConflictDetail{}, domainErr
+		}
+		return ConflictDetail{}, WrapError(ErrNotFound, "conflict dossier not found", err)
+	}
+	shared := dossier.DistilledState.Body
+	diff := GenerateUnifiedDiff(shared, conflict.RejectedBody)
+	currentConflict := *conflict
+	currentConflict.DiffAgainstCurrent = diff
+	return ConflictDetail{
+		Conflict:    currentConflict,
+		DossierName: dossier.Frontmatter.Name,
+		DossierSlug: dossier.Frontmatter.Slug,
+		Shared:      shared,
+		Mine:        conflict.RejectedBody,
+		Diff:        diff,
+	}, nil
+}
+
 // ResolveConflict applies one explicit choice, then archives the conflict.
 // Choice validation deliberately happens before reading anything so malformed
 // requests cannot produce partial reads or writes.

@@ -255,10 +255,12 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 		},
 		{
 			Name:        "dossier_conflicts",
-			Description: "List unresolved conflicts in the local store",
+			Description: "List unresolved conflicts or show the current shared and preserved versions of one conflict",
 			InputSchema: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type": "object",
+				"properties": map[string]any{
+					"conflict_id": map[string]any{"type": "string", "description": "Optional conflict id; when supplied, return its side-by-side detail"},
+				},
 			},
 		},
 		{
@@ -606,6 +608,21 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		})
 
 	case "dossier_conflicts":
+		var params struct {
+			ConflictID string `json:"conflict_id"`
+		}
+		if len(args) > 0 {
+			if unmarshalErr := json.Unmarshal(args, &params); unmarshalErr != nil {
+				s.sendError(id, -32602, "invalid conflict arguments", nil)
+				return
+			}
+		}
+		if params.ConflictID != "" {
+			detail, detailErr := s.svc.ConflictDetail(ctx, params.ConflictID)
+			res = core.Result{OK: detailErr == nil, Data: detail}
+			err = detailErr
+			break
+		}
 		conflicts, listErr := s.svc.ListConflicts(ctx)
 		res = core.Result{OK: listErr == nil, Data: conflicts}
 		err = listErr

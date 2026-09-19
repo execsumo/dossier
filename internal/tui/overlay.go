@@ -158,7 +158,7 @@ func (m Model) renderOverlay(background string, v View) string {
 		panelWidth = m.width - 2
 	}
 	maxPanelWidth := 96
-	if v == ViewEdit {
+	if v == ViewEdit || v == ViewConflicts {
 		maxPanelWidth = 120
 	}
 	if panelWidth > maxPanelWidth {
@@ -224,7 +224,7 @@ func compactModalFooter(v View) string {
 	case ViewContracts, ViewHealth:
 		text = "↑/↓ scroll"
 	case ViewConflicts:
-		text = "↑/↓ select · 1 shared · 2 mine · 3 both"
+		text = "j/k select · ↑/↓ scroll · d diff · 1 shared · 2 mine · 3 both"
 	default:
 		return ""
 	}
@@ -567,7 +567,11 @@ func (m Model) renderConflicts() string {
 		if i == m.conflictCursor {
 			marker = "> "
 		}
-		line := fmt.Sprintf("%s%s  %s  %s  %s", marker, conflict.ID, conflict.DossierID, conflict.Kind, conflict.TS.Format(time.RFC3339))
+		name := conflict.DossierID
+		if detail, ok := m.conflictDetails[conflict.ID]; ok && detail.DossierName != "" {
+			name = detail.DossierName
+		}
+		line := fmt.Sprintf("%s%s  %s  %s  %s", marker, conflict.ID, name, conflict.Kind, conflict.TS.Format(time.RFC3339))
 		if i == m.conflictCursor {
 			sb.WriteString(focusedItemStyle.Render(line))
 		} else {
@@ -575,7 +579,30 @@ func (m Model) renderConflicts() string {
 		}
 		sb.WriteString("\n")
 	}
+	if detail, ok := m.conflictDetails[m.conflicts[m.conflictCursor].ID]; ok {
+		sb.WriteString("\n")
+		comparison := m.conflictViewport.View()
+		if comparison == "" {
+			comparison = m.renderConflictComparison(detail)
+		}
+		sb.WriteString(comparison)
+	} else {
+		sb.WriteString("\nComparison unavailable for this conflict.")
+	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+func (m Model) renderConflictComparison(detail core.ConflictDetail) string {
+	header := fmt.Sprintf("Dossier: %s (%s)", detail.DossierName, detail.DossierSlug)
+	if m.conflictShowDiff {
+		return header + "\n\n" + overlaySectionStyle.Render("Diff (shared → yours)") + "\n" + detail.Diff
+	}
+	if m.width >= 100 {
+		shared := overlaySectionStyle.Render("Shared (current)") + "\n" + detail.Shared
+		yours := overlaySectionStyle.Render("Yours (preserved)") + "\n" + detail.Mine
+		return header + "\n\n" + joinModalColumns(shared, yours)
+	}
+	return header + "\n\n" + overlaySectionStyle.Render("Shared (current)") + "\n" + detail.Shared + "\n\n" + overlaySectionStyle.Render("Yours (preserved)") + "\n" + detail.Mine
 }
 
 // renderContractsChecklist renders the person-specific terms of each
