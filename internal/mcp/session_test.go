@@ -14,6 +14,11 @@ import (
 
 // newSessionTestService builds a core.Service backed by a fake store holding one dossier.
 func newSessionTestService(t *testing.T) *core.Service {
+	svc, _ := newSessionTestStoreAndService(t)
+	return svc
+}
+
+func newSessionTestStoreAndService(t *testing.T) (*core.Service, *store.FakeStore) {
 	t.Helper()
 	fakeStore := store.NewFakeStore()
 	svc := core.NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, core.Config{}, nil)
@@ -27,7 +32,7 @@ func newSessionTestService(t *testing.T) *core.Service {
 		DistilledState: core.DistilledState{Body: "# Test"},
 	}
 	fakeStore.Revisions["dos_1"] = "rev_1"
-	return svc
+	return svc, fakeStore
 }
 
 // callTool drives a single tools/call request through the server and returns the envelope.
@@ -87,6 +92,38 @@ func TestMCPUpdateLeadAndStatus(t *testing.T) {
 	rawLegacy, _ := json.Marshal(recLegacy.Data)
 	if !strings.Contains(string(rawLegacy), "execute") {
 		t.Errorf("expected legacy status waiting to normalize to execute, got %s", rawLegacy)
+	}
+}
+
+func TestMCPUpdateClearsDueDate(t *testing.T) {
+	svc, fake := newSessionTestStoreAndService(t)
+
+	set := callTool(t, svc, "dossier_update", `{"id":"dos_1","due_date":"2026-10-01"}`)
+	if !set.OK {
+		t.Fatalf("expected due date update ok, got error: %+v", set.Error)
+	}
+	if got := fake.Dossiers["dos_1"].Frontmatter.DueDate; got != "2026-10-01" {
+		t.Fatalf("expected due date to be set, got %q", got)
+	}
+
+	revBefore := fake.Revisions["dos_1"]
+	clear := callTool(t, svc, "dossier_update", `{"id":"dos_1","due_date":""}`)
+	if !clear.OK {
+		t.Fatalf("expected due date clear ok, got error: %+v", clear.Error)
+	}
+	if got := fake.Dossiers["dos_1"].Frontmatter.DueDate; got != "" {
+		t.Fatalf("expected due date to be cleared, got %q", got)
+	}
+	if got := fake.Revisions["dos_1"]; got == revBefore {
+		t.Fatalf("expected clearing due date to write a new revision, still %q", got)
+	}
+
+	unchanged := callTool(t, svc, "dossier_update", `{"id":"dos_1","next_action":"ship it"}`)
+	if !unchanged.OK {
+		t.Fatalf("expected update without due date ok, got error: %+v", unchanged.Error)
+	}
+	if got := fake.Dossiers["dos_1"].Frontmatter.DueDate; got != "" {
+		t.Fatalf("omitting due date resurrected %q", got)
 	}
 }
 

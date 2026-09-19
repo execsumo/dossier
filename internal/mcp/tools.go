@@ -623,15 +623,16 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 
 	case "dossier_update":
 		var params struct {
-			ID          string   `json:"id"`
-			Name        *string  `json:"name"`
-			Description *string  `json:"description"`
-			Status      *string  `json:"status"`
-			Lead        *string  `json:"lead"`
-			NextAction  *string  `json:"next_action"`
-			Priority    string   `json:"priority"`
-			DueDate     string   `json:"due_date"`
-			Interfaces  []string `json:"interfaces"`
+			ID          string  `json:"id"`
+			Name        *string `json:"name"`
+			Description *string `json:"description"`
+			Status      *string `json:"status"`
+			Lead        *string `json:"lead"`
+			NextAction  *string `json:"next_action"`
+			Priority    string  `json:"priority"`
+			// A pointer distinguishes an omitted due date from an empty string that clears it.
+			DueDate    *string  `json:"due_date"`
+			Interfaces []string `json:"interfaces"`
 		}
 		if err := json.Unmarshal(args, &params); err != nil {
 			s.sendError(id, -32602, "Invalid params", nil)
@@ -656,8 +657,8 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		if params.Priority != "" {
 			updates["priority"] = params.Priority
 		}
-		if params.DueDate != "" {
-			updates["due_date"] = params.DueDate
+		if params.DueDate != nil {
+			updates["due_date"] = *params.DueDate
 		}
 		if params.Interfaces != nil {
 			updates["interfaces"] = params.Interfaces
