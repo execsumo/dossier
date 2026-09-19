@@ -71,7 +71,7 @@ dossier sync
 
 ~~A later phase makes syncing happen **automatically** around your saves and lookups, so you won't have to think about it (currently in pilot testing).~~ **Actual:** automatic sync is partly built. It runs when a Claude session starts and ends (`internal/core/service_session.go:215-219`, `:498-502`), and in the background after the agent reads, saves or renames a Dossier (`internal/mcp/tools.go:324,419,611`). It does **not** run after changes you make with `dossier` commands or in the dashboard. Run `dossier sync` after those.
 
-Either way, a flaky connection never loses your work. If a sync can't reach the team store right now, Dossier tells you plainly and keeps your changes safe until the next sync. A failed `dossier sync` says "Sync failed" and why. Automatic syncs don't print anything, so the dashboard (`dossier tui`) shows a health line at the bottom, for example `Team sync · last sync failed 18m ago · work is safe locally`. It updates on its own about once a minute. Press `H` for the full report.
+Either way, a flaky connection never loses your work. If a sync can't reach the team store right now, Dossier tells you plainly and keeps your changes safe until the next sync. A failed `dossier sync` says "Sync failed" and why. When an automatic sync fails, Claude tells you at the start of your next session, or during the session after it saves. The dashboard (`dossier tui`) also shows a health line at the bottom, for example `Team sync · last sync failed 18m ago · work is safe locally`. It updates on its own about once a minute. Press `H` for the full report.
 
 ## If two of us edited the same thing
 

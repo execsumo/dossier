@@ -20,7 +20,7 @@
 | `sync_auth_failed` | PAT missing, expired, or lacks the right access | Follow the next step it prints: replace `~/.dossier/credentials` (mode `0600`) or sign in with `gh`; see §2 |
 | `Warning: no credentials found for <url>` on every command | No credentials file and no signed-in `gh` | See §2 |
 | a `<store>.failed-join-<time>` or `.failed-create-<time>` folder next to the store | An earlier join or create failed; what it created was moved aside | See §6 |
-| TUI footer: `Team sync · last sync failed …` | The most recent sync (manual or automatic) failed | Run `dossier sync` to see why; see §1/§2 |
+| TUI footer: `Team sync · last sync failed …`, or Claude says the team sync failed | The most recent sync (manual or automatic) failed | Run `dossier sync` to see why; see §1/§2 |
 | ">100 MB" exclusion warning | File exceeds GitHub's 100 MB hard limit | Stays local, never enters shared history; move it out of the store or reference it externally |
 | new `conflicts/<id>.md`, `kind: sync_concurrent_edit`; TUI footer shows `1 conflict` | Two machines edited the same `dossier.md` body | Remote won the working tree; local version preserved as the conflict note; resolve it (TUI `x`, `dossier resolve`, or ask Claude); see §4 |
 | machine-local files absent from the store | `config.yaml`, root `sessions/`, `context/`, locks are excluded by design | Nothing — this is correct; these are per-machine and must not sync |
@@ -47,7 +47,7 @@
 
   It reports unpushed commits, a diverged remote, or stale credentials: a `Health:` line (the same line as the TUI footer), then the last attempt, last successful pull and push, last error, auth state (`file`, `gh`, `none`, `missing`, `rejected`), ahead/behind, uncommitted changes, and unresolved conflicts. Only successful runs move the "last pull/push" times. The conflict count comes from the files in `conflicts/`, so it stays until each conflict is resolved.
 
-- The next successful sync catches everything up. A deferred push never blocks a save. A deferred push is a visible warning: a manual `dossier sync` exits 1 with "Sync failed", and "Pushed local changes" appears only when commits were actually sent. Session-hook and background syncs still print nothing themselves (`internal/core/service_session.go`, `internal/mcp/server.go`), but they record their result, so the TUI footer shows `last sync failed …` within about a minute.
+- The next successful sync catches everything up. A deferred push never blocks a save. A deferred push is a visible warning: a manual `dossier sync` exits 1 with "Sync failed", and "Pushed local changes" appears only when commits were actually sent. Background syncs report too: the next Claude session start tells the agent (and so the user) when the last sync failed or a conflict is waiting, and a failed background sync during a session is mentioned once in Claude's next Dossier response. The TUI footer shows `last sync failed …` within about a minute. Off VPN, a Claude session start waits at most about 5 seconds for the team remote; a manual `dossier sync` can take about 30 seconds before it reports the failure.
 
 *Sources: `docs/adr/0005-team-sync-via-github.md` §5; `docs/team-sync-plan.md` Non-negotiables (Local-first); `SPEC.md` §7.2 `dossier sync`.*
 

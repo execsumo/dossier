@@ -444,7 +444,8 @@ harness verification.
 | Side-by-side conflict view: `Service.ConflictDetail` (current shared body, preserved body, fresh diff); `dossier conflicts <id>`; MCP `dossier_conflicts` with `conflict_id`; TUI `x` overlay shows two aligned columns (stacked when narrow), `d` toggles the diff | **Done** (WS-E) |
 | `team join` accepts a pre-written `~/.dossier/credentials` (the default store is `~/.dossier`, so the documented setup was refused as "existing store") | **Done** |
 | Merge-adopt join | **Dropped** (owner): nobody on the team has a store |
-| Background-sync warnings (Increment 1 item 1) and the ~35 s offline SessionStart hang it exposed (`GitSync.divergence` ignored the context) | **In progress** (WS-F) |
+| Background-sync warnings (Increment 1 item 1): SessionStart line, `dossier_session`/`dossier_recall` warnings, one-time warning after an MCP background sync, `open` health line; plus the pre-existing ~35 s offline SessionStart hang it exposed (`GitSync.divergence` ignored the context), now 5.1 s against an unroutable remote | **Done** (WS-F) |
+| Manual `dossier sync` against an unreachable remote takes ~30 s (OS connect timeout; no overall bound) | Open, low priority |
 
 ### Team MVP (before the pilot; owner decisions 2026-09-18, recorded as BUILD-DECISIONS B17)
 
@@ -508,8 +509,7 @@ assigned Dossier ends with a save, colleague interview answers decision #12.
 1. The **`dossier_session` bind response** (the primary path) and SessionStart
    carry one health line (last successful pull/push, pending changes) plus any
    unresolved conflict for the bound Dossier. `open` pulls (bounded) and prints
-   the same line. *Pulled forward (2026-09-18): in progress as WS-F; see
-   "Post-P0 follow-ups".*
+   the same line. *Done 2026-09-18 (WS-F); see "Post-P0 follow-ups".*
 2. ~~Resolve "me": link `lead` to `author` (or a display name in config), so
    "what's assigned to me?" needs no name.~~ Moved into the Team MVP (M3–M5).
    `open --here` (cwd workspace) for the non-MCP launchers remains here.
