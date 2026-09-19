@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"context"
 	"dossier/internal/core"
 	storepkg "dossier/internal/store"
 	"os"
@@ -114,7 +115,7 @@ func TestSync_CloneReceivesExistingRemoteContent(t *testing.T) {
 
 	storeA := filepath.Join(t.TempDir(), "storeA")
 	gA := New(Config{StoreDir: storeA, RemoteURL: bareDir, Branch: "main"})
-	if err := gA.Clone(bareDir, storeA, 0); err != nil {
+	if err := gA.Clone(context.Background(), bareDir, storeA, 0); err != nil {
 		t.Fatalf("clone A: %v", err)
 	}
 
@@ -123,7 +124,7 @@ func TestSync_CloneReceivesExistingRemoteContent(t *testing.T) {
 
 	storeB := filepath.Join(t.TempDir(), "storeB")
 	gB := New(Config{StoreDir: storeB, RemoteURL: bareDir, Branch: "main"})
-	if err := gB.Clone(bareDir, storeB, 0); err != nil {
+	if err := gB.Clone(context.Background(), bareDir, storeB, 0); err != nil {
 		t.Fatalf("clone B: %v", err)
 	}
 

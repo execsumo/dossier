@@ -13,12 +13,13 @@ import (
 	"github.com/go-git/go-git/v5"
 	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/storage/memory"
 )
 
 // Clone clones url (or the configured RemoteURL) into dir, making dir a working
-// tree. Used by the future "dossier team join" flow. The store-wide .gitignore
-// is ensured after the clone.
-func (g *GitSync) Clone(url, dir string, depth int) error {
+// tree. CloneContext keeps join cancellation effective. Any partial clone is
+// moved outside the store before the error is returned.
+func (g *GitSync) Clone(ctx context.Context, url, dir string, depth int) error {
 	if url == "" {
 		url = g.cfg.RemoteURL
 	}
@@ -32,15 +33,21 @@ func (g *GitSync) Clone(url, dir string, depth int) error {
 		return errors.New("sync: clone requires a target dir")
 	}
 
+	var existing map[string]bool
 	if entries, err := os.ReadDir(dir); err == nil {
+		existing = make(map[string]bool, len(entries))
 		for _, e := range entries {
+			existing[e.Name()] = true
 			if e.Name() != "config.yaml" && e.Name() != ".gitignore" {
 				return errors.New("target directory is not empty; cannot join into an existing store")
 			}
 		}
 	}
+	if err := g.validateCloneBranch(ctx, url); err != nil {
+		return moveFailedJoin(dir, existing, err)
+	}
 
-	if _, err := git.PlainClone(dir, false, &git.CloneOptions{
+	if _, err := git.PlainCloneContext(ctx, dir, false, &git.CloneOptions{
 		URL:        url,
 		RemoteName: originName,
 		Auth:       g.cfg.Auth,
@@ -49,48 +56,115 @@ func (g *GitSync) Clone(url, dir string, depth int) error {
 		if errors.Is(err, git.ErrRepositoryAlreadyExists) {
 			return errors.New("target directory is not empty; cannot join into an existing store")
 		}
+		return fmt.Errorf("sync clone %s: %w", url, moveFailedJoin(dir, existing, err))
+	}
+	if err := EnsureGitignore(dir); err != nil {
+		return fmt.Errorf("sync clone %s: %w", url, moveFailedJoin(dir, existing, err))
+	}
+	return nil
+}
+
+// CheckRemoteEmpty verifies that a team-create target has no refs without
+// changing the local store. It works for local bare repositories and network
+// remotes alike.
+func (g *GitSync) CheckRemoteEmpty(ctx context.Context, url string) error {
+	if url == "" {
+		url = g.cfg.RemoteURL
+	}
+	if url == "" {
+		return errors.New("sync: remote URL is required")
+	}
+	refs, err := g.remoteRefs(ctx, url)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "remote repository is empty") {
+			return nil
+		}
+		return fmt.Errorf("unable to inspect remote %s: %w", url, err)
+	}
+	for _, ref := range refs {
+		if ref.Name() == plumbing.HEAD {
+			continue
+		}
+		return fmt.Errorf("the remote %s is not empty; team create needs an empty repository", url)
+	}
+	return nil
+}
+
+func (g *GitSync) remoteRefs(ctx context.Context, url string) ([]*plumbing.Reference, error) {
+	remote := git.NewRemote(memory.NewStorage(), &gitconfig.RemoteConfig{
+		Name: originName,
+		URLs: []string{url},
+	})
+	return remote.ListContext(ctx, &git.ListOptions{Auth: g.cfg.Auth})
+}
+
+func (g *GitSync) validateCloneBranch(ctx context.Context, url string) error {
+	refs, err := g.remoteRefs(ctx, url)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "remote repository is empty") {
+			return errors.New("the remote repository is empty; cannot join a team store")
+		}
 		return fmt.Errorf("sync clone %s: %w", url, err)
 	}
-	return EnsureGitignore(dir)
+	for _, ref := range refs {
+		if ref.Name() != plumbing.HEAD || ref.Type() != plumbing.SymbolicReference {
+			continue
+		}
+		branch := strings.TrimPrefix(ref.Target().String(), "refs/heads/")
+		if branch != "" && branch != g.cfg.Branch {
+			return fmt.Errorf("the remote's default branch is %s; Dossier team stores use %s", branch, g.cfg.Branch)
+		}
+	}
+	return nil
 }
 
 // Create initializes the git repo, sets HEAD to the configured branch, and pushes the initial commit.
-func (g *GitSync) Create(ctx context.Context) error {
+func (g *GitSync) Create(ctx context.Context, remoteURL, branch string) error {
 	storeDir := g.cfg.StoreDir
+	if remoteURL == "" {
+		remoteURL = g.cfg.RemoteURL
+	}
+	if branch == "" {
+		branch = g.cfg.Branch
+	}
 	if storeDir == "" {
 		return errors.New("sync: StoreDir is required")
 	}
+	gitignoreExists := fileExists(filepath.Join(storeDir, ".gitignore"))
 
 	repo, err := git.PlainInit(storeDir, false)
 	if err != nil {
 		if errors.Is(err, git.ErrRepositoryAlreadyExists) {
 			return errors.New("store is already a team store")
 		}
-		return fmt.Errorf("init repo: %w", err)
+		return g.failCreate(err, gitignoreExists)
 	}
 
-	headRef := plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.ReferenceName("refs/heads/"+g.cfg.Branch))
+	headRef := plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.ReferenceName("refs/heads/"+branch))
 	if err := repo.Storer.SetReference(headRef); err != nil {
-		return fmt.Errorf("set HEAD: %w", err)
+		return g.failCreate(fmt.Errorf("set HEAD: %w", err), gitignoreExists)
 	}
 
-	if g.cfg.RemoteURL == "" {
-		return errors.New("sync: RemoteURL is required for create")
+	if remoteURL == "" {
+		return g.failCreate(errors.New("sync: RemoteURL is required for create"), gitignoreExists)
 	}
 	_, err = repo.CreateRemote(&gitconfig.RemoteConfig{
 		Name: originName,
-		URLs: []string{g.cfg.RemoteURL},
+		URLs: []string{remoteURL},
 	})
 	if err != nil {
-		return fmt.Errorf("create remote: %w", err)
+		return g.failCreate(fmt.Errorf("create remote: %w", err), gitignoreExists)
 	}
 
-	report, err := g.syncWithCtx(ctx)
+	createCfg := *g
+	createCfg.cfg.RemoteURL = remoteURL
+	createCfg.cfg.Branch = branch
+	report, err := createCfg.syncWithCtx(ctx)
 	if err != nil {
-		return err
+		return g.failCreate(err, gitignoreExists)
 	}
 	if report.Error != "" {
-		return fmt.Errorf("initial sync error: %s", report.Error)
+		return g.failCreate(fmt.Errorf("initial sync error: %s", report.Error), gitignoreExists)
 	}
 	return nil
 }
@@ -257,6 +331,49 @@ func uniq(in []string) []string {
 		out = append(out, s)
 	}
 	return out
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func (g *GitSync) failCreate(err error, gitignoreExists bool) error {
+	storeDir := g.cfg.StoreDir
+	stamp := time.Now().UTC().Format("20060102T150405.000000000Z")
+	failedDir := storeDir + ".failed-create-" + stamp
+	moved := false
+	if err := os.Mkdir(failedDir, 0700); err == nil {
+		if os.Rename(filepath.Join(storeDir, ".git"), filepath.Join(failedDir, ".git")) == nil {
+			moved = true
+		}
+		if !gitignoreExists && os.Rename(filepath.Join(storeDir, ".gitignore"), filepath.Join(failedDir, ".gitignore")) == nil {
+			moved = true
+		}
+		if !moved {
+			_ = os.Remove(failedDir)
+		}
+	}
+	if moved {
+		return fmt.Errorf("%w (created files moved aside to %s)", err, failedDir)
+	}
+	return err
+}
+
+func moveFailedJoin(dir string, existing map[string]bool, cause error) error {
+	entries, _ := os.ReadDir(dir)
+	stamp := time.Now().UTC().Format("20060102T150405.000000000Z")
+	failedDir := dir + ".failed-join-" + stamp
+	if err := os.Mkdir(failedDir, 0700); err != nil {
+		return cause
+	}
+	for _, entry := range entries {
+		if existing[entry.Name()] {
+			continue
+		}
+		_ = os.Rename(filepath.Join(dir, entry.Name()), filepath.Join(failedDir, entry.Name()))
+	}
+	return fmt.Errorf("%w (created files moved aside to %s)", cause, failedDir)
 }
 
 func appendErr(a, b string) string {
