@@ -265,6 +265,8 @@ that would change it.
    colleague may mark `review`/`blocked`; reassignment manager-only.** Wrong ⇒
    ambiguous ownership, duplicate Dossiers. Change if: colleagues need to
    delegate onward.
+   **DECIDED (owner, 2026-09-18): as recommended, plus: only the Dossier's
+   lead edits its body (from decision #7).**
 5. **Capture policy.** Curated only / curated + explicit evidence / + compiled
    transcripts. **Curated + explicit evidence shared; transcripts local.** Wrong ⇒
    either leaks (too much) or unrecoverable context (too little). Change if:
@@ -306,6 +308,7 @@ that would change it.
     interventions; ≥80% of sessions on assigned Dossiers end with a
     Distilled-State save; median assignment-to-first-useful-turn < 5 min.**
     Wrong ⇒ mandate on a tool that loses trust in week one.
+    **DECIDED (owner, 2026-09-18): as recommended.**
 12. **Colleague value.** **"I start every assigned task already briefed, and I
     never re-explain context to the manager."** If the colleague's only benefit
     is the manager's visibility, adoption decays. Change if: pilot interviews
@@ -426,7 +429,7 @@ harness verification.
 | P0-5 | A conflict resolution operation in `core.Service` (keep current / restore mine / both-as-disagreement), which archives the conflict file to `conflicts/resolved/` (non-destructive), exposed in CLI, MCP, TUI. | Table tests + one TUI test; SPEC §7/§8 amended. |
 | P0-6 | Auth failure explicit: `GetAuth` returns a typed "no credentials" warning instead of `nil, nil` when `team.remote` is https; 401/403 mapped to `sync_auth_failed` with a concrete next step. | Test with fake runner + fake remote returning 401. |
 | P0-7 | Promote's raw JSONL artifact excluded from sync (or not written to `artifacts/` in team stores), per B13. *Still required after decision #5:* that decision shares **compiled** transcripts, whereas this artifact is raw and carries `thinking`, which B13 excludes. | Test: promote with JSONL in a team store ⇒ raw artifact absent from remote. |
-| P0-8 | Live-GitHub drill (owner): create, join, ff pull, divergent edit, revoked token, offline, default-branch ≠ main. | Checklist recorded in runbook with dates. |
+| ~~P0-8~~ | ~~Live-GitHub drill (owner)~~. Not a development item. The owner runs it after P0-1 to P0-7, as Part D of [`team-sync-validation.md`](team-sync-validation.md). | — |
 
 ### Smallest viable concierge pilot (after P0)
 
@@ -489,6 +492,12 @@ ending without a save (confirm whether the warning is ever seen).
 
 ## 7. Open uncertainties and cheapest next tests
 
+> **Sequencing (owner, 2026-09-18):** the pilot waits for P0-1 to P0-7, which
+> are to be implemented in a separate session. After that session, run
+> [`team-sync-validation.md`](team-sync-validation.md) (sandbox checks, then
+> the owner's live GitHub test, then the pilot go/no-go). The first and fifth
+> rows below are covered by that doc's Part D. The others remain open.
+
 | Uncertainty | Cheapest test |
 |---|---|
 | Does GitHub's empty-repo HEAD make the `main`-hardcode latent? | Create an empty private repo, `team create`, `team join` from a second `DOSSIER_HOME`. 10 min. |
@@ -510,6 +519,10 @@ Commits on `review/team-adoption-plan` (none pushed):
 | `docs/team-sync-onboarding.md`, `docs/team-sync-runbook.md`, `docs/team-sync-plan.md` | Status banners; superseded claims struck with evidence-cited replacements; failed-join runbook entry | `docs: correct Team Sync operational docs against code` |
 | `docs/harness-capabilities.md` | Pi CLI write gap; SessionEnd visibility unverified | same commit as above |
 | `HANDOFF.md` | Dated status entry with verified findings | `docs: record team adoption review status in HANDOFF` |
+| Review, runbook, plan | Single-store decision | `docs: record single-store pilot decision` |
+| Review, onboarding | MCP as the colleague's primary path | `docs: make MCP the colleague's primary path` |
+| Review, plan | Harness, data boundary and transcript decisions; TUI health and roles on the roadmap | `docs: record harness, data boundary, and transcript decisions` |
+| `docs/team-sync-validation.md`, review, `HANDOFF.md` | Post-development validation procedure; assignment and success-criteria decisions; P0-8 moved to validation | `docs: add Team Sync validation procedure` |
 
 **Proposed, not applied (out of write scope):** SPEC §7 ×3 and §14.11,
 BUILD-DECISIONS B13, ADR 0005 status note, VISION.md banner, PRFAQ "Can I share"
