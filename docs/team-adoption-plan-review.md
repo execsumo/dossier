@@ -175,10 +175,11 @@ Experiment: in the pilot, grep compiled transcripts for tokens/paths/customer
 names before any push. Product decision.
 
 **B.5 Separate stores sufficient for pilot?** **[rec]** Not buildable cheaply
-(one store per machine). For the pilot, one team store that contains *only*
-pilot-safe Dossiers, and the colleague's machine uses it as its only store.
-Manager keeps personal work in a separate `DOSSIER_HOME` and must **not** run
-`team create` on their personal store. Confidence **high**. Product decision.
+(one store per machine). ~~Manager keeps personal work in a separate
+`DOSSIER_HOME` and must **not** run `team create` on their personal store.~~
+**Superseded by decision #3 (single store, 2026-09-18):** everyone, the manager
+included, uses one store: the team store at `~/.dossier`. Anything not
+team-safe stays out of Dossier. Confidence **high**. Product decision.
 
 **B.6 GitHub transport before Katana?** P0 list §6 plus a live-GitHub drill.
 Nothing about Katana is needed to fix any of them. Confidence **high**.
@@ -209,10 +210,21 @@ that would change it.
    (transcripts sync). Wrong ⇒ permanent disclosure in git history on every
    clone. Change if: transcripts become local-only and a pre-push scan exists.
 3. **Privacy model.** Separate stores now / repo-wide visibility temporarily.
-   **Repo-wide visibility, temporarily, with a single dedicated pilot store
-   created fresh (never from a personal store).** Wrong ⇒ building multi-store
-   before knowing it's the bottleneck. Change if: a second team or restricted
-   topic appears.
+   ~~**Repo-wide visibility, temporarily, with a single dedicated pilot store
+   created fresh (never from a personal store).**~~
+   **DECIDED (owner, 2026-09-18): single store.** Each person, manager
+   included, has exactly one store: the team store at `~/.dossier`. Everything
+   in it is visible to everyone with repo access. Work that is not team-safe
+   does not go into Dossier. Rejected alternative: a personal store plus a team
+   store selected through `DOSSIER_HOME`, because of the day-to-day switching
+   cost. Consequences:
+   - Before `team create`, the manager must move every non-team-safe Dossier
+     directory *out of* `~/.dossier` to a folder outside the store. Archiving
+     (`dossier archive`) is **not** enough, because archived Dossiers stay in
+     the store and sync.
+   - After the pilot starts, Dossier is no longer available for private work on
+     that machine.
+   - Revisit if a second team or restricted topic appears.
 4. **Assignment authority.** Manager-only create/assign/close; assignee accepts /
    anyone assigns / owner-lead model. **Manager creates, assigns, closes;
    colleague may mark `review`/`blocked`; reassignment manager-only.** Wrong ⇒
@@ -252,8 +264,9 @@ that would change it.
     is the manager's visibility, adoption decays. Change if: pilot interviews
     name a different benefit.
 
-**Decide first:** #2 (data boundary), #3 (privacy model), #1 (harness). They
-gate whether the pilot can start safely.
+**Decide first:** #2 (data boundary), ~~#3 (privacy model)~~ (decided: single
+store), #1 (harness). They gate whether the pilot can start safely. With a
+single store, #2 matters more: it is now the only boundary.
 
 ## 5. Documentation reconciliation
 
@@ -311,8 +324,9 @@ gate whether the pilot can start safely.
 empty." with:
 > - *Specified, not yet implemented (2026-09-18 review):* validates the target
 >   repo is empty. Today it does not; pointed at a non-empty remote it merges and
->   pushes. It also publishes every Dossier already in the store. Create a team
->   store from a fresh `DOSSIER_HOME`, never from a personal store.
+>   pushes. It also publishes every Dossier already in the store, including
+>   archived ones. Before creating, move anything not team-safe out of the
+>   store directory.
 
 **SPEC.md §7, `dossier team join`** — append:
 > *Status (2026-09-18 review):* clone and post-join `init` are implemented. Not
@@ -358,7 +372,7 @@ harness verification.
 
 | # | Fix | Acceptance |
 |---|---|---|
-| P0-1 | `team create` refuses a non-empty remote and refuses a store with existing Dossiers unless `--include-existing` (explicit, listed, confirmed). | Test: create against non-empty bare repo ⇒ error, remote unchanged. Test: store with 1 Dossier ⇒ refuses without flag. |
+| P0-1 | `team create` refuses a non-empty remote. Because of the single-store decision, publishing existing Dossiers is the *normal* path, so create first **lists every Dossier it will publish, archived ones included, and requires confirmation** (`--yes` for scripts). | Test: create against non-empty bare repo ⇒ error, remote unchanged. Test: store with 2 Dossiers ⇒ both listed; declining leaves no `.git/` and no `team.remote`. |
 | P0-2 | `team create`/`join` transactional: config written only after success; failed clone/push removes what it created (moved to a `.failed-join-<ts>/` archive dir, not deleted). Retry succeeds. | Dogfood + test: bad URL, then good URL ⇒ joined. |
 | P0-3 | Honest sync state: `syncState` records `last_attempt`, `last_success_pull`, `last_success_push`, `last_error`, `auth_state`; CLI `sync` exits non-zero and does not print "successful" when `report.Error != ""`; `Pushed` false on no-op. | Tests: unreachable remote ⇒ exit≠0, `last_success_*` unchanged. |
 | P0-4 | Unresolved-conflict count derived from `ListConflicts`, not the last sync run; `doctor` sync block agrees with its issue list. | Test: conflict persists across a clean sync. |
@@ -369,8 +383,9 @@ harness verification.
 
 ### Smallest viable concierge pilot (after P0)
 
-1 manager, 1 colleague, 3 Dossiers, Claude Code only, a fresh dedicated team
-store, colleague's machine uses it as its only store. Manager assigns by setting
+1 manager, 1 colleague, 3 Dossiers, Claude Code only. Everyone uses a **single
+store**, the team store at `~/.dossier` (decision #3). Before `team create`,
+the manager moves non-team-safe Dossiers out of the store. Manager assigns by setting
 `lead` and messaging `dossier open <slug>`. Manager runs `doctor` daily and
 resolves conflicts. Transcripts: accept that compiled transcripts sync *only if*
 decision #2's prohibited categories are enforced by convention; otherwise wait

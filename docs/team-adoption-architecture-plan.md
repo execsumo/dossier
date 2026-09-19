@@ -218,7 +218,7 @@ restricted store, if needed
 
 New private work should default to the personal store. Manager-assigned work should explicitly target a team store. Do not represent privacy with a field inside a repository that everyone can clone.
 
-> Review: Separate stores are not available today. Claude Code's MCP server is registered as `dossier mcp serve` with no `--home` (`internal/harness/claudecode.go:339`), and hooks resolve `DOSSIER_HOME` or `~/.dossier`, so one machine integrates one store. `team join` also refuses any store with content (`internal/sync/sync.go:35-40`). This is a Phase 1-sized design question, not a Phase 4 add-on. For the pilot, use a fresh dedicated team store as the colleague's only store.
+> Review: Separate stores are not available today. Claude Code's MCP server is registered as `dossier mcp serve` with no `--home` (`internal/harness/claudecode.go:339`), and hooks resolve `DOSSIER_HOME` or `~/.dossier`, so one machine integrates one store. `team join` also refuses any store with content (`internal/sync/sync.go:35-40`). This is a Phase 1-sized design question, not a Phase 4 add-on. **Owner decision (2026-09-18): single store per person for the pilot, the manager included.** The team store is everyone's `~/.dossier`, and work that isn't team-safe stays out of Dossier. See review §4 decision #3.
 
 Shared content should default to:
 

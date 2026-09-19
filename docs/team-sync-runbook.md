@@ -7,7 +7,7 @@
 
 > **Status: operational but needs correction (review 2026-09-18).** Several entries described warnings, commands and TUI screens that do not exist. Those claims are struck through below, with the actual behavior and evidence. New §6 covers a failed join, and new §7 covers `team create` publishing the whole store. Fix list: [`team-adoption-plan-review.md`](team-adoption-plan-review.md) §6.
 >
-> **Before creating a team store:** `team create` publishes **every Dossier already in the store**. It does not check that the remote is empty; pointed at a non-empty repo, it merges and pushes (dogfood 2026-09-18; `internal/sync/sync.go:58-99`). Create the team store from a fresh `DOSSIER_HOME` and an empty repo whose default branch is `main` (the branch is hardcoded, `internal/cli/cli.go:1576`).
+> **Before creating a team store:** `team create` publishes **every Dossier already in the store**. It does not check that the remote is empty; pointed at a non-empty repo, it merges and pushes (dogfood 2026-09-18; `internal/sync/sync.go:58-99`). Use an empty repo whose default branch is `main` (the branch is hardcoded, `internal/cli/cli.go:1576`). Pilot policy is a **single store per person** (owner decision 2026-09-18), so your existing `~/.dossier` becomes the team store. First move every Dossier directory that isn't team-safe out of `~/.dossier` to a folder outside it. `dossier archive` is not enough: archived Dossiers stay in the store and sync. Then check `dossier ls --status all` (or the directory listing) before running `team create`.
 
 **Setup recap (you, once):** you created the team store with `dossier team create <url>`, which initializes and pushes the existing store to an empty private repo and writes `team.remote` to config. Each colleague then joins with `dossier team join <url>`. Sync transport is fully hidden inside the binary; this runbook may reference the mechanism (commits, push/pull, the remote, the working tree) but you never run raw version-control commands yourself.
 
@@ -148,7 +148,7 @@ Do **not** run `dossier sync` in a half-joined store. In the dogfood run it sync
 
 **What happened:** `team create` turns the *entire current store* into the team repo and pushes all of it (`internal/sync/sync.go:58-99`). It does not check that the remote is empty. If the remote already had content, the two are merged and both sides are pushed.
 
-**What to do:** treat anything pushed as disclosed to everyone with repo access, because git history is kept on every clone. Removing it needs a history rewrite on GitHub plus a re-clone on every machine. That is outside Dossier; escalate. To prevent it, always create a team store from a fresh `DOSSIER_HOME`.
+**What to do:** treat anything pushed as disclosed to everyone with repo access, because git history is kept on every clone. Removing it needs a history rewrite on GitHub plus a re-clone on every machine. That is outside Dossier; escalate. To prevent it, follow the pre-create check in the status note at the top: move non-team-safe Dossiers out of the store, including archived ones, and confirm the remote is empty.
 
 ## Sources
 
