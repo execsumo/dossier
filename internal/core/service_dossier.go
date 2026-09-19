@@ -1034,7 +1034,7 @@ type ListReq struct {
 	Status     string
 	Interfaces []string
 	Query      string
-	Lead       string // "me" filters to the configured current user
+	Lead       string // "me", a username, display name, or unique first-name prefix
 }
 
 func matchesInterfaces(have, want []string) bool {
@@ -1104,16 +1104,31 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 	var filtered []ListedFrontmatter
 	roster, hasRoster := s.currentRoster()
 	query := NewQuery(req.Query)
-	leadFilter := strings.TrimSpace(req.Lead)
-	if leadFilter != "" && !strings.EqualFold(leadFilter, "me") {
-		return Result{OK: false}, NewError(ErrInvalidFrontmatter, `lead filter only supports "me"`)
-	}
 	currentUsername, _ := s.CurrentUser()
+	scope, candidates := newLeadScope(roster, hasRoster, req.Lead, currentUsername)
+	if len(candidates) > 0 {
+		members := make([]RosterMember, 0, len(candidates))
+		for _, username := range candidates {
+			members = append(members, RosterMember{Username: username, DisplayName: roster.DisplayName(username)})
+		}
+		return Result{
+			OK:   false,
+			Data: members,
+			NextActions: []NextAction{
+				`Ask the user which teammate they mean, naming each candidate's display name.`,
+				`Call dossier_list again with lead set to the chosen username.`,
+			},
+		}, NewError(ErrAmbiguousTarget, fmt.Sprintf("lead %q is ambiguous; candidates: %s", strings.TrimSpace(req.Lead), strings.Join(candidates, ", ")))
+	}
+	leadMatches := 0
 	for _, fm := range fms {
-		if !matchesInterfaces(fm.Interfaces, req.Interfaces) {
+		if !scope.matches(fm.Lead) {
 			continue
 		}
-		if strings.EqualFold(leadFilter, "me") && NormalizeUsername(fm.Lead) != currentUsername {
+		if scope.literal != "" {
+			leadMatches++
+		}
+		if !matchesInterfaces(fm.Interfaces, req.Interfaces) {
 			continue
 		}
 		leadView := s.displayLead(roster, hasRoster, fm.Lead)
@@ -1163,9 +1178,14 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 		})
 	}
 
+	warnings := []Warning(nil)
+	if scope.literal != "" && leadMatches == 0 {
+		warnings = append(warnings, Warning(fmt.Sprintf("lead %q did not match any team member; check dossier_team for the roster.", strings.TrimSpace(req.Lead))))
+	}
 	return Result{
-		OK:   true,
-		Data: items,
+		OK:       true,
+		Data:     items,
+		Warnings: warnings,
 	}, nil
 }
 

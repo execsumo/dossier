@@ -456,7 +456,7 @@ The first implementation milestone should produce a capability matrix in `docs/h
 
 ```text
 dossier init
-dossier ls [--status spark|define|execute|review|blocked|done|all] [--interface <interface>] [-q|--query <text>] [--json]
+dossier ls [--status spark|define|execute|review|blocked|done|all] [--interface <interface>] [--lead <username-or-name>] [-q|--query <text>] [--json]
 dossier show <slug-or-id> [--json]
 dossier promote [--name <name>] [--from-file <path>] [--distilled-file <path>] [--json]
 dossier link [<slug-or-id>] [--from-file <path>] [--json]
@@ -509,6 +509,7 @@ dossier doctor
 - Reads frontmatter across `*/dossier.md`.
 - Default status filter: open work (`spark`, `define`, `execute`, `review`, `blocked`).
 - Sorts by priority (`max` first, then `high`, `medium`, `low`).
+- `--lead` filters by `me`, a teammate username, display name, or unique first-name prefix; ambiguous names return the candidates instead of guessing.
 - `--query` narrows the result to Dossiers whose `name`, `description`, `lead`, any `interface`, or `slug` contains every whitespace-separated term (case-insensitive substring; AND across terms, OR across fields). A term never matches across a field boundary. Filtering only — result ordering is unchanged.
 - Includes capability warning column if invoked inside a known harness/session.
 

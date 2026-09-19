@@ -136,6 +136,47 @@ func (r Roster) Has(username string) bool {
 	return false
 }
 
+// leadScope is the resolved form of a requested lead filter. Resolving once
+// before the scan keeps lead identity matching consistent across every dossier.
+type leadScope struct {
+	active   bool
+	username string
+	literal  string
+}
+
+// newLeadScope resolves a lead filter against the roster. A non-empty
+// candidates result means the requested name was ambiguous.
+func newLeadScope(roster *Roster, hasRoster bool, raw, currentUsername string) (scope leadScope, candidates []string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return leadScope{}, nil
+	}
+	// "me" is reserved for the current user, even if a roster contains that username.
+	if strings.EqualFold(raw, "me") {
+		return leadScope{active: true, username: currentUsername}, nil
+	}
+	// Roster resolution includes former members: filtering historical work differs from assignment.
+	if hasRoster && roster != nil {
+		if username, ok, matches := roster.ResolvePerson(raw); ok {
+			return leadScope{active: true, username: username}, nil
+		} else if len(matches) > 0 {
+			return leadScope{active: true}, matches
+		}
+	}
+	// Preserve free-form and legacy leads when the roster cannot resolve the query.
+	return leadScope{active: true, literal: NormalizeUsername(raw)}, nil
+}
+
+func (l leadScope) matches(storedLead string) bool {
+	if !l.active {
+		return true
+	}
+	if l.literal != "" {
+		return NormalizeUsername(storedLead) == l.literal
+	}
+	return NormalizeUsername(storedLead) == l.username
+}
+
 // ResolvePerson resolves a username, display name, or unique display-name
 // prefix. Ambiguous matches are returned in candidates and never guessed.
 func (r Roster) ResolvePerson(query string) (username string, ok bool, candidates []string) {

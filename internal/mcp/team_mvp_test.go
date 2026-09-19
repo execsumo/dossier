@@ -9,6 +9,49 @@ import (
 	"dossier/internal/store"
 )
 
+func TestMCPListLeadByDisplayName(t *testing.T) {
+	fake := store.NewFakeStore()
+	fake.Roster = &core.Roster{Members: map[string]string{"btwo": "Bob Two"}}
+	fake.Dossiers["dos_bob"] = &core.Dossier{Frontmatter: core.Frontmatter{
+		ID: "dos_bob", Name: "Bob's work", Slug: "bobs-work", Status: core.StatusExecute,
+		Priority: core.PriorityHigh, Lead: "btwo",
+	}}
+	fake.Revisions["dos_bob"] = "rev_bob"
+	svc := core.NewService(fake, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, core.Config{Author: "alice"}, nil)
+
+	listed := callTool(t, svc, "dossier_list", `{"lead":"Bob Two"}`)
+	if !listed.OK {
+		t.Fatalf("list by display name failed: %+v", listed.Error)
+	}
+	data := listed.Data.(map[string]any)
+	items := data["items"].([]any)
+	if len(items) != 1 || !strings.Contains(string(mustJSON(items[0])), "Bob Two") {
+		t.Fatalf("list by display name items = %#v", items)
+	}
+	if _, ok := data["current_user"]; !ok {
+		t.Fatalf("list omitted current_user: %#v", data)
+	}
+}
+
+func TestMCPListLeadAmbiguousEnvelope(t *testing.T) {
+	fake := store.NewFakeStore()
+	fake.Roster = &core.Roster{Members: map[string]string{"btwo": "Bob Two", "bthree": "Bob Three"}}
+	svc := core.NewService(fake, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, core.Config{}, nil)
+
+	listed := callTool(t, svc, "dossier_list", `{"lead":"Bob"}`)
+	if listed.OK || listed.Error == nil || listed.Error.Code != ErrCodeAmbiguousTarget {
+		t.Fatalf("ambiguous list envelope = %+v", listed)
+	}
+	if len(listed.NextActions) == 0 || listed.Data == nil {
+		t.Fatalf("ambiguous list omitted guidance or candidates: %+v", listed)
+	}
+}
+
+func mustJSON(value any) []byte {
+	encoded, _ := json.Marshal(value)
+	return encoded
+}
+
 func TestMCPTeamLeadResolutionListMineAndSessionUser(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-team-mvp")
 	fake := store.NewFakeStore()
