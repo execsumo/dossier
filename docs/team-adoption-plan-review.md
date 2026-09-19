@@ -421,6 +421,10 @@ harness verification.
 
 ### P0 — release blockers (before any colleague touches Team Sync)
 
+> **Status (2026-09-18, second session):** P0-1 to P0-7 and P0-9 are implemented on
+> `review/team-adoption-plan` and pass `team-sync-validation.md` Parts A and C. Part D
+> (live GitHub) is next. See `HANDOFF.md`.
+
 | # | Fix | Acceptance |
 |---|---|---|
 | P0-1 | `team create` refuses a non-empty remote. Because of the single-store decision, publishing existing Dossiers is the *normal* path, so create first **lists every Dossier it will publish, archived ones included, and requires confirmation** (`--yes` for scripts). | Test: create against non-empty bare repo ⇒ error, remote unchanged. Test: store with 2 Dossiers ⇒ both listed; declining leaves no `.git/` and no `team.remote`. |

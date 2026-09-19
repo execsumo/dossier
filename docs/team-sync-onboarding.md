@@ -78,7 +78,7 @@ Sometimes you and a colleague both edit the same topic. That's fine.
 - **Nothing is lost**, and there are never any messy conflict markers in your files.
 - The version that's already in the shared store stays in the topic file.
 - **Your version is saved right alongside it** as a short note in a `conflicts/` folder, for you to reconcile.
-- ~~You'll get a friendly heads-up that there's something to reconcile, and Dossier's dashboard walks you through it step by step — keep whichever parts you want.~~ **Actual:** you get a heads-up only when you run `dossier sync` yourself, and there is no step-by-step reconciliation yet. The dashboard's resolver handles only `dossier merge` conflicts (`internal/tui/tui.go:2075-2086`). Tell the person who set up the store. They will reconcile it.
+- You'll get a friendly heads-up that there's something to reconcile: the dashboard's health line shows `1 conflict`, and `dossier sync` tells you too. ~~Dossier's dashboard walks you through it step by step~~ There is no step-by-step view yet, but reconciling is one choice: in the dashboard press `x`, pick the conflict, then keep the shared version, restore yours, or keep both side by side so the topic's lead can merge them. To see what differs first, open the conflict note in the topic's `conflicts/` folder, or ask Claude to show it. You can also just ask Claude to resolve it. In the pilot, the topic's lead makes that call, so if it isn't your topic, tell them.
 
 Both perspectives are preserved — neither is silently overwritten. If you and a colleague disagree, the disagreement is recorded openly rather than smoothed over.
 
@@ -97,7 +97,7 @@ These are specific to your computer, so sharing them would overwrite someone els
 - your distilled notes;
 - the audit trail;
 - your working files (`files/`);
-- all captured source material (`artifacts/`). This includes the readable **session transcripts** Dossier saves when a session ends: what you typed, and whatever the agent read or ran, such as file contents and command output. The agent's private reasoning is excluded.
+- all captured source material (`artifacts/`). This includes the readable **session transcripts** Dossier saves when a session ends: what you typed, and whatever the agent read or ran, such as file contents and command output. The agent's private reasoning is excluded, and so is the raw, unedited copy of a transcript used to start a new topic, which stays on your machine.
 
 Everyone with access to the team repo can read these, permanently. **Don't work on anything in a team Dossier that you wouldn't show the whole team.**
 

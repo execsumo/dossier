@@ -22,7 +22,7 @@
 | a `<store>.failed-join-<time>` or `.failed-create-<time>` folder next to the store | An earlier join or create failed; what it created was moved aside | See §6 |
 | TUI footer: `Team sync · last sync failed …` | The most recent sync (manual or automatic) failed | Run `dossier sync` to see why; see §1/§2 |
 | ">100 MB" exclusion warning | File exceeds GitHub's 100 MB hard limit | Stays local, never enters shared history; move it out of the store or reference it externally |
-| new `conflicts/<id>.md`, `kind: sync_concurrent_edit` | Two machines edited the same `dossier.md` body | Remote won the working tree; local version preserved as the conflict note; reconcile in the TUI, verify with `dossier doctor` |
+| new `conflicts/<id>.md`, `kind: sync_concurrent_edit`; TUI footer shows `1 conflict` | Two machines edited the same `dossier.md` body | Remote won the working tree; local version preserved as the conflict note; resolve it (TUI `x`, `dossier resolve`, or ask Claude); see §4 |
 | machine-local files absent from the store | `config.yaml`, root `sessions/`, `context/`, locks are excluded by design | Nothing — this is correct; these are per-machine and must not sync |
 
 ## 1. Remote unreachable (offline / bad URL)
@@ -81,7 +81,7 @@
 
 ## 4. A `dossier.md` sync conflict
 
-**Symptom:** a new `<slug>/conflicts/<id>.md` appears with `kind: sync_concurrent_edit`, plus a sync warning. ~~(and the TUI footer shows a conflict count)~~ **Actual:** the warning appears only on a manual `dossier sync`. Background syncs create the file silently. The TUI has no sync footer, and `show`/`ls` do not mention conflicts. `dossier doctor` lists them as issues.
+**Symptom:** a new `<slug>/conflicts/<id>.md` appears with `kind: sync_concurrent_edit`, plus a sync warning (and the TUI footer shows a conflict count). The warning line itself appears only on a manual `dossier sync`; background syncs write the file without printing, and the footer picks it up within about a minute. `show`/`ls` still do not mention conflicts. `dossier conflicts` lists them.
 
 **What happened:** two machines edited the same `dossier.md` — the only genuinely multi-writer file. On pull, Dossier first attempts the non-overlapping-frontmatter auto-merge; if the body truly conflicts, it does **not** merge the body with markers. Instead:
 
@@ -92,17 +92,21 @@ Nothing is lost; there are **never merge markers** in the store.
 
 **What to do:**
 
-- ~~Reconcile in Dossier's **conflict-resolution view (the TUI)**, which steps through the local and remote sides so you can keep what you want.~~ **Actual:** the TUI resolver opens only for `dossier merge` results (`internal/tui/tui.go:2075-2086`), and no command resolves a sync conflict. Manual procedure for now:
-  1. Read the conflict file. Its body is your preserved version, followed by a diff against the shared version.
-  2. Ask the Dossier's lead (or a bound Claude session) to fold whatever should survive into `dossier.md` through a normal save.
-  3. Move the conflict file out of `conflicts/` into an archive folder you keep outside the store, rather than deleting it. `doctor` reports every file left in `conflicts/` as an unresolved issue (`internal/core/service.go:396-403`).
+- ~~Reconcile in Dossier's **conflict-resolution view (the TUI)**, which steps through the local and remote sides so you can keep what you want.~~ **Actual (after P0-5):** there is a resolve operation, but no side-by-side view. First read the conflict file, `<slug>/conflicts/<id>.md`: your preserved version, then a diff against the shared one. Then choose one of three outcomes, from any surface:
+  - TUI: press `x` on the dashboard or a Dossier's detail view, select the conflict, then `1` keep shared, `2` restore mine, or `3` keep both.
+  - CLI: `dossier conflicts` lists ids; `dossier resolve <conflict-id> --keep-shared|--restore-mine|--keep-both`.
+  - Claude: `dossier_conflicts`, then `dossier_resolve_conflict`.
+  For a partial merge, choose **keep both**: the preserved version is appended under `## Unresolved disagreement (conflict <id>)`, and the lead edits the body down in a normal save.
+  - Restore mine and keep both each create a new revision through the normal save path; nothing is overwritten.
+  - The conflict file moves to `conflicts/resolved/`, stamped with who resolved it, when, and how. The audit log records a `conflict_resolved` event. Nothing is deleted.
+  - Pilot convention (review §4 #7): the Dossier's lead resolves conflicts on that Dossier.
 - Verify nothing is left unresolved:
 
   ```text
   dossier doctor
   ```
 
-  `doctor` lists unresolved conflicts as issues. Ignore the "Unresolved conflicts: N" line in its Team Sync block; it counts only the last sync run (`internal/core/service.go:441`).
+  `doctor` lists unresolved conflicts as issues, and its Team Sync block's "Unresolved conflicts: N" agrees with that list. Resolved conflicts are not counted.
 - This is the same conflict flow used for local concurrent edits — **one mechanism, two triggers.**
 
 *Sources: `docs/adr/0005-team-sync-via-github.md` §4; `docs/team-sync-plan.md` Phase 2 §3; `BUILD-DECISIONS.md` §5 (conflict artifact format, `doctor` reports unresolved conflicts); `SPEC.md` §7.2.*
@@ -120,7 +124,7 @@ Nothing is lost; there are **never merge markers** in the store.
 
 **Why:** these are per-machine. Syncing them would clobber another machine's setup. Only team-relevant content syncs: distilled notes (`<slug>/dossier.md`), the archive, per-author audit shards, ~~per-dossier session stashes,~~ and revision history.
 
-**Actual (2026-09-18):** per-dossier session stashes (`<slug>/sessions/`) do **not** sync (`internal/sync/gitignore.go:36`). "The archive" (`artifacts/`) **includes compiled session transcripts**, which contain tool results, file contents and command output. It also includes, when a Dossier was promoted from a transcript, a **byte-preserved raw JSONL copy with the model's thinking** (`internal/core/service_promote.go:90-103`). `files/` syncs too.
+**Actual (2026-09-18, after P0-7):** per-dossier session stashes (`<slug>/sessions/`) do **not** sync. The raw JSONL copy that `promote` keeps (`artifacts/art_<n>_raw.*`, which includes the model's thinking) does **not** sync either. "The archive" (`artifacts/`) **does include compiled session transcripts** (owner decision: transcripts sync), which contain what was typed, tool results, file contents and command output, with thinking removed. `files/` syncs too. Existing team stores pick up the new exclusion on their next sync; a raw copy committed *before* that is still in the history.
 
 **What to do:** nothing — this is correct behavior. If a teammate's `config.yaml` looks different from yours, that's expected and right.
 
