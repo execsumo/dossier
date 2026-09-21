@@ -209,3 +209,61 @@ func (p *PiHarness) Install(opts core.InstallOpts) error {
 
 	return nil
 }
+
+// Uninstall removes Dossier's Pi assets when they are still byte-identical to
+// the bundled files. Modified assets are preserved so a user edit is never
+// mistaken for disposable integration state.
+func (p *PiHarness) Uninstall(opts core.InstallOpts) error {
+	content, err := assets.FS.ReadFile(piExtensionAsset)
+	if err != nil {
+		return fmt.Errorf("failed to read embedded Pi extension asset: %w", err)
+	}
+	sparkContent, err := assets.FS.ReadFile("spark-skill.md")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded spark skill asset: %w", err)
+	}
+	extensionPath := PiExtensionPath()
+	sparkPath := PiSparkSkillPath()
+	if extensionPath == "" || sparkPath == "" {
+		return nil
+	}
+
+	removable := false
+	for _, item := range []struct {
+		path    string
+		content []byte
+	}{
+		{extensionPath, content},
+		{sparkPath, sparkContent},
+	} {
+		if existing, readErr := os.ReadFile(item.path); readErr == nil && bytes.Equal(existing, item.content) {
+			removable = true
+		}
+	}
+	if !removable {
+		return nil
+	}
+	if err := checkManagedAssetRemoval(extensionPath, content); err != nil {
+		return err
+	}
+	if err := checkManagedAssetRemoval(sparkPath, sparkContent); err != nil {
+		return err
+	}
+	if !opts.YesToAll {
+		stat, err := os.Stdin.Stat()
+		if err != nil || (stat.Mode()&os.ModeCharDevice) == 0 {
+			return core.ErrUninstallSkipped
+		}
+		fmt.Printf("Remove the Dossier Pi integration from %s? [y/N]: ", extensionPath)
+		var response string
+		_, _ = fmt.Scanln(&response)
+		response = strings.ToLower(strings.TrimSpace(response))
+		if response != "y" && response != "yes" {
+			return core.ErrUninstallSkipped
+		}
+	}
+	if err := removeManagedAsset(extensionPath, content); err != nil {
+		return err
+	}
+	return removeManagedAsset(sparkPath, sparkContent)
+}

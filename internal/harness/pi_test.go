@@ -196,6 +196,23 @@ func TestPiHarnessInstallsExtensionIdempotently(t *testing.T) {
 	}
 }
 
+func TestPiHarnessUninstallsOwnedAssets(t *testing.T) {
+	agentDir := piTestEnv(t)
+	h := NewPiHarness("/tmp/dossier")
+	if err := h.Install(core.InstallOpts{YesToAll: true}); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+	if err := h.Uninstall(core.InstallOpts{YesToAll: true}); err != nil {
+		t.Fatalf("uninstall failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(agentDir, "extensions", "dossier", "index.ts")); !os.IsNotExist(err) {
+		t.Error("expected Pi extension to be removed")
+	}
+	if _, err := os.Stat(filepath.Join(agentDir, "skills", "spark", "SKILL.md")); !os.IsNotExist(err) {
+		t.Error("expected Pi spark skill to be removed")
+	}
+}
+
 func TestPiHarnessInstallBacksUpModifiedExtension(t *testing.T) {
 	agentDir := piTestEnv(t)
 	dest := filepath.Join(agentDir, "extensions", "dossier", "index.ts")

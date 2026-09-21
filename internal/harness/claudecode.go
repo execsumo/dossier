@@ -13,6 +13,8 @@ import (
 )
 
 // ClaudeCodeHarness implements capability detection and installation for Claude Code.
+const claudeSkillInstruction = "Dossier: ALWAYS use the dossier_session tool to identify or switch to your active dossier when starting work. Do NOT attempt to bypass MCP."
+
 type ClaudeCodeHarness struct {
 	dossierHome string
 }
@@ -300,7 +302,6 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 
 		// Inject custom instruction for Dossier usage
 		if !hasSkill {
-			skillInstruction := "Dossier: ALWAYS use the dossier_session tool to identify or switch to your active dossier when starting work. Do NOT attempt to bypass MCP."
 			var customInst []string
 			if ci, ok := hooksConfigMap["customInstructions"]; ok {
 				if arr, ok := ci.([]any); ok {
@@ -313,7 +314,7 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 					customInst = append(customInst, s)
 				}
 			}
-			customInst = append(customInst, skillInstruction)
+			customInst = append(customInst, claudeSkillInstruction)
 			hooksConfigMap["customInstructions"] = customInst
 		}
 
@@ -379,6 +380,250 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 	}
 
 	return nil
+}
+
+func isDossierHookCommand(command string) bool {
+	command = strings.TrimSpace(command)
+	for _, suffix := range []string{
+		" hook session-start",
+		" hook session-end",
+		" hook pre-compaction",
+	} {
+		if strings.HasSuffix(command, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func removeDossierHooks(value any) (any, bool) {
+	matchers, ok := value.([]any)
+	if !ok {
+		return value, false
+	}
+	changed := false
+	keptMatchers := make([]any, 0, len(matchers))
+	for _, matcherValue := range matchers {
+		matcher, ok := matcherValue.(map[string]any)
+		if !ok {
+			keptMatchers = append(keptMatchers, matcherValue)
+			continue
+		}
+		hooks, ok := matcher["hooks"].([]any)
+		if !ok {
+			keptMatchers = append(keptMatchers, matcherValue)
+			continue
+		}
+		keptHooks := make([]any, 0, len(hooks))
+		for _, hookValue := range hooks {
+			hook, ok := hookValue.(map[string]any)
+			command, _ := hook["command"].(string)
+			if ok && hook["type"] == "command" && isDossierHookCommand(command) {
+				changed = true
+				continue
+			}
+			keptHooks = append(keptHooks, hookValue)
+		}
+		if len(keptHooks) == 0 {
+			if len(keptHooks) != len(hooks) {
+				continue
+			}
+		}
+		if len(keptHooks) != len(hooks) {
+			matcher["hooks"] = keptHooks
+		}
+		keptMatchers = append(keptMatchers, matcherValue)
+	}
+	if !changed {
+		return value, false
+	}
+	return keptMatchers, true
+}
+
+func isDossierMCPEntry(value any) bool {
+	entry, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	command, _ := entry["command"].(string)
+	args, ok := entry["args"].([]any)
+	return command != "" && ok && len(args) == 2 && args[0] == "mcp" && args[1] == "serve"
+}
+
+func removeDossierConfigMap(config map[string]any) bool {
+	changed := false
+	if servers, ok := config["mcpServers"].(map[string]any); ok {
+		removed := false
+		if entry, ok := servers["dossier"]; ok && isDossierMCPEntry(entry) {
+			delete(servers, "dossier")
+			removed = true
+			changed = true
+		}
+		if removed && len(servers) == 0 {
+			delete(config, "mcpServers")
+		}
+	}
+	if hooks, ok := config["hooks"].(map[string]any); ok {
+		removed := false
+		for _, name := range []string{"SessionStart", "SessionEnd", "PreCompact"} {
+			if cleaned, found := removeDossierHooks(hooks[name]); found {
+				if arr, ok := cleaned.([]any); ok && len(arr) == 0 {
+					delete(hooks, name)
+				} else {
+					hooks[name] = cleaned
+				}
+				removed = true
+				changed = true
+			}
+		}
+		if removed && len(hooks) == 0 {
+			delete(config, "hooks")
+		}
+	}
+	if values, ok := config["customInstructions"].([]any); ok {
+		kept := make([]any, 0, len(values))
+		removed := false
+		for _, value := range values {
+			if value == claudeSkillInstruction {
+				removed = true
+				changed = true
+				continue
+			}
+			kept = append(kept, value)
+		}
+		if removed && len(kept) == 0 {
+			delete(config, "customInstructions")
+		} else if removed {
+			config["customInstructions"] = kept
+		}
+	} else if value, ok := config["customInstructions"].(string); ok && value == claudeSkillInstruction {
+		delete(config, "customInstructions")
+		changed = true
+	}
+	return changed
+}
+
+func claudeConfigNeedsRemoval(path string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if len(data) == 0 {
+		return false, nil
+	}
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		return false, fmt.Errorf("parse Claude Code config %s: %w", path, err)
+	}
+	return removeDossierConfigMap(config), nil
+}
+
+func removeClaudeConfig(path string, timestamp int64) error {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("parse Claude Code config %s: %w", path, err)
+	}
+	if !removeDossierConfigMap(config) {
+		return nil
+	}
+	backupPath := fmt.Sprintf("%s.%d.bak", path, timestamp)
+	if len(data) > 0 {
+		if err := os.WriteFile(backupPath, data, 0644); err != nil {
+			return fmt.Errorf("back up Claude Code config: %w", err)
+		}
+	}
+	updated, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal Claude Code config: %w", err)
+	}
+	if err := os.WriteFile(path, updated, 0644); err != nil {
+		return fmt.Errorf("write Claude Code config: %w", err)
+	}
+	return nil
+}
+
+// Uninstall removes Dossier-owned Claude Code configuration and managed skills.
+// Unrelated MCP servers, hooks, instructions, and user-edited skills remain.
+func (c *ClaudeCodeHarness) Uninstall(opts core.InstallOpts) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	claudeJSONPath := filepath.Join(home, ".claude.json")
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	delegatePath := filepath.Join(home, ".claude", "skills", "dossier-delegate", "SKILL.md")
+	sparkPath := filepath.Join(home, ".claude", "skills", "spark", "SKILL.md")
+	delegateContent, err := assets.FS.ReadFile("dossier-delegate-skill.md")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded delegate skill asset: %w", err)
+	}
+	sparkContent, err := assets.FS.ReadFile("spark-skill.md")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded spark skill asset: %w", err)
+	}
+
+	configChange := false
+	for _, path := range []string{claudeJSONPath, settingsPath} {
+		needs, err := claudeConfigNeedsRemoval(path)
+		if err != nil {
+			return err
+		}
+		configChange = configChange || needs
+	}
+	assetChange := false
+	for _, item := range []struct {
+		path    string
+		content []byte
+	}{
+		{delegatePath, delegateContent},
+		{sparkPath, sparkContent},
+	} {
+		if existing, readErr := os.ReadFile(item.path); readErr == nil {
+			if !bytes.Equal(existing, item.content) {
+				return fmt.Errorf("refusing to remove modified managed asset %s; remove it manually if it is no longer needed", item.path)
+			}
+			assetChange = true
+		}
+	}
+	if !configChange && !assetChange {
+		return nil
+	}
+	if !opts.YesToAll {
+		stat, err := os.Stdin.Stat()
+		if err != nil || (stat.Mode()&os.ModeCharDevice) == 0 {
+			return core.ErrUninstallSkipped
+		}
+		fmt.Print("Remove the Dossier Claude Code integration? [y/N]: ")
+		var response string
+		_, _ = fmt.Scanln(&response)
+		response = strings.ToLower(strings.TrimSpace(response))
+		if response != "y" && response != "yes" {
+			return core.ErrUninstallSkipped
+		}
+	}
+	timestamp := time.Now().Unix()
+	for _, path := range []string{claudeJSONPath, settingsPath} {
+		if err := removeClaudeConfig(path, timestamp); err != nil {
+			return err
+		}
+	}
+	if err := removeManagedAsset(delegatePath, delegateContent); err != nil {
+		return err
+	}
+	return removeManagedAsset(sparkPath, sparkContent)
 }
 
 // ResolveTranscript attempts to read the transcript file either from the provided path or by finding the file named <sessionID>.jsonl under ~/.claude/projects.

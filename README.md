@@ -85,8 +85,11 @@ Install Pi after running `init`? Wire it up with one command:
 
 ```bash
 dossier harness install pi     # installs the Dossier Pi extension
+dossier harness uninstall pi  # removes Dossier's Pi integration
 dossier harness list           # what each harness gives Dossier
 ```
+
+To remove the integration later, run `dossier harness uninstall pi` (or `dossier harness uninstall claude-code`). It removes only Dossier-owned config and byte-identical managed files; unrelated config and hand-edited files are preserved for manual review. Remove the stable binary separately with `dossier uninstall`; Homebrew installs use `brew uninstall dossier`.
 
 This writes `~/.pi/agent/extensions/dossier/index.ts` and the shared
 `~/.pi/agent/skills/spark/SKILL.md` (backing up anything they replace, and

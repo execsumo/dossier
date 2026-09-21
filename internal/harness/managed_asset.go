@@ -36,3 +36,31 @@ func installManagedAsset(path string, content []byte, timestamp int64) error {
 	}
 	return nil
 }
+
+// checkManagedAssetRemoval verifies that removal will not delete a user edit.
+func checkManagedAssetRemoval(path string, content []byte) error {
+	existing, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read managed asset: %w", err)
+	}
+	if !bytes.Equal(existing, content) {
+		return fmt.Errorf("refusing to remove modified managed asset %s; remove it manually if it is no longer needed", path)
+	}
+	return nil
+}
+
+// removeManagedAsset removes only the exact asset Dossier installed. A
+// hand-edited asset is left alone rather than silently deleting user work.
+func removeManagedAsset(path string, content []byte) error {
+	if err := checkManagedAssetRemoval(path, content); err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove managed asset: %w", err)
+	}
+	_ = os.Remove(filepath.Dir(path))
+	return nil
+}

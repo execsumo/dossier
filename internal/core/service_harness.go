@@ -301,3 +301,32 @@ func (s *Service) InstallHarness(ctx context.Context, req InstallHarnessReq) (Re
 
 	return Result{OK: true, Data: report, Warnings: warnings}, nil
 }
+
+// UninstallHarnessReq removes one harness integration by name.
+type UninstallHarnessReq struct {
+	Name     string
+	YesToAll bool
+}
+
+// UninstallHarness removes the integration for a single harness. It does not
+// require the client itself to still be installed: stale Dossier config is a
+// valid reason to run this command.
+func (s *Service) UninstallHarness(ctx context.Context, req UninstallHarnessReq) (Result, error) {
+	h, err := s.hreg.Get(req.Name)
+	if err != nil || h == nil {
+		return Result{OK: false}, NewError(ErrNotFound, fmt.Sprintf("unknown harness %q", req.Name))
+	}
+
+	if err := h.Uninstall(InstallOpts{Interactive: !req.YesToAll, YesToAll: req.YesToAll}); err != nil {
+		if errors.Is(err, ErrUninstallSkipped) {
+			return Result{OK: false, Warnings: []Warning{Warning(err.Error())}}, nil
+		}
+		return Result{OK: false}, WrapError(ErrInternal, fmt.Sprintf("failed to uninstall %s integration", req.Name), err)
+	}
+
+	caps, detectErr := h.Detect()
+	if detectErr != nil {
+		return Result{OK: true, Warnings: []Warning{Warning(fmt.Sprintf("uninstalled %s integration, but could not verify it: %v", req.Name, detectErr))}}, nil
+	}
+	return Result{OK: true, Data: newHarnessReport(h.Name(), caps)}, nil
+}

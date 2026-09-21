@@ -14,6 +14,7 @@ type stubHarness struct {
 	caps        Capabilities
 	afterCaps   *Capabilities
 	installs    int
+	uninstalls  int
 	installFail error
 	notes       []string
 }
@@ -34,6 +35,11 @@ func (h *stubHarness) Install(opts InstallOpts) error {
 		return h.installFail
 	}
 	h.installs++
+	return nil
+}
+
+func (h *stubHarness) Uninstall(opts InstallOpts) error {
+	h.uninstalls++
 	return nil
 }
 
@@ -175,6 +181,19 @@ func TestInstallHarnessRejectsUnknownAndAbsentHarnesses(t *testing.T) {
 	}
 	if pi.installs != 0 {
 		t.Error("must not install into a harness that is not present")
+	}
+}
+
+func TestUninstallHarnessDoesNotRequireHarnessPresence(t *testing.T) {
+	pi := &stubHarness{name: "pi", caps: Capabilities{}}
+	svc := serviceWithHarnesses(t, pi)
+
+	res, err := svc.UninstallHarness(context.Background(), UninstallHarnessReq{Name: "pi", YesToAll: true})
+	if err != nil {
+		t.Fatalf("uninstall failed: %v", err)
+	}
+	if !res.OK || pi.uninstalls != 1 {
+		t.Fatalf("expected successful uninstall, result=%+v calls=%d", res, pi.uninstalls)
 	}
 }
 

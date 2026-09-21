@@ -3,6 +3,7 @@ package harness
 import (
 	"dossier/assets"
 	"dossier/internal/core"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,6 +183,71 @@ func TestClaudeCodeHarnessDelegateSkillOverwritesStaleContent(t *testing.T) {
 // pull-only design constraint: installing the skill file must never touch
 // customInstructions or otherwise wire the skill into automatic
 // session-start injection.
+func TestClaudeCodeHarnessUninstallsOwnedFilesAndPreservesOtherConfig(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
+	writeMinimalClaudeConfig(t, tempHome)
+
+	h := NewClaudeCodeHarness("/tmp/dossier")
+	if err := h.Install(core.InstallOpts{YesToAll: true, StableBinaryPath: "/tmp/dossier"}); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+	path := filepath.Join(tempHome, ".claude.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	config["mcpServers"].(map[string]any)["other"] = map[string]any{"command": "other"}
+	updated, _ := json.Marshal(config)
+	if err := os.WriteFile(path, updated, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.Uninstall(core.InstallOpts{YesToAll: true}); err != nil {
+		t.Fatalf("uninstall failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tempHome, ".claude", "skills", "dossier-delegate", "SKILL.md")); !os.IsNotExist(err) {
+		t.Error("dossier-delegate skill should be removed")
+	}
+	if _, err := os.Stat(filepath.Join(tempHome, ".claude", "skills", "spark", "SKILL.md")); !os.IsNotExist(err) {
+		t.Error("spark skill should be removed")
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "dossier_session") || strings.Contains(string(data), "hook session-start") || !strings.Contains(string(data), "other") {
+		t.Errorf("Dossier config was not removed while unrelated config was preserved: %s", data)
+	}
+}
+
+func TestClaudeCodeHarnessRefusesModifiedSkillOnUninstall(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
+	writeMinimalClaudeConfig(t, tempHome)
+
+	h := NewClaudeCodeHarness("/tmp/dossier")
+	if err := h.Install(core.InstallOpts{YesToAll: true, StableBinaryPath: "/tmp/dossier"}); err != nil {
+		t.Fatal(err)
+	}
+	skillPath := filepath.Join(tempHome, ".claude", "skills", "spark", "SKILL.md")
+	if err := os.WriteFile(skillPath, []byte("user edit\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Uninstall(core.InstallOpts{YesToAll: true}); err == nil || !strings.Contains(err.Error(), "modified managed asset") {
+		t.Fatalf("expected modified skill refusal, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tempHome, ".claude.json")); err != nil {
+		t.Fatal("uninstall preflight should not remove the config when a skill is modified")
+	}
+}
+
 func TestClaudeCodeHarnessDelegateSkillNotInCustomInstructions(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)

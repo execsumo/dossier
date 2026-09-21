@@ -164,9 +164,20 @@ func NewRootCmd() *cobra.Command {
 	installCmd.Flags().StringVar(&installDirFlag, "dir", "~/.local/bin", "Directory to install the binary to")
 	installCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Skip confirmation prompts")
 
+	var uninstallDirFlag string
+	uninstallCmd := &cobra.Command{
+		Use:   "uninstall",
+		Short: "Remove the Dossier binary from a stable PATH location",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runUninstall(uninstallDirFlag, yesFlag)
+		},
+	}
+	uninstallCmd.Flags().StringVar(&uninstallDirFlag, "dir", "~/.local/bin", "Directory containing the installed binary")
+	uninstallCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Skip confirmation prompts")
+
 	harnessCmd := &cobra.Command{
 		Use:   "harness",
-		Short: "Inspect and install client harness integrations",
+		Short: "Inspect, install, or uninstall client harness integrations",
 	}
 
 	harnessListCmd := &cobra.Command{
@@ -238,8 +249,44 @@ func NewRootCmd() *cobra.Command {
 	harnessInstallCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Skip confirmation prompts")
 	harnessInstallCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output as JSON")
 
+	harnessUninstallCmd := &cobra.Command{
+		Use:   "uninstall <claude-code|pi>",
+		Short: "Remove the Dossier integration from a harness",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			res, err := svc.UninstallHarness(context.Background(), core.UninstallHarnessReq{
+				Name:     args[0],
+				YesToAll: yesFlag,
+			})
+			if err != nil {
+				fmt.Printf("Harness uninstall failed: %v\n", err)
+				os.Exit(1)
+			}
+			if jsonFlag && res.Data != nil {
+				printJSON(res.Data)
+			} else if report, ok := res.Data.(core.HarnessReport); ok {
+				printHarnessReports([]core.HarnessReport{report})
+			}
+			for _, warning := range res.Warnings {
+				fmt.Printf("Warning: %s\n", warning)
+			}
+			if !res.OK {
+				os.Exit(1)
+			}
+		},
+	}
+	harnessUninstallCmd.Flags().BoolVarP(&yesFlag, "yes", "y", false, "Skip confirmation prompts")
+	harnessUninstallCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output as JSON")
+
 	harnessCmd.AddCommand(harnessListCmd)
 	harnessCmd.AddCommand(harnessInstallCmd)
+	harnessCmd.AddCommand(harnessUninstallCmd)
 
 	doctorCmd := &cobra.Command{
 		Use:   "doctor",
@@ -1581,6 +1628,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(installCmd)
+	rootCmd.AddCommand(uninstallCmd)
 	rootCmd.AddCommand(harnessCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(lsCmd)
@@ -2509,6 +2557,31 @@ func runInstall(destDir string, yesToAll bool) error {
 	}
 
 	fmt.Printf("Dossier successfully installed to %s\n", destPath)
+	return nil
+}
+
+func runUninstall(destDir string, yesToAll bool) error {
+	destDir = expandTilde(destDir)
+	destPath := filepath.Join(destDir, stableBinaryName())
+	if _, err := os.Stat(destPath); os.IsNotExist(err) {
+		fmt.Printf("Dossier is not installed at %s\n", destPath)
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to inspect %s: %w", destPath, err)
+	}
+	if !yesToAll {
+		fmt.Printf("Remove the Dossier binary at %s? [y/N]: ", destPath)
+		var response string
+		_, _ = fmt.Scanln(&response)
+		response = strings.ToLower(strings.TrimSpace(response))
+		if response != "y" && response != "yes" {
+			return fmt.Errorf("uninstall declined")
+		}
+	}
+	if err := os.Remove(destPath); err != nil {
+		return fmt.Errorf("failed to remove %s: %w", destPath, err)
+	}
+	fmt.Printf("Dossier removed from %s\n", destPath)
 	return nil
 }
 

@@ -161,11 +161,12 @@ type InstallOpts struct {
 	StableBinaryPath string
 }
 
-// Harness defines the capability detection and integration installer for a client.
+// Harness defines the capability detection and integration lifecycle for a client.
 type Harness interface {
 	Name() string
 	Detect() (Capabilities, error)
 	Install(opts InstallOpts) error
+	Uninstall(opts InstallOpts) error
 }
 
 // PostInstallAdvisor lets a harness adapter report notes about an install that

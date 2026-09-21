@@ -60,3 +60,6 @@ func WrapError(code ErrorCode, message string, err error) *DomainError {
 
 // ErrInstallSkipped means the adapter deliberately wrote nothing.
 var ErrInstallSkipped = errors.New("install skipped")
+
+// ErrUninstallSkipped means the adapter deliberately removed nothing.
+var ErrUninstallSkipped = errors.New("uninstall skipped")
