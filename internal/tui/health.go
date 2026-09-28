@@ -30,7 +30,7 @@ func (m Model) healthCmd() tea.Cmd {
 		if !ok {
 			return healthMsg{err: fmt.Errorf("invalid health data type")}
 		}
-		return healthMsg{summary: report.Summary, report: report.Doctor, warnings: res.Warnings}
+		return healthMsg{summary: report.Summary, report: report.Doctor}
 	}
 }
 
@@ -86,7 +86,11 @@ func (m Model) healthFooterLine() string {
 	if !m.healthReady {
 		return "Checking health…"
 	}
-	return m.healthSummary.Line(time.Now())
+	line := m.healthSummary.Line(time.Now())
+	if m.healthSummary.Issues > 0 || m.healthSummary.Conflicts > 0 {
+		line += " · H for details"
+	}
+	return line
 }
 
 func truncateHealthLine(line string, width int) string {

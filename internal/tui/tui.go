@@ -326,10 +326,9 @@ type watcherEvent struct {
 }
 
 type healthMsg struct {
-	summary  core.HealthSummary
-	report   core.DoctorReport
-	warnings []core.Warning
-	err      error
+	summary core.HealthSummary
+	report  core.DoctorReport
+	err     error
 }
 
 type healthTickMsg struct{}
@@ -2362,7 +2361,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.healthReport = msg.report
 		m.healthViewport.SetContent(renderDoctorReport(m.healthSummary, m.healthReport))
 		m.recalculateHealthViewportLayout()
-		m.applyResultStatus(msg.warnings, nil)
+		// Doctor's per-finding warnings are not copied into the status area:
+		// the footer health line already carries the count, and the H overlay
+		// lists every finding. Replaying them here re-flooded the dashboard
+		// with store-wide findings on every periodic health check.
 
 	case healthTickMsg:
 		m.healthLastCheck = time.Now()
@@ -3018,6 +3020,7 @@ func (m Model) statusLines() []string {
 	}
 
 	var lines []string
+	var messageEnds []int // index one past each message's last wrapped line
 	appendMessage := func(prefix, text string, style lipgloss.Style) {
 		text = strings.TrimSpace(text)
 		if text == "" {
@@ -3026,6 +3029,7 @@ func (m Model) statusLines() []string {
 		for _, line := range wrapCell(prefix+text, width) {
 			lines = append(lines, style.Render(line))
 		}
+		messageEnds = append(messageEnds, len(lines))
 	}
 	for _, warning := range m.warnings {
 		appendMessage("⚠ ", string(warning), warningStyle)
@@ -3039,8 +3043,16 @@ func (m Model) statusLines() []string {
 	if len(lines) <= maxLines {
 		return lines
 	}
-	remaining := len(lines) - (maxLines - 1)
-	lines = lines[:maxLines-1]
+	// Count hidden messages, not hidden wrapped lines: a message cut part-way
+	// is still one the user has not fully seen.
+	shown := maxLines - 1
+	remaining := 0
+	for _, end := range messageEnds {
+		if end > shown {
+			remaining++
+		}
+	}
+	lines = lines[:shown]
 	lines = append(lines, overlayMutedStyle.Render(fmt.Sprintf("… %d more status message(s)", remaining)))
 	return lines
 }

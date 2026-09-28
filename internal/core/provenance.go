@@ -74,17 +74,26 @@ type contentLine struct {
 // lines that are expected to carry provenance: prose and list items, but not
 // headings, fences, fenced content, blockquotes, or separators.
 //
-// Two structural exemptions apply, both because a citation on these lines
-// would be either meaningless or self-contradictory:
+// Structural exemptions apply where a citation would be either meaningless or
+// self-contradictory:
 //   - The "## Evidence" section describes the Archive's own artifacts (an
 //     `art_<id>` is already the pointer; asking it to also carry a [src:] to
-//     itself is circular), so its lines are excluded.
+//     itself is circular).
+//   - Work-definition and forward-looking sections — Objective, Done When,
+//     Validation, Open Questions, Next Steps — state what the work is and what
+//     happens next, not claims about what was found. They are authored, not
+//     evidenced; SPEC §4.2 asks provenance of material claims.
+//   - "## References" and "## Active Monitors" are navigation pointers that
+//     guide.md says explicitly "do not ... constitute citable evidence".
 //   - A [assumed] line is by definition "believed but unverified" (guide
 //     §3) — it has nothing to cite by design.
+//
+// A subheading nested under an exempt section stays exempt; the next heading
+// at the same or a shallower level ends it.
 func bodyContentLines(body string) []contentLine {
 	var out []contentLine
 	inFence := false
-	inEvidenceSection := false
+	exemptLevel := 0 // heading level of the enclosing exempt section, 0 if none
 	for i, line := range strings.Split(body, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") {
@@ -95,13 +104,19 @@ func bodyContentLines(body string) []contentLine {
 			continue
 		}
 		if strings.HasPrefix(trimmed, "#") {
-			inEvidenceSection = isEvidenceHeading(trimmed)
+			level := len(trimmed) - len(strings.TrimLeft(trimmed, "#"))
+			if exemptLevel == 0 || level <= exemptLevel {
+				exemptLevel = 0
+				if isExemptHeading(trimmed) {
+					exemptLevel = level
+				}
+			}
 			continue
 		}
 		if trimmed == "" ||
 			strings.HasPrefix(trimmed, "---") ||
 			strings.HasPrefix(trimmed, ">") ||
-			inEvidenceSection ||
+			exemptLevel > 0 ||
 			strings.Contains(trimmed, "[assumed]") {
 			continue
 		}
@@ -110,18 +125,39 @@ func bodyContentLines(body string) []contentLine {
 	return out
 }
 
-// isEvidenceHeading reports whether a trimmed heading line is the "Evidence"
-// section header (of any level), matched by name so the exemption doesn't
-// depend on the heading's exact depth.
-func isEvidenceHeading(trimmed string) bool {
-	return strings.EqualFold(strings.TrimSpace(strings.TrimLeft(trimmed, "#")), "Evidence")
+// exemptSections are the Distilled State sections (guide §4) whose lines are
+// not material claims and so carry no provenance requirement.
+var exemptSections = map[string]bool{
+	"evidence":        true,
+	"objective":       true,
+	"done when":       true,
+	"validation":      true,
+	"open questions":  true,
+	"next steps":      true,
+	"references":      true,
+	"active monitors": true,
 }
+
+// isExemptHeading reports whether a trimmed heading line names an exempt
+// section (of any level), matched by name so the exemption doesn't depend on
+// the heading's exact depth.
+func isExemptHeading(trimmed string) bool {
+	return exemptSections[strings.ToLower(strings.TrimSpace(strings.TrimLeft(trimmed, "#")))]
+}
+
+// maxListedMissingLines caps how many uncited line numbers one issue names.
+const maxListedMissingLines = 10
 
 // validateDistilledStateProvenance checks that every content line carries a
 // citation, that each citation names a real artifact, and that any cited line
 // range actually exists in that artifact.
+//
+// Uncited lines are reported as one issue per Dossier naming the lines, not
+// one issue per line: a single uncited brief would otherwise contribute dozens
+// of issues and bury every other finding in the store.
 func validateDistilledStateProvenance(body string, dossierID string, info ArtifactInfo) []string {
 	var issues []string
+	var missing []int
 
 	for _, cl := range bodyContentLines(body) {
 		n, trimmed := cl.Number, cl.Text
@@ -131,7 +167,7 @@ func validateDistilledStateProvenance(body string, dossierID string, info Artifa
 			continue
 		}
 		if len(refs) == 0 {
-			issues = append(issues, fmt.Sprintf("Dossier %s line %d is missing provenance", dossierID, n))
+			missing = append(missing, n)
 			continue
 		}
 		for _, m := range refs {
@@ -153,7 +189,30 @@ func validateDistilledStateProvenance(body string, dossierID string, info Artifa
 			}
 		}
 	}
+	if len(missing) > 0 {
+		issues = append(issues, missingProvenanceIssue(dossierID, missing))
+	}
 	return issues
+}
+
+// missingProvenanceIssue renders the grouped uncited-lines issue, listing the
+// first maxListedMissingLines line numbers and counting the rest.
+func missingProvenanceIssue(dossierID string, lines []int) string {
+	shown := lines
+	suffix := ""
+	if len(shown) > maxListedMissingLines {
+		shown = shown[:maxListedMissingLines]
+		suffix = fmt.Sprintf(" (+%d more)", len(lines)-maxListedMissingLines)
+	}
+	nums := make([]string, len(shown))
+	for i, n := range shown {
+		nums[i] = strconv.Itoa(n)
+	}
+	if len(lines) == 1 {
+		return fmt.Sprintf("Dossier %s line %s is missing provenance", dossierID, nums[0])
+	}
+	return fmt.Sprintf("Dossier %s has %d lines missing provenance: lines %s%s",
+		dossierID, len(lines), strings.Join(nums, ", "), suffix)
 }
 
 // formatLineRange renders a cited range as L5-L10, or as the bare L5 form

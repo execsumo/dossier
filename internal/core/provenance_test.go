@@ -110,6 +110,31 @@ func TestValidateDistilledStateProvenanceChecksLineRanges(t *testing.T) {
 			body: "## Findings\n- [assumed] Production concurrency resembles the load-test profile; unverified against telemetry.",
 		},
 		{
+			name: "work-definition and forward-looking sections are exempt (authored, not evidenced)",
+			body: "## Objective\nShip the offer.\n## Done When\n- Offer live in US.\n## Validation\n- Checkout smoke test.\n" +
+				"## Open Questions\n- Which SKU?\n## Next Steps\n- Draft brief.\n" +
+				"## References\n- [doc: brief](https://example.com) — context.\n## Active Monitors\n- [comms: thread](https://example.com) — poll. (Last polled: 2026-09-01)",
+		},
+		{
+			name: "a subheading nested under an exempt section stays exempt",
+			body: "## Open Questions\n### Pricing\n- Which price point?",
+		},
+		{
+			name:    "a same-level heading ends an exempt section",
+			body:    "## Objective\nShip the offer.\n## Situation\nLaunch slipped a week.",
+			wantSub: "line 4 is missing provenance",
+		},
+		{
+			name:    "a shallower heading ends an exempt section",
+			body:    "## Open Questions\n- Which SKU?\n# Appendix\nLaunch slipped a week.",
+			wantSub: "line 4 is missing provenance",
+		},
+		{
+			name:    "several uncited lines are reported as one grouped issue",
+			body:    "## Situation\nOne.\nTwo.\n\nThree.",
+			wantSub: "has 3 lines missing provenance: lines 2, 3, 5",
+		},
+		{
 			name:    "a claim still needs provenance outside the Evidence section",
 			body:    "## Findings\n- [observed] Lock contention.\n## Evidence\n- `art_ok` (transcript, 100 lines): full session capture.",
 			wantSub: "is missing provenance",
@@ -269,5 +294,21 @@ func TestUncitedArtifactsExemptsTranscripts(t *testing.T) {
 	}
 	if msg := uncitedArtifactWarning(body, artifacts); strings.Contains(msg, "art_transcript") {
 		t.Fatalf("uncited warning must not name the transcript artifact, got: %q", msg)
+	}
+}
+
+func TestMissingProvenanceIsOneIssuePerDossier(t *testing.T) {
+	var body strings.Builder
+	body.WriteString("## Situation\n")
+	for i := 0; i < 25; i++ {
+		body.WriteString("An uncited line.\n")
+	}
+	issues := validateDistilledStateProvenance(body.String(), "dos_1", func(string) (int, bool) { return 0, false })
+	if len(issues) != 1 {
+		t.Fatalf("got %d issues, want 1 grouped issue: %v", len(issues), issues)
+	}
+	want := "Dossier dos_1 has 25 lines missing provenance: lines 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 (+15 more)"
+	if issues[0] != want {
+		t.Fatalf("issue = %q, want %q", issues[0], want)
 	}
 }
