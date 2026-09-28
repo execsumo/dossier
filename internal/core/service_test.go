@@ -810,7 +810,7 @@ func TestDoctorReportsProvenanceAndConflictIssues(t *testing.T) {
 		t.Fatalf("expected doctor to report issues")
 	}
 	joined := warningsText(res.Warnings)
-	for _, want := range []string{"missing provenance", "references missing artifact art_missing", "missing provenance.origin", "Unresolved conflict conf_bad"} {
+	for _, want := range []string{"references missing artifact art_missing", "missing provenance.origin", "Unresolved conflict conf_bad"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("expected doctor warning containing %q, got:\n%s", want, joined)
 		}

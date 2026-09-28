@@ -81,11 +81,11 @@ func TestHealthCheckDoesNotFloodStatusArea(t *testing.T) {
 	m.width, m.height = 100, 30
 	report := core.DoctorReport{}
 	for i := 0; i < 50; i++ {
-		report.Issues = append(report.Issues, "Dossier dos_x line 5 is missing provenance")
+		report.Issues = append(report.Issues, "Dossier dos_x line 5 references missing artifact art_gone")
 	}
 	updated, _ := m.Update(healthMsg{summary: core.HealthSummaryFromDoctor(report), report: report})
 	got := stripANSI(updated.(Model).footerContent(ViewDashboard))
-	if strings.Contains(got, "missing provenance") || strings.Contains(got, "more status message") {
+	if strings.Contains(got, "missing artifact") || strings.Contains(got, "more status message") {
 		t.Fatalf("doctor findings leaked into the dashboard status area:\n%s", got)
 	}
 	if !strings.Contains(got, "Store · 50 issues · H for details") {

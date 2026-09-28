@@ -470,11 +470,6 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 			addIssue("%s", issue)
 		}
 
-		// Advisory, not damage: uncited evidence is a thin-distillation signal.
-		if msg := uncitedArtifactWarning(d.DistilledState.Body, artifacts); msg != "" {
-			addAdvisory(fmt.Sprintf("Dossier %s: %s", fm.ID, msg))
-		}
-
 		for _, issue := range s.store.ValidateArtifactFiles(fm.ID) {
 			addIssue("%s", issue)
 		}
