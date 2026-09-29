@@ -64,74 +64,30 @@ func ParseProvenanceRef(artifactID, fragment string) (ProvenanceRef, error) {
 // so a cited range can be bounds-checked.
 type ArtifactInfo func(artifactID string) (lineCount int, ok bool)
 
-// contentLine pairs a 1-indexed body line number with its trimmed text.
-type contentLine struct {
-	Number int
-	Text   string
-}
-
-// bodyContentLines walks the Distilled State body and yields the 1-indexed
-// lines that are expected to carry provenance: prose and list items, but not
-// headings, fences, fenced content, blockquotes, or separators.
+// validateDistilledStateProvenance checks the citations the Distilled State
+// does carry: each must be well-formed, name a real artifact, and (when it
+// cites a line range) point at lines that exist in that artifact.
 //
-// Two structural exemptions apply, both because a citation on these lines
-// would be either meaningless or self-contradictory:
-//   - The "## Evidence" section describes the Archive's own artifacts (an
-//     `art_<id>` is already the pointer; asking it to also carry a [src:] to
-//     itself is circular), so its lines are excluded.
-//   - A [assumed] line is by definition "believed but unverified" (guide
-//     §3) — it has nothing to cite by design.
-func bodyContentLines(body string) []contentLine {
-	var out []contentLine
+// It deliberately does not flag uncited lines. Whether a line needs a
+// citation is an authoring judgment; what doctor guards is that a pointer
+// which reads as evidence still resolves, so a broken reference is the signal
+// and the absence of one is not.
+func validateDistilledStateProvenance(body string, dossierID string, info ArtifactInfo) []string {
+	var issues []string
 	inFence := false
-	inEvidenceSection := false
 	for i, line := range strings.Split(body, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") {
 			inFence = !inFence
 			continue
 		}
-		if inFence {
+		if inFence || !strings.Contains(trimmed, "[src:") {
 			continue
 		}
-		if strings.HasPrefix(trimmed, "#") {
-			inEvidenceSection = isEvidenceHeading(trimmed)
-			continue
-		}
-		if trimmed == "" ||
-			strings.HasPrefix(trimmed, "---") ||
-			strings.HasPrefix(trimmed, ">") ||
-			inEvidenceSection ||
-			strings.Contains(trimmed, "[assumed]") {
-			continue
-		}
-		out = append(out, contentLine{Number: i + 1, Text: trimmed})
-	}
-	return out
-}
-
-// isEvidenceHeading reports whether a trimmed heading line is the "Evidence"
-// section header (of any level), matched by name so the exemption doesn't
-// depend on the heading's exact depth.
-func isEvidenceHeading(trimmed string) bool {
-	return strings.EqualFold(strings.TrimSpace(strings.TrimLeft(trimmed, "#")), "Evidence")
-}
-
-// validateDistilledStateProvenance checks that every content line carries a
-// citation, that each citation names a real artifact, and that any cited line
-// range actually exists in that artifact.
-func validateDistilledStateProvenance(body string, dossierID string, info ArtifactInfo) []string {
-	var issues []string
-
-	for _, cl := range bodyContentLines(body) {
-		n, trimmed := cl.Number, cl.Text
+		n := i + 1
 		refs := provenanceRefRE.FindAllStringSubmatch(trimmed, -1)
 		if strings.Count(trimmed, "[src:") != len(refs) {
 			issues = append(issues, fmt.Sprintf("Dossier %s line %d has malformed provenance reference", dossierID, n))
-			continue
-		}
-		if len(refs) == 0 {
-			issues = append(issues, fmt.Sprintf("Dossier %s line %d is missing provenance", dossierID, n))
 			continue
 		}
 		for _, m := range refs {

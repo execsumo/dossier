@@ -643,7 +643,7 @@ dossier doctor
 - Validates store integrity.
 - Checks YAML frontmatter.
 - Checks missing artifact links.
-- Checks provenance references.
+- Checks provenance references that are present resolve (missing artifact, out-of-range lines); does not flag uncited lines.
 - Checks harness installation/capability status.
 - Prints warnings and suggested fixes.
 
@@ -1151,7 +1151,7 @@ Checks:
 ### 14.3 Provenance
 
 - Sample generated Dossiers include provenance on every material claim.
-- `dossier doctor` reports missing provenance.
+- `dossier doctor` reports broken provenance (a citation naming a missing artifact, an unparseable fragment, or a line range past the artifact's end). Uncited lines are an authoring judgment and are not reported.
 - Provenance links resolve to artifacts or line ranges where available.
 - A working file written into `<slug>/artifacts/` without artifact frontmatter is reported by `dossier doctor` rather than silently omitted from the evidence index; `<slug>/files/` holds loose work and is not reported.
 

@@ -93,26 +93,8 @@ func TestValidateDistilledStateProvenanceChecksLineRanges(t *testing.T) {
 			wantSub: "has malformed provenance reference",
 		},
 		{
-			name:    "uncited claim",
-			body:    "## Findings\n- [observed] Lock contention.",
-			wantSub: "is missing provenance",
-		},
-		{
 			name: "headings and fences are exempt",
 			body: "# Title\n\n## Findings\n\n```\nraw block with no citation\n```\n",
-		},
-		{
-			name: "Evidence section lines are exempt (they describe the archive, not a claim)",
-			body: "## Evidence\n- `art_ok` (transcript, 100 lines): full session capture; background only.",
-		},
-		{
-			name: "an assumed line is exempt (unverified by definition, nothing to cite)",
-			body: "## Findings\n- [assumed] Production concurrency resembles the load-test profile; unverified against telemetry.",
-		},
-		{
-			name:    "a claim still needs provenance outside the Evidence section",
-			body:    "## Findings\n- [observed] Lock contention.\n## Evidence\n- `art_ok` (transcript, 100 lines): full session capture.",
-			wantSub: "is missing provenance",
 		},
 	}
 
@@ -209,7 +191,7 @@ func TestDoctorFlagsUnresolvableLineRange(t *testing.T) {
 	}
 }
 
-func TestDoctorAdvisesOnUncitedEvidenceWithoutFailing(t *testing.T) {
+func TestDoctorIgnoresUncitedEvidence(t *testing.T) {
 	now := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
 	fakeStore := newLocalFakeStore()
 	fakeStore.dossiers["dos_thin"] = &Dossier{
@@ -246,12 +228,13 @@ func TestDoctorAdvisesOnUncitedEvidenceWithoutFailing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Doctor failed: %v", err)
 	}
-	// Under-citation is a distillation smell, not store damage: advise, do not fail.
+	// Under-citation is an authoring judgment, not store damage or a broken
+	// pointer: doctor stays quiet. Save and Recall still surface it to the agent.
 	if !res.OK {
-		t.Fatalf("uncited evidence must be advisory, not a doctor failure:\n%s", warningsText(res.Warnings))
+		t.Fatalf("uncited evidence must not fail doctor:\n%s", warningsText(res.Warnings))
 	}
-	if !strings.Contains(warningsText(res.Warnings), "art_orphan") {
-		t.Fatalf("expected an uncited-evidence advisory naming art_orphan, got:\n%s", warningsText(res.Warnings))
+	if strings.Contains(warningsText(res.Warnings), "art_orphan") {
+		t.Fatalf("doctor must not report uncited evidence, got:\n%s", warningsText(res.Warnings))
 	}
 }
 
@@ -269,5 +252,31 @@ func TestUncitedArtifactsExemptsTranscripts(t *testing.T) {
 	}
 	if msg := uncitedArtifactWarning(body, artifacts); strings.Contains(msg, "art_transcript") {
 		t.Fatalf("uncited warning must not name the transcript artifact, got: %q", msg)
+	}
+}
+
+func TestUncitedLinesAreNotFlagged(t *testing.T) {
+	body := "# Title\n\n## Objective\nShip the offer.\n\n## Situation\nLaunch slipped a week.\n\n" +
+		"## Findings\n- [observed] Lock contention at 200ms.\n- [assumed] Load resembles prod.\n\n" +
+		"## Next Steps\n- Draft the brief.\n"
+	issues := validateDistilledStateProvenance(body, "dos_1", func(string) (int, bool) { return 0, false })
+	if len(issues) != 0 {
+		t.Fatalf("issues = %v, want none: uncited lines are not doctor's concern", issues)
+	}
+}
+
+func TestBrokenCitationsStillReportedAmongUncitedLines(t *testing.T) {
+	body := "## Situation\nUncited context.\n- Cited claim. [src:art_gone#L1-L2]\nMore uncited context."
+	issues := validateDistilledStateProvenance(body, "dos_1", func(string) (int, bool) { return 0, false })
+	if len(issues) != 1 || !strings.Contains(issues[0], "line 3 references missing artifact art_gone") {
+		t.Fatalf("issues = %v, want exactly the missing-artifact issue on line 3", issues)
+	}
+}
+
+func TestCitationsInsideFencesAreIgnored(t *testing.T) {
+	body := "```\n[src:art_gone]\n```\n"
+	issues := validateDistilledStateProvenance(body, "dos_1", func(string) (int, bool) { return 0, false })
+	if len(issues) != 0 {
+		t.Fatalf("issues = %v, want none", issues)
 	}
 }

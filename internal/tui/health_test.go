@@ -75,3 +75,34 @@ func TestHealthKeyOpensScrollableDoctorOverlay(t *testing.T) {
 		t.Fatalf("health overlay missing title:\n%s", stripANSI(m.View()))
 	}
 }
+
+func TestHealthCheckDoesNotFloodStatusArea(t *testing.T) {
+	m := NewModel(setupTestService(newTestStore()))
+	m.width, m.height = 100, 30
+	report := core.DoctorReport{}
+	for i := 0; i < 50; i++ {
+		report.Issues = append(report.Issues, "Dossier dos_x line 5 references missing artifact art_gone")
+	}
+	updated, _ := m.Update(healthMsg{summary: core.HealthSummaryFromDoctor(report), report: report})
+	got := stripANSI(updated.(Model).footerContent(ViewDashboard))
+	if strings.Contains(got, "missing artifact") || strings.Contains(got, "more status message") {
+		t.Fatalf("doctor findings leaked into the dashboard status area:\n%s", got)
+	}
+	if !strings.Contains(got, "Store · 50 issues · H for details") {
+		t.Fatalf("footer does not point at the health overlay:\n%s", got)
+	}
+}
+
+func TestStatusOverflowCountsMessagesNotWrappedLines(t *testing.T) {
+	m := NewModel(setupTestService(newTestStore()))
+	m.width, m.height = 40, 30
+	long := strings.Repeat("word ", 30) // wraps across several lines at width 40
+	for i := 0; i < 5; i++ {
+		m.warnings = append(m.warnings, core.Warning(long))
+	}
+	lines := m.statusLines()
+	last := stripANSI(lines[len(lines)-1])
+	if !strings.Contains(last, "… 5 more status message(s)") {
+		t.Fatalf("overflow line = %q, want 5 hidden messages (first is cut part-way)", last)
+	}
+}
