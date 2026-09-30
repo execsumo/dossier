@@ -71,6 +71,8 @@ Store layout:
     guide.md
   sessions/
     <session-binding-id>.json
+  archive/
+    <slug>/               # done Dossiers; same layout as a live <slug>/
   <slug>/
     dossier.md
     artifacts/
@@ -88,6 +90,8 @@ Store layout:
         <session-id>.md
     audit.log
 ```
+
+**Done Dossiers live under `archive/`.** While a Dossier's status is anything other than `done`, its folder is `<slug>/` at the store root. Setting the status to `done` (by any path: `dossier done`, `dossier status`, `dossier_save`/`dossier_update`) moves the complete folder to `archive/<slug>/` in one same-store rename; moving the status back out of `done` moves it back. `archive` is a reserved slug (like `context` and `sessions`). The move is not a rename: slug, ID, revision history, and audit are unchanged, and every lookup by slug or ID, list, search, conflict listing, and `doctor` scan covers both locations. There is no migration: a done Dossier still at the store root keeps resolving and is moved into `archive/` on its next write.
 
 `<slug>/artifacts/` is a **frontmatter-only namespace**: it is parsed, not scanned. A file without valid artifact frontmatter is skipped by the evidence index, carries no `art_` id to cite, and never enters the revision hash — while still surfacing in `dossier search`, so it reads as captured evidence while being none. `dossier doctor` reports such a file as an issue. `<slug>/files/` is the namespace for loose deliverables, scratch, and user attachments; promote one to evidence with `dossier link --from-file`.
 
@@ -539,7 +543,7 @@ dossier doctor
 `dossier rename`
 
 - Changes the title or canonical slug while preserving the immutable Dossier ID.
-- With `--title <title>`, updates the human-readable title without moving the directory. With `--slug <slug>` (or a positional value), moves the complete `<slug>/` directory in one same-parent filesystem rename; artifacts, files, conflicts, history, audit shards, and machine-local session stashes move together.
+- With `--title <title>`, updates the human-readable title without moving the directory. With `--slug <slug>` (or a positional value), moves the complete `<slug>/` (or `archive/<slug>/`) directory in one same-parent filesystem rename; artifacts, files, conflicts, history, audit shards, and machine-local session stashes move together.
 - Rejects blank titles, malformed/reserved slugs or canonical slugs owned by another Dossier, occupied destination directories, and stale `--base-revision` values.
 - Omitting `--base-revision` performs an immediate recall and uses that revision for the optimistic-concurrency check.
 
@@ -552,7 +556,7 @@ dossier doctor
 
 `dossier done` / `dossier archive`
 
-- Sets status to `done`.
+- Sets status to `done` and moves the Dossier folder from `<slug>/` to `archive/<slug>/` (§3.2).
 - Hides Dossier from default open-work view.
 - Does not delete files.
 

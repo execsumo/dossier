@@ -30,7 +30,7 @@ Multiple colleagues' Claude Code sessions contribute to one shared Dossier store
 
 ## Repo/store shape
 
-`DOSSIER_HOME` itself becomes the git working tree (one store, no parallel trees). A generated `.gitignore` excludes the machine-local set above. Slug folders, `history/`, `conflicts/`, `artifacts/` and per-author `audit/` sync. Per-author `<slug>/sessions/` does **not**: the stash is a byte-for-byte harness trace with no reader in the codebase, and a `[src:]` range into raw JSONL lands mid-record and cites nothing — syncing it would ship the rawest content (unedited prompts, thinking, every tool result) while adding no depth a teammate can reach. The compiled transcript artifact is the shared depth layer. `history/` files are revision-content-addressed (`rev_*.md`) so identical writes are idempotent and conflict-free.
+`DOSSIER_HOME` itself becomes the git working tree (one store, no parallel trees). A generated `.gitignore` excludes the machine-local set above. Slug folders (live at `<slug>/`, done at `archive/<slug>/`), `history/`, `conflicts/`, `artifacts/` and per-author `audit/` sync. Per-author `<slug>/sessions/` does **not**: the stash is a byte-for-byte harness trace with no reader in the codebase, and a `[src:]` range into raw JSONL lands mid-record and cites nothing — syncing it would ship the rawest content (unedited prompts, thinking, every tool result) while adding no depth a teammate can reach. The compiled transcript artifact is the shared depth layer. `history/` files are revision-content-addressed (`rev_*.md`) so identical writes are idempotent and conflict-free.
 
 ---
 

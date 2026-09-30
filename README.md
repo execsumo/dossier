@@ -188,7 +188,7 @@ Both views — the table and the board — are thin layers over the same core as
 
 ## How it works
 
-Each Dossier is a directory under `~/.dossier/<slug>/`:
+Each Dossier is a directory under `~/.dossier/<slug>/`. When it is marked `done` the whole directory moves to `~/.dossier/archive/<slug>/` (and moves back if reopened):
 
 - **Distilled State** — one canonical operational brief: Objective, Done When, Validation, Constraints, and the context needed to act, with conversational noise removed. It is not optimized for terseness.
 - **Archive** — the captured source artifacts that the distilled claims cite. `artifacts/` holds registered evidence only; use `dossier link --from-file` to add to it.
