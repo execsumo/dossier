@@ -120,7 +120,7 @@ func ValidateCanonicalSlug(slug string) error {
 	if !canonicalSlugPattern.MatchString(slug) {
 		return fmt.Errorf("slug must contain only lowercase ASCII letters, digits, and single hyphens")
 	}
-	if slug == "context" || slug == "sessions" {
+	if slug == "context" || slug == "sessions" || slug == "archive" {
 		return fmt.Errorf("slug %q is reserved", slug)
 	}
 	return nil

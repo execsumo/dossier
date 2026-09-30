@@ -1222,3 +1222,67 @@ func TestTwoAuthorSimulation(t *testing.T) {
 		}
 	}
 }
+
+func TestFSStoreDoneDossiersLiveUnderArchive(t *testing.T) {
+	home := t.TempDir()
+	store := NewFSStore(home)
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	now := time.Now().Truncate(time.Second)
+	d := &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID: "dos_arch", Name: "Archive Me", Slug: "archive-me",
+			CreatedAt: now, UpdatedAt: now, Status: core.StatusExecute, Priority: core.PriorityMedium,
+		},
+		DistilledState: core.DistilledState{Body: "# State\n"},
+	}
+	rev, err := store.Write(d, "")
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	live := filepath.Join(home, "archive-me", "dossier.md")
+	archived := filepath.Join(home, "archive", "archive-me", "dossier.md")
+	if _, err := os.Stat(live); err != nil {
+		t.Fatalf("live dossier missing: %v", err)
+	}
+
+	d.Frontmatter.Status = core.StatusDone
+	rev, err = store.Write(d, rev)
+	if err != nil {
+		t.Fatalf("Write(done) error = %v", err)
+	}
+	if _, err := os.Stat(archived); err != nil {
+		t.Fatalf("archived dossier missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(live)); !os.IsNotExist(err) {
+		t.Fatalf("live dir still present: %v", err)
+	}
+	for _, key := range []string{"archive-me", "dos_arch"} {
+		if got, _, err := store.Read(key); err != nil || got.Frontmatter.Status != core.StatusDone {
+			t.Fatalf("Read(%s) = %v, %v", key, got, err)
+		}
+	}
+	if list, err := store.List("all"); err != nil || len(list) != 1 {
+		t.Fatalf("List(all) = %d, %v", len(list), err)
+	}
+
+	if _, _, err := store.RenameSlug("dos_arch", "archived-renamed", rev); err != nil {
+		t.Fatalf("RenameSlug() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "archive", "archived-renamed", "dossier.md")); err != nil {
+		t.Fatalf("rename left archive: %v", err)
+	}
+
+	got, rev, err := store.Read("dos_arch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got.Frontmatter.Status = core.StatusExecute
+	if _, err := store.Write(got, rev); err != nil {
+		t.Fatalf("reopen Write() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "archived-renamed", "dossier.md")); err != nil {
+		t.Fatalf("reopened dossier not back at root: %v", err)
+	}
+}

@@ -39,20 +39,11 @@ func (n *NativeSearcher) Search(ctx context.Context, query string, scope core.Se
 	if scope.DossierID != "" {
 		// Single dossier search scope
 		// We scan all directories to find the one matching the ID
-		entries, err := os.ReadDir(n.dossierHome)
+		paths, err := store.DossierDirs(n.dossierHome)
 		if err != nil {
 			return nil, err
 		}
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			name := entry.Name()
-			if name == "context" || name == "sessions" || strings.HasPrefix(name, ".") {
-				continue
-			}
-
-			dirPath := filepath.Join(n.dossierHome, name)
+		for _, dirPath := range paths {
 			data, err := os.ReadFile(filepath.Join(dirPath, "dossier.md"))
 			if err != nil {
 				continue
@@ -65,23 +56,14 @@ func (n *NativeSearcher) Search(ctx context.Context, query string, scope core.Se
 		}
 	} else {
 		// Global search scope
-		entries, err := os.ReadDir(n.dossierHome)
+		paths, err := store.DossierDirs(n.dossierHome)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return nil, nil
 			}
 			return nil, err
 		}
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			name := entry.Name()
-			if name == "context" || name == "sessions" || strings.HasPrefix(name, ".") {
-				continue
-			}
-			dirsToSearch = append(dirsToSearch, filepath.Join(n.dossierHome, name))
-		}
+		dirsToSearch = append(dirsToSearch, paths...)
 	}
 
 	// 2. Perform search in each directory
