@@ -176,3 +176,71 @@ func uncitedArtifactWarning(body string, artifacts []Artifact) string {
 		"%d archived artifact(s) are not cited by the Distilled State: %s%s. Archived evidence the curated view never points at is unreachable in practice; add [src:] citations or record why it is not material.",
 		len(ids), strings.Join(shown, ", "), suffix)
 }
+
+// CollapseProvenance rewrites every [src:...] citation outside code fences as a
+// superscript footnote number and appends a Sources list mapping each number to
+// its artifact and line range. It is a display transform for human viewers: the
+// stored Distilled State keeps the full citation, which is what agents follow.
+// Numbers are assigned by first appearance, so a repeated citation reuses its
+// number and the numbering is stable across re-renders of the same body.
+func CollapseProvenance(body string) string {
+	if !strings.Contains(body, "[src:") {
+		return body
+	}
+	var sources []string
+	index := map[string]int{}
+	inFence := false
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence || !strings.Contains(line, "[src:") {
+			continue
+		}
+		prevEnd := -1
+		var sb strings.Builder
+		last := 0
+		for _, loc := range provenanceRefRE.FindAllStringSubmatchIndex(line, -1) {
+			raw := line[loc[0]:loc[1]]
+			label := line[loc[2]:loc[3]]
+			if loc[4] >= 0 {
+				label += " " + strings.TrimPrefix(line[loc[4]:loc[5]], "#")
+			}
+			n, ok := index[raw]
+			if !ok {
+				sources = append(sources, label)
+				n = len(sources)
+				index[raw] = n
+			}
+			sb.WriteString(line[last:loc[0]])
+			if prevEnd == loc[0] {
+				sb.WriteString(" ")
+			}
+			sb.WriteString(superscript(n))
+			last, prevEnd = loc[1], loc[1]
+		}
+		sb.WriteString(line[last:])
+		lines[i] = sb.String()
+	}
+	if len(sources) == 0 {
+		return body
+	}
+	var out strings.Builder
+	out.WriteString(strings.Join(lines, "\n"))
+	out.WriteString("\n\n---\n\n")
+	for i, label := range sources {
+		fmt.Fprintf(&out, "%s `%s`  \n", superscript(i+1), label)
+	}
+	return out.String()
+}
+
+func superscript(n int) string {
+	digits := []rune("⁰¹²³⁴⁵⁶⁷⁸⁹")
+	var sb strings.Builder
+	for _, c := range strconv.Itoa(n) {
+		sb.WriteRune(digits[c-'0'])
+	}
+	return sb.String()
+}
