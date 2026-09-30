@@ -501,7 +501,10 @@ type Model struct {
 	// Cached markdown renderer, rebuilt only when the wrap width changes.
 	mdRenderer      *glamour.TermRenderer
 	mdRendererWidth int
-	help            help.Model
+	// showSourceRefs keeps raw [src:...] citations visible in the detail view;
+	// by default they collapse to footnote numbers (toggled with s).
+	showSourceRefs bool
+	help           help.Model
 
 	// Seams for the configured agent handoff, defaulted in NewModel. They exist
 	// so tests can press 'c' without an agent binary on PATH and without ever
@@ -1425,6 +1428,15 @@ func priorityBefore(a, b core.Priority) bool {
 	}
 }
 
+// renderDistilledState renders the brief for a human reader, collapsing
+// provenance citations to footnotes unless the raw form was asked for.
+func (m *Model) renderDistilledState(body string) string {
+	if !m.showSourceRefs {
+		body = core.CollapseProvenance(body)
+	}
+	return m.renderMarkdown(body)
+}
+
 func (m *Model) renderMarkdown(content string) string {
 	wrapWidth := m.width - 2 // small margin
 	if wrapWidth < 40 {
@@ -1988,6 +2000,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.startLinkInput()
 				return m, nil
 			}
+		case "s":
+			if m.currentView == ViewDetail && m.recallResult.Frontmatter.ID != "" {
+				m.showSourceRefs = !m.showSourceRefs
+				m.viewport.SetContent(m.renderDistilledState(m.recallResult.DistilledState))
+				return m, nil
+			}
 		case "v":
 			// The board leg is handled in its view-specific block. From detail,
 			// v is the same back-to-previous-view action as esc/left.
@@ -2022,7 +2040,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// when the user returns to it. SetContent and the layout helpers preserve
 		// each viewport's independent scroll offset (clamped to its new bounds).
 		if m.recallResult.Frontmatter.ID != "" {
-			m.viewport.SetContent(m.renderMarkdown(m.recallResult.DistilledState))
+			m.viewport.SetContent(m.renderDistilledState(m.recallResult.DistilledState))
 			m.viewport.SetYOffset(m.viewport.YOffset)
 		}
 		if m.artifactContent.ID != "" {
@@ -2143,7 +2161,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.syncWatches(watchPaths)
 
 			m.applyResultStatus(msg.warnings, msg.nextActions)
-			m.viewport.SetContent(m.renderMarkdown(msg.result.DistilledState))
+			m.viewport.SetContent(m.renderDistilledState(msg.result.DistilledState))
 			m.recalculateViewportLayout()
 			m.viewport.YOffset = 0
 			if m.currentView == ViewContracts {
