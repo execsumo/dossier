@@ -468,6 +468,20 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 		d.Frontmatter.ID = id
 	}
 
+	// A status change that relocates the directory (live <-> archive/) must not
+	// race Team Sync's working-tree checkout, same as Rename. Ordinary saves never
+	// take this lock, so they stay independent of the network. Lock order matches
+	// Rename: sync, namespace, dossier.
+	if base != "" {
+		if cur, err := s.findDossierDir(id); err == nil && cur != s.dirForStatus(slug, d.Frontmatter.Status) {
+			syncLock, err := Lock(filepath.Clean(s.dossierHome) + ".sync.lock")
+			if err != nil {
+				return "", fmt.Errorf("failed to acquire sync lock: %w", err)
+			}
+			defer syncLock.Unlock()
+		}
+	}
+
 	// New dossiers claim a top-level namespace entry. Existing writes use a
 	// stable ID lock; slug movement is reserved for RenameSlug below.
 	if base == "" {

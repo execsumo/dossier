@@ -24,7 +24,7 @@ import (
 //
 // Root entries are anchored with a leading "/" so per-slug subdirectories of the
 // same name are unaffected; "*/sessions/" matches exactly one level down, which
-// is every dossier slug (the topic model is flat).
+// is every live dossier slug; done dossiers sit under archive/ and get their own entries.
 var defaultGitignoreEntries = []string{
 	"# Dossier sync — machine-local, never committed (managed by internal/sync)",
 	"/config.yaml",
@@ -32,6 +32,8 @@ var defaultGitignoreEntries = []string{
 	"/sessions/",          // root session bindings
 	"*/sessions/",         // per-slug raw session stash — write-only, never citable
 	"*/artifacts/*_raw.*", // byte-preserved raw promote transcripts — local-only
+	"archive/*/sessions/", // the same two, for done dossiers under archive/
+	"archive/*/artifacts/*_raw.*",
 	"/context/",
 	"/.locks/",
 	".lock",

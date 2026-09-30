@@ -3,6 +3,7 @@ package sync
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -27,6 +28,22 @@ type dossierRenamePlan struct {
 	targetPath string
 }
 
+// splitDossierPath splits a repo-relative path into its dossier directory
+// ("<slug>" or "archive/<slug>" for done dossiers) and the remainder, which
+// keeps its leading slash.
+func splitDossierPath(p string) (dir, rest string) {
+	parts := strings.SplitN(p, "/", 3)
+	n := 1
+	if parts[0] == "archive" && len(parts) > 1 {
+		n = 2
+	}
+	if len(parts) <= n {
+		return p, ""
+	}
+	dir = strings.Join(parts[:n], "/")
+	return dir, p[len(dir):]
+}
+
 func indexTreeDossiers(tree *object.Tree) map[string]treeDossier {
 	out := map[string]treeDossier{}
 	if tree == nil {
@@ -34,7 +51,10 @@ func indexTreeDossiers(tree *object.Tree) map[string]treeDossier {
 	}
 	files := tree.Files()
 	_ = files.ForEach(func(file *object.File) error {
-		if !strings.HasSuffix(file.Name, "/dossier.md") || strings.Count(file.Name, "/") != 1 {
+		if !strings.HasSuffix(file.Name, "/dossier.md") {
+			return nil
+		}
+		if dir, rest := splitDossierPath(file.Name); rest != "/dossier.md" || dir == "archive" {
 			return nil
 		}
 		content, err := file.Contents()
@@ -76,11 +96,8 @@ func dossierRenamePlans(baseTree, localTree, remoteTree *object.Tree) map[string
 	return plans
 }
 
-func renamePlanForPath(path string, plans map[string]dossierRenamePlan) (dossierRenamePlan, bool) {
-	top := path
-	if i := strings.IndexByte(path, '/'); i >= 0 {
-		top = path[:i]
-	}
+func renamePlanForPath(p string, plans map[string]dossierRenamePlan) (dossierRenamePlan, bool) {
+	top, _ := splitDossierPath(p)
 	for _, plan := range plans {
 		if top == plan.basePath || top == plan.localPath || top == plan.remotePath {
 			return plan, true
@@ -89,20 +106,16 @@ func renamePlanForPath(path string, plans map[string]dossierRenamePlan) (dossier
 	return dossierRenamePlan{}, false
 }
 
-func logicalRenamePath(path string, plans map[string]dossierRenamePlan) string {
-	plan, ok := renamePlanForPath(path, plans)
+func logicalRenamePath(p string, plans map[string]dossierRenamePlan) string {
+	plan, ok := renamePlanForPath(p, plans)
 	if !ok {
-		return path
+		return p
 	}
-	top := path
-	rest := ""
-	if i := strings.IndexByte(path, '/'); i >= 0 {
-		top, rest = path[:i], path[i:]
-	}
+	top, rest := splitDossierPath(p)
 	if top == plan.basePath || top == plan.localPath || top == plan.remotePath {
 		return plan.targetPath + rest
 	}
-	return path
+	return p
 }
 
 func logicalChangeSources(paths map[string]struct{}, tree *object.Tree, plans map[string]dossierRenamePlan) map[string]string {
@@ -127,7 +140,7 @@ func rewriteRenamedDossier(content []byte, plan dossierRenamePlan) ([]byte, erro
 	if fm.ID != plan.id {
 		return nil, fmt.Errorf("dossier ID %q does not match rename plan %q", fm.ID, plan.id)
 	}
-	fm.Slug = plan.targetPath
+	fm.Slug = path.Base(plan.targetPath)
 	formatted, err := store.FormatDossierFile(*fm, body)
 	return []byte(formatted), err
 }
@@ -144,6 +157,9 @@ func prepareWorkingTreeRenames(storeDir string, plans map[string]dossierRenamePl
 		}
 		if _, err := os.Lstat(dst); err == nil {
 			return fmt.Errorf("cannot reconcile dossier rename %s: destination %s already exists", plan.id, plan.targetPath)
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			return err
 		}
 		if err := os.Rename(src, dst); err != nil {
 			return fmt.Errorf("move local dossier %s to remote slug %s: %w", plan.localPath, plan.targetPath, err)
