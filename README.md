@@ -65,7 +65,7 @@ leads:
 token_limit: 100000
 ```
 
-Interface and lead selectors follow the configured order after restarting Dossier. Existing configs that omit `interfaces` retain the original seven defaults. An empty `leads` list keeps lead entry free-form; once leads are listed, new assignments must use one of them. The `token_limit` sets the warning ceiling for Distilled State tokens (defaults to 100000). `open_with` controls which terminal agent the TUI's `c` key and `dossier open` launch; it accepts `claude-code`, `cursor`, `codex`, `pi`, or `antigravity` (`agy`). The launch prompt is built into Dossier and is not stored in this file. The file remains machine-local and is never team-synced.
+Interface and lead selectors follow the configured order after restarting Dossier. Existing configs that omit `interfaces` retain the original seven defaults. An empty `leads` list keeps lead entry free-form; once leads are listed, new assignments must use one of them. The `token_limit` sets the warning ceiling for Distilled State tokens (defaults to 100000). `open_with` controls which terminal agent the TUI's `c` key and `dossier open` launch; it accepts `claude-code`, `cursor`, `codex`, `pi`, or `antigravity` (`agy`). The launch prompt is built into Dossier and is not stored in this file. When the TUI runs inside [herdr](https://herdr.dev) (`HERDR_ENV=1`), `c` opens the agent in a new, focused split pane to the right and the TUI keeps running; if herdr can't be driven, it warns and launches in the current terminal as before. The file remains machine-local and is never team-synced.
 
 ## Using it
 
@@ -188,7 +188,7 @@ Both views — the table and the board — are thin layers over the same core as
 
 ## How it works
 
-Each Dossier is a directory under `~/.dossier/<slug>/`:
+Each Dossier is a directory under `~/.dossier/<slug>/`. When it is marked `done` the whole directory moves to `~/.dossier/archive/<slug>/` (and moves back if reopened):
 
 - **Distilled State** — one canonical operational brief: Objective, Done When, Validation, Constraints, and the context needed to act, with conversational noise removed. It is not optimized for terseness.
 - **Archive** — the captured source artifacts that the distilled claims cite. `artifacts/` holds registered evidence only; use `dossier link --from-file` to add to it.

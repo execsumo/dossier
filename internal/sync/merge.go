@@ -121,12 +121,9 @@ func stashMachineLocal(storeDir string) func() {
 		dst string
 	}
 	var perDossier []dossierSessions
-	if entries, readErr := os.ReadDir(storeDir); readErr == nil {
-		for i, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			data, readErr := os.ReadFile(filepath.Join(storeDir, entry.Name(), "dossier.md"))
+	if dirs, readErr := store.DossierDirs(storeDir); readErr == nil {
+		for i, dir := range dirs {
+			data, readErr := os.ReadFile(filepath.Join(dir, "dossier.md"))
 			if readErr != nil {
 				continue
 			}
@@ -134,7 +131,7 @@ func stashMachineLocal(storeDir string) func() {
 			if parseErr != nil || fm.ID == "" {
 				continue
 			}
-			src := filepath.Join(storeDir, entry.Name(), "sessions")
+			src := filepath.Join(dir, "sessions")
 			if _, statErr := os.Lstat(src); statErr != nil {
 				continue
 			}
@@ -171,21 +168,18 @@ func stashMachineLocal(storeDir string) func() {
 }
 
 func dossierDirByID(storeDir, id string) string {
-	entries, err := os.ReadDir(storeDir)
+	dirs, err := store.DossierDirs(storeDir)
 	if err != nil {
 		return ""
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(storeDir, entry.Name(), "dossier.md"))
+	for _, dir := range dirs {
+		data, err := os.ReadFile(filepath.Join(dir, "dossier.md"))
 		if err != nil {
 			continue
 		}
 		fm, _, err := store.ParseDossierFile(string(data))
 		if err == nil && fm.ID == id {
-			return filepath.Join(storeDir, entry.Name())
+			return dir
 		}
 	}
 	return ""

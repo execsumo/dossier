@@ -1962,6 +1962,7 @@ type claudeSpy struct {
 }
 
 func (s *claudeSpy) install(m Model) Model {
+	m.inHerdr = func() bool { return false }
 	m.planOpenWith = func(_ string, req harness.LaunchRequest) (harness.HandoffPlan, error) {
 		if s.binErr != nil {
 			return harness.HandoffPlan{}, s.binErr
@@ -1980,6 +1981,49 @@ func (s *claudeSpy) install(m Model) Model {
 		return func() tea.Msg { return fn(nil) }
 	}
 	return m
+}
+
+func TestOpenInClaudeInHerdrUsesSplitPane(t *testing.T) {
+	store := newTestStore()
+	m := claudeTestModel(t, store)
+	spy := &claudeSpy{bin: "/usr/bin/claude"}
+	m = spy.install(m)
+	var launched []harness.HandoffPlan
+	var launchErr error
+	m.inHerdr = func() bool { return true }
+	m.launchInHerdr = func(p harness.HandoffPlan) error {
+		launched = append(launched, p)
+		return launchErr
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = newM.(Model)
+	if cmd == nil {
+		t.Fatal("expected a launch command")
+	}
+	msg, ok := cmd().(herdrLaunchMsg)
+	if !ok || len(launched) != 1 || spy.calls != 0 {
+		t.Fatalf("msg=%T launched=%d exec calls=%d; want herdr launch only", msg, len(launched), spy.calls)
+	}
+	if len(store.bindings) != 1 {
+		t.Errorf("expected one session binding, got %v", store.bindings)
+	}
+	newM, cmd = m.Update(msg)
+	m = newM.(Model)
+	if cmd != nil || m.err != nil {
+		t.Errorf("success should be quiet: cmd=%v err=%v", cmd != nil, m.err)
+	}
+
+	// A herdr failure falls back to taking over this terminal.
+	launchErr = fmt.Errorf("boom")
+	m.currentView = ViewDashboard
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	msg = cmd().(herdrLaunchMsg)
+	newM, cmd = m.Update(msg)
+	m = newM.(Model)
+	if cmd == nil || spy.calls != 1 {
+		t.Fatalf("expected a fallback exec, got cmd=%v calls=%d", cmd != nil, spy.calls)
+	}
 }
 
 // claudeTestModel seeds one dossier and returns a dashboard model focused on it.

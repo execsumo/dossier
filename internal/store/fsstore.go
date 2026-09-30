@@ -33,6 +33,81 @@ func NewFSStore(dossierHome string) *FSStore {
 	}
 }
 
+// archiveDirName is the store subdirectory holding done dossiers' slug folders.
+// Reserved: it can never be a dossier slug.
+const archiveDirName = "archive"
+
+type dossierEntry struct {
+	name string
+	path string
+}
+
+// dossierDirs lists every dossier directory: live ones directly under the store
+// root and done ones under archive/.
+func (s *FSStore) dossierDirs() ([]dossierEntry, error) {
+	entries, err := os.ReadDir(s.dossierHome)
+	if err != nil {
+		return nil, err
+	}
+	var out []dossierEntry
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if name == "context" || name == "sessions" || name == "conflicts" || strings.HasPrefix(name, ".") {
+			continue
+		}
+		if name == archiveDirName {
+			archived, err := os.ReadDir(filepath.Join(s.dossierHome, archiveDirName))
+			if err != nil {
+				continue
+			}
+			for _, a := range archived {
+				if a.IsDir() && !strings.HasPrefix(a.Name(), ".") {
+					out = append(out, dossierEntry{a.Name(), filepath.Join(s.dossierHome, archiveDirName, a.Name())})
+				}
+			}
+			continue
+		}
+		out = append(out, dossierEntry{name, filepath.Join(s.dossierHome, name)})
+	}
+	return out, nil
+}
+
+// DossierDirs returns every dossier directory (live and archived) under home.
+func DossierDirs(home string) ([]string, error) {
+	entries, err := NewFSStore(home).dossierDirs()
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, len(entries))
+	for i, e := range entries {
+		paths[i] = e.path
+	}
+	return paths, nil
+}
+
+// dirForStatus is where a dossier with this slug and status belongs.
+func (s *FSStore) dirForStatus(slug string, status core.Status) string {
+	if core.NormalizeStatus(status) == core.StatusDone {
+		return filepath.Join(s.dossierHome, archiveDirName, slug)
+	}
+	return filepath.Join(s.dossierHome, slug)
+}
+
+// slugPathTaken reports whether either placement of slug exists on disk.
+func (s *FSStore) slugPathTaken(slug string) (bool, error) {
+	for _, p := range []string{filepath.Join(s.dossierHome, slug), filepath.Join(s.dossierHome, archiveDirName, slug)} {
+		if _, err := os.Lstat(p); err == nil {
+			return true, nil
+		} else if !os.IsNotExist(err) {
+			return false, err
+		}
+	}
+	return false, nil
+}
+
 // lockDossier uses the immutable dossier ID, not its movable directory, so a
 // writer can never recreate the old slug directory after a concurrent rename.
 func (s *FSStore) lockDossier(id string) (*FileLock, error) {
@@ -255,7 +330,7 @@ func (s *FSStore) List(statusFilter string) ([]core.ListedFrontmatter, error) {
 // dossier because silently skipping it would weaken Promote's ambiguity check;
 // List retains its compatibility behavior of omitting malformed entries.
 func (s *FSStore) walkDossiers(statusFilter string, strict bool, visit func(name, dirPath string, fm *core.Frontmatter, body string) error) error {
-	entries, err := os.ReadDir(s.dossierHome)
+	entries, err := s.dossierDirs()
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -263,15 +338,8 @@ func (s *FSStore) walkDossiers(statusFilter string, strict bool, visit func(name
 		return err
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if name == "context" || name == "sessions" || strings.HasPrefix(name, ".") {
-			continue
-		}
-
-		dirPath := filepath.Join(s.dossierHome, name)
+		name := entry.name
+		dirPath := entry.path
 		dossierPath := filepath.Join(dirPath, "dossier.md")
 		data, err := os.ReadFile(dossierPath)
 		if err != nil {
@@ -400,6 +468,20 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 		d.Frontmatter.ID = id
 	}
 
+	// A status change that relocates the directory (live <-> archive/) must not
+	// race Team Sync's working-tree checkout, same as Rename. Ordinary saves never
+	// take this lock, so they stay independent of the network. Lock order matches
+	// Rename: sync, namespace, dossier.
+	if base != "" {
+		if cur, err := s.findDossierDir(id); err == nil && cur != s.dirForStatus(slug, d.Frontmatter.Status) {
+			syncLock, err := Lock(filepath.Clean(s.dossierHome) + ".sync.lock")
+			if err != nil {
+				return "", fmt.Errorf("failed to acquire sync lock: %w", err)
+			}
+			defer syncLock.Unlock()
+		}
+	}
+
 	// New dossiers claim a top-level namespace entry. Existing writes use a
 	// stable ID lock; slug movement is reserved for RenameSlug below.
 	if base == "" {
@@ -415,7 +497,7 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 	}
 	defer dossierLock.Unlock()
 
-	dossierDir := filepath.Join(s.dossierHome, slug)
+	dossierDir := s.dirForStatus(slug, d.Frontmatter.Status)
 
 	var existingDir string
 	if base != "" {
@@ -543,6 +625,16 @@ func (s *FSStore) Write(d *core.Dossier, base core.Revision) (core.Revision, err
 		return "", fmt.Errorf("failed to atomically rename temp file: %w", err)
 	}
 
+	// Done dossiers live under archive/; reopening moves them back.
+	if want := s.dirForStatus(slug, d.Frontmatter.Status); want != dossierDir {
+		if err := os.MkdirAll(filepath.Dir(want), 0755); err != nil {
+			return "", err
+		}
+		if err := os.Rename(dossierDir, want); err != nil {
+			return "", fmt.Errorf("move dossier directory to %s: %w", want, err)
+		}
+	}
+
 	newRevision := core.CalculateRevision(d.Frontmatter, d.DistilledState.Body, currentArtifacts)
 	return newRevision, nil
 }
@@ -616,11 +708,10 @@ func (s *FSStore) Rename(dossierID string, newSlug string, newName string, base 
 		} else if owner != "" && owner != dossierID {
 			return nil, "", core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("slug %q is already used by another dossier", newSlug))
 		}
-		newDir := filepath.Join(s.dossierHome, newSlug)
-		if _, err := os.Lstat(newDir); err == nil {
-			return nil, "", core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("slug %q is already occupied in the store", newSlug))
-		} else if !os.IsNotExist(err) {
+		if taken, err := s.slugPathTaken(newSlug); err != nil {
 			return nil, "", fmt.Errorf("inspect rename destination: %w", err)
+		} else if taken {
+			return nil, "", core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("slug %q is already occupied in the store", newSlug))
 		}
 
 	}
@@ -651,7 +742,7 @@ func (s *FSStore) Rename(dossierID string, newSlug string, newName string, base 
 		return nil, "", fmt.Errorf("write renamed dossier frontmatter: %w", err)
 	}
 	if slugChanged {
-		if err := os.Rename(oldDir, filepath.Join(s.dossierHome, newSlug)); err != nil {
+		if err := os.Rename(oldDir, filepath.Join(filepath.Dir(oldDir), newSlug)); err != nil {
 			if restoreErr := replaceReadOnlyFile(oldPath, oldData); restoreErr != nil {
 				return nil, "", fmt.Errorf("move dossier directory: %v (also failed to restore old frontmatter: %v)", err, restoreErr)
 			}
@@ -1135,21 +1226,13 @@ func (s *FSStore) ReadConflict(conflictID string) (*core.Conflict, error) {
 	if data, err := os.ReadFile(rootPath); err == nil {
 		return parseConflictFile(string(data))
 	}
-	entries, err := os.ReadDir(s.dossierHome)
+	entries, err := s.dossierDirs()
 	if err != nil {
 		return nil, err
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if name == "context" || name == "sessions" || name == "conflicts" || strings.HasPrefix(name, ".") {
-			continue
-		}
-
-		conflictPath := filepath.Join(s.dossierHome, name, "conflicts", fmt.Sprintf("%s.md", conflictID))
+		conflictPath := filepath.Join(entry.path, "conflicts", fmt.Sprintf("%s.md", conflictID))
 		if _, err := os.Stat(conflictPath); err == nil {
 			data, err := os.ReadFile(conflictPath)
 			if err != nil {
@@ -1164,7 +1247,7 @@ func (s *FSStore) ReadConflict(conflictID string) (*core.Conflict, error) {
 
 // ListConflicts lists active unresolved conflicts.
 func (s *FSStore) ListConflicts() ([]core.Conflict, error) {
-	entries, err := os.ReadDir(s.dossierHome)
+	entries, err := s.dossierDirs()
 	if err != nil {
 		return nil, err
 	}
@@ -1186,15 +1269,7 @@ func (s *FSStore) ListConflicts() ([]core.Conflict, error) {
 		}
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if name == "context" || name == "sessions" || name == "conflicts" || strings.HasPrefix(name, ".") {
-			continue
-		}
-
-		conflictsDir := filepath.Join(s.dossierHome, name, "conflicts")
+		conflictsDir := filepath.Join(entry.path, "conflicts")
 		confEntries, err := os.ReadDir(conflictsDir)
 		if err != nil {
 			continue
@@ -1292,15 +1367,12 @@ func slugMatches(fm *core.Frontmatter, value string) bool {
 
 // slugOwner returns the immutable ID that owns a canonical slug.
 func (s *FSStore) slugOwner(slug string) (string, error) {
-	entries, err := os.ReadDir(s.dossierHome)
+	entries, err := s.dossierDirs()
 	if err != nil {
 		return "", err
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "context" || entry.Name() == "sessions" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(s.dossierHome, entry.Name(), "dossier.md"))
+		data, err := os.ReadFile(filepath.Join(entry.path, "dossier.md"))
 		if err != nil {
 			continue
 		}
@@ -1320,50 +1392,39 @@ func (s *FSStore) findDossierDir(slugOrID string) (string, error) {
 	// resolve through the scan below, while traversal strings can never cause a
 	// read outside dossierHome.
 	if slugOrID == filepath.Base(slugOrID) && slugOrID != "." && slugOrID != ".." {
-		directPath := filepath.Join(s.dossierHome, slugOrID)
-		if info, err := os.Stat(directPath); err == nil && info.IsDir() {
-			if slugOrID != "context" && slugOrID != "sessions" {
-				if data, err := os.ReadFile(filepath.Join(directPath, "dossier.md")); err == nil {
-					if fm, _, err := ParseDossierFile(string(data)); err == nil && slugMatches(fm, slugOrID) {
-						return directPath, nil
-					}
+		for _, directPath := range []string{
+			filepath.Join(s.dossierHome, slugOrID),
+			filepath.Join(s.dossierHome, archiveDirName, slugOrID),
+		} {
+			if slugOrID == "context" || slugOrID == "sessions" || slugOrID == archiveDirName {
+				break
+			}
+			if data, err := os.ReadFile(filepath.Join(directPath, "dossier.md")); err == nil {
+				if fm, _, err := ParseDossierFile(string(data)); err == nil && slugMatches(fm, slugOrID) {
+					return directPath, nil
 				}
 			}
 		}
 	}
 
-	entries, err := os.ReadDir(s.dossierHome)
+	entries, err := s.dossierDirs()
 	if err != nil {
 		return "", err
 	}
-
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if name == "context" || name == "sessions" || strings.HasPrefix(name, ".") {
-			continue
-		}
-
-		dirPath := filepath.Join(s.dossierHome, name)
-		dossierPath := filepath.Join(dirPath, "dossier.md")
-		data, err := os.ReadFile(dossierPath)
+		data, err := os.ReadFile(filepath.Join(entry.path, "dossier.md"))
 		if err != nil {
 			continue
 		}
-
 		if !bytes.Contains(data, []byte(slugOrID)) {
 			continue
 		}
-
 		fm, _, err := ParseDossierFile(string(data))
 		if err != nil {
 			continue
 		}
-
 		if slugMatches(fm, slugOrID) {
-			return dirPath, nil
+			return entry.path, nil
 		}
 	}
 

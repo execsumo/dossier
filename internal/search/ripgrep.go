@@ -48,20 +48,12 @@ func (r *RipgrepSearcher) Search(ctx context.Context, query string, scope core.S
 	targetPath := r.dossierHome
 	if scope.DossierID != "" {
 		// Find dossier dir path
-		entries, err := os.ReadDir(r.dossierHome)
+		paths, err := store.DossierDirs(r.dossierHome)
 		if err != nil {
 			return nil, err
 		}
 		found := false
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			name := entry.Name()
-			if name == "context" || name == "sessions" || strings.HasPrefix(name, ".") {
-				continue
-			}
-			dirPath := filepath.Join(r.dossierHome, name)
+		for _, dirPath := range paths {
 			data, err := os.ReadFile(filepath.Join(dirPath, "dossier.md"))
 			if err != nil {
 				continue

@@ -511,6 +511,8 @@ type Model struct {
 	openWith                   string
 	planOpenWith               func(string, harness.LaunchRequest) (harness.HandoffPlan, error)
 	execProcess                func(*exec.Cmd, tea.ExecCallback) tea.Cmd
+	inHerdr                    func() bool
+	launchInHerdr              func(harness.HandoffPlan) error
 	openURL                    func(string) tea.Cmd
 
 	watcher      *fsnotify.Watcher
@@ -645,8 +647,10 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		persistConfiguredInterface: func(name string) error {
 			return persistInterfaceToConfig(filepath.Join(svc.DossierHome(), "config.yaml"), name)
 		},
-		execProcess: tea.ExecProcess,
-		openURL:     launchExternalURL,
+		execProcess:   tea.ExecProcess,
+		inHerdr:       harness.InHerdr,
+		launchInHerdr: harness.LaunchInHerdr,
+		openURL:       launchExternalURL,
 	}
 	if err != nil {
 		m.watcherErr = fmt.Errorf("filesystem watcher unavailable: %w", err)
@@ -1108,6 +1112,15 @@ func (m Model) openInAgent(t targetDossier) (tea.Model, tea.Cmd) {
 	}
 
 	id, fromView := t.id, m.currentView
+	if m.inHerdr() {
+		// Inside herdr the agent gets its own split pane and the TUI keeps running.
+		// If herdr can't do it, fall back to taking over this terminal (see
+		// herdrLaunchMsg) rather than leaving a binding for a session that never starts.
+		launch := m.launchInHerdr
+		return m, func() tea.Msg {
+			return herdrLaunchMsg{err: launch(plan), plan: plan, id: id, fromView: fromView}
+		}
+	}
 	return m, m.execProcess(plan.Command(), func(err error) tea.Msg {
 		return agentFinishedMsg{err: err, id: id, fromView: fromView}
 	})
@@ -2329,6 +2342,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = true
 		return m, m.recallDossierCmd(msg.id)
 
+	case herdrLaunchMsg:
+		if msg.err != nil {
+			m.warnings = []core.Warning{core.Warning("herdr split failed (" + msg.err.Error() + "); opening in this terminal instead")}
+			id, fromView := msg.id, msg.fromView
+			return m, m.execProcess(msg.plan.Command(), func(err error) tea.Msg {
+				return agentFinishedMsg{err: err, id: id, fromView: fromView}
+			})
+		}
+		m.warnings = []core.Warning{core.Warning("opened the agent in a new herdr pane to the right")}
+		return m, nil
+
 	case agentFinishedMsg:
 		if msg.err != nil {
 			m.err = msg.err
@@ -2403,6 +2427,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 type editorFinishedMsg struct {
 	err error
 	id  string
+}
+
+// herdrLaunchMsg reports the outcome of opening the agent in a herdr split. On
+// failure the plan is carried along so Update can fall back to an in-place exec.
+type herdrLaunchMsg struct {
+	err      error
+	plan     harness.HandoffPlan
+	id       string
+	fromView View
 }
 
 // agentFinishedMsg reports that a handed-off agent session has exited and

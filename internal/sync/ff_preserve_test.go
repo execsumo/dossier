@@ -6,6 +6,7 @@ import (
 	storepkg "dossier/internal/store"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -133,5 +134,51 @@ func TestSync_CloneReceivesExistingRemoteContent(t *testing.T) {
 	// The clone is the joiner's first successful pull.
 	if st := loadState(storeB); st.LastSuccessPull.IsZero() || st.LastAttempt.IsZero() {
 		t.Fatalf("clone did not record a successful pull: %+v", st)
+	}
+}
+
+func TestSync_DoneMoveToArchiveFollowsDossierID(t *testing.T) {
+	bareDir, storeA, storeB := setupPair(t)
+	fsA := storepkg.NewFSStore(storeA)
+	if err := fsA.Init(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Truncate(time.Second)
+	d := &core.Dossier{Frontmatter: core.Frontmatter{
+		ID: "dos_archive_sync", Name: "Archive Sync", Slug: "finish-me",
+		CreatedAt: now, UpdatedAt: now, Status: core.StatusExecute, Priority: core.PriorityMedium,
+	}}
+	rev, err := fsA.Write(d, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustSync(t, newSyncer(storeA, bareDir, "alice"))
+	mustSync(t, newSyncer(storeB, bareDir, "bob"))
+
+	stash := filepath.Join(storeB, "finish-me", "sessions", "bob", "session.md")
+	if err := os.MkdirAll(filepath.Dir(stash), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stash, []byte("private"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	d.Frontmatter.Status = core.StatusDone
+	if _, err := fsA.Write(d, rev); err != nil {
+		t.Fatal(err)
+	}
+	mustSync(t, newSyncer(storeA, bareDir, "alice"))
+	mustSync(t, newSyncer(storeB, bareDir, "bob"))
+
+	assertFile(t, storeB, "archive/finish-me/sessions/bob/session.md", "private")
+	if _, err := os.Stat(filepath.Join(storeB, "archive", "finish-me", "dossier.md")); err != nil {
+		t.Fatalf("archived dossier missing on B: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(storeB, "finish-me")); !os.IsNotExist(err) {
+		t.Fatalf("live directory remains on B: %v", err)
+	}
+	ignore, err := os.ReadFile(filepath.Join(storeA, ".gitignore"))
+	if err != nil || !strings.Contains(string(ignore), "archive/*/sessions/") {
+		t.Fatalf(".gitignore lacks archive session entry: %v", err)
 	}
 }
