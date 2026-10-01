@@ -147,6 +147,9 @@ Optional fields:
 - `lead`
 - `interfaces`
 - `due_date`
+- `attention` (optional machine-managed signal: `level` in `none|fyi|decide|blocked`, `summary` ≤140 characters, `since`, and `by`)
+
+Attention is set or cleared only by `agent:` or `system:` actors; it is read-only to humans and filterable by level. It is distinct from lifecycle status and `next_action`.
 
 The read schema accepts the legacy `last_touched_at`, `open_questions`, `importance`, `urgency`, and `token_target` fields, while continuing to reject every other unknown YAML key. Historical slug aliases are not supported and are rejected. When canonical `priority` is absent, the old matrix maps `high/high` → `max`, `high/low` → `high`, `low/high` → `medium`, and `low/low` → `low`; a missing or unknown legacy dimension uses the old normalize-toward-attention behavior and is treated as `high`. A present canonical `priority` takes precedence. Legacy `open_questions` are merged into the body's `## Open Questions` section without duplicates. Compatibility is lazy: reads do not rewrite files; the next ordinary Save writes canonical frontmatter only and preserves the prior bytes in revision history. Retired fields are never re-emitted.
 
@@ -326,6 +329,8 @@ Rules:
 - TXT is acceptable for transcripts and plain text.
 
 ### 4.4 Audit Log
+
+Every mutation records its actor (`human:<identity>`, `agent:<stable-slug>`, or `system:<name>`) separately from the machine-local `author` that owns the audit shard. Actor labels support provenance and core accident-prevention checks; they are not authentication.
 
 Audit events are written to per-author shards in `audit/<author>.log` as append-only JSON Lines (the legacy `audit.log` remains readable but is never rewritten).
 

@@ -39,6 +39,7 @@ var (
 	queryFlag           string
 	listLeadFlag        string
 	listIncludeFlag     []string
+	listAttentionFlag   string
 	mineFlag            bool
 	jsonFlag            bool
 	dossierSearchFlag   string
@@ -359,7 +360,7 @@ func NewRootCmd() *cobra.Command {
 			if leadFilter == "" && mineFlag {
 				leadFilter = "me"
 			}
-			res, err := svc.List(context.Background(), core.ListReq{Status: statusFlag, Lead: leadFilter, Interfaces: interfacesFlag, Query: queryFlag, Include: listIncludeFlag})
+			res, err := svc.List(context.Background(), core.ListReq{Status: statusFlag, Lead: leadFilter, Interfaces: interfacesFlag, Query: queryFlag, Include: listIncludeFlag, Attention: listAttentionFlag})
 			if err != nil {
 				fmt.Printf("List failed: %v\n", err)
 				os.Exit(1)
@@ -421,6 +422,7 @@ func NewRootCmd() *cobra.Command {
 	lsCmd.Flags().StringVarP(&queryFlag, "query", "q", "", "Filter by name, description, lead, interface, or slug")
 	lsCmd.Flags().StringVar(&listLeadFlag, "lead", "", "Filter by lead (username, display name, or \"me\")")
 	lsCmd.Flags().StringSliceVar(&listIncludeFlag, "include", nil, "Include parsed list views: monitors, references (repeat or comma-separate)")
+	lsCmd.Flags().StringVar(&listAttentionFlag, "attention", "", "Filter by attention: none|fyi|decide|blocked")
 	lsCmd.Flags().BoolVar(&mineFlag, "mine", false, "Show dossiers assigned to the current user")
 	lsCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 

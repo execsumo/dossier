@@ -135,19 +135,46 @@ func validateNextActionLength(nextAction string) error {
 
 // Frontmatter represents the parsed metadata block of a Dossier.
 // In conformance with BUILD-DECISIONS, base_revision is session-side, not in frontmatter.
+// Attention is a machine-visible request for principal review; it is not a lifecycle stage.
+type Attention struct {
+	Level   string    `yaml:"level" json:"level"`
+	Summary string    `yaml:"summary,omitempty" json:"summary,omitempty"`
+	Since   time.Time `yaml:"since" json:"since"`
+	By      string    `yaml:"by" json:"by"`
+}
+
+func (a *Attention) Validate() error {
+	if a == nil {
+		return nil
+	}
+	switch a.Level {
+	case "none", "fyi", "decide", "blocked":
+	default:
+		return fmt.Errorf("attention.level must be none, fyi, decide, or blocked")
+	}
+	if utf8.RuneCountInString(a.Summary) > 140 {
+		return fmt.Errorf("attention.summary must be at most 140 characters")
+	}
+	if a.Level != "none" && (a.Summary == "" || a.Since.IsZero() || a.By == "") {
+		return fmt.Errorf("active attention requires summary, since, and by")
+	}
+	return nil
+}
+
 type Frontmatter struct {
-	ID          string    `yaml:"id" json:"id"`
-	Name        string    `yaml:"name" json:"name"`
-	Description string    `yaml:"description,omitempty" json:"description,omitempty"`
-	Slug        string    `yaml:"slug" json:"slug"`
-	CreatedAt   time.Time `yaml:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `yaml:"updated_at" json:"updated_at"`
-	Status      Status    `yaml:"status" json:"status"`
-	Lead        string    `yaml:"lead,omitempty" json:"lead,omitempty"`
-	Interfaces  []string  `yaml:"interfaces,omitempty" json:"interfaces,omitempty"`
-	NextAction  string    `yaml:"next_action" json:"next_action"`
-	Priority    Priority  `yaml:"priority" json:"priority"`
-	DueDate     string    `yaml:"due_date,omitempty" json:"due_date,omitempty"`
+	ID          string     `yaml:"id" json:"id"`
+	Name        string     `yaml:"name" json:"name"`
+	Description string     `yaml:"description,omitempty" json:"description,omitempty"`
+	Slug        string     `yaml:"slug" json:"slug"`
+	CreatedAt   time.Time  `yaml:"created_at" json:"created_at"`
+	UpdatedAt   time.Time  `yaml:"updated_at" json:"updated_at"`
+	Status      Status     `yaml:"status" json:"status"`
+	Lead        string     `yaml:"lead,omitempty" json:"lead,omitempty"`
+	Interfaces  []string   `yaml:"interfaces,omitempty" json:"interfaces,omitempty"`
+	NextAction  string     `yaml:"next_action" json:"next_action"`
+	Priority    Priority   `yaml:"priority" json:"priority"`
+	DueDate     string     `yaml:"due_date,omitempty" json:"due_date,omitempty"`
+	Attention   *Attention `yaml:"attention,omitempty" json:"attention,omitempty"`
 }
 
 // Validate ensures that all required fields are present and valid.
@@ -175,6 +202,9 @@ func (f *Frontmatter) Validate() error {
 		return fmt.Errorf("invalid priority: %q", f.Priority)
 	}
 	if err := validateNextActionLength(f.NextAction); err != nil {
+		return err
+	}
+	if err := f.Attention.Validate(); err != nil {
 		return err
 	}
 	return nil

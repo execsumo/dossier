@@ -2,14 +2,18 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+	"unicode/utf8"
 )
 
 type SaveReq struct {
+	Actor                  string
 	ID                     string
 	BaseRevision           Revision
 	DistilledStateMarkdown string
@@ -90,6 +94,11 @@ func getFMField(fm Frontmatter, field string) any {
 		return string(fm.Priority)
 	case "due_date":
 		return fm.DueDate
+	case "attention":
+		if fm.Attention == nil {
+			return ""
+		}
+		return fmt.Sprintf("%s|%s|%s|%s", fm.Attention.Level, fm.Attention.Summary, fm.Attention.Since.Format(time.RFC3339Nano), fm.Attention.By)
 	default:
 		return nil
 	}
@@ -134,6 +143,35 @@ func applyFrontmatterUpdates(d *Dossier, updates map[string]any) {
 			d.Frontmatter.DueDate = strVal
 		}
 	}
+	if val, ok := updates["attention"]; ok {
+		attention, _ := attentionFromValue(val)
+		if attention == nil || attention.Level == "none" {
+			d.Frontmatter.Attention = nil
+		} else {
+			d.Frontmatter.Attention = attention
+		}
+	}
+}
+
+func attentionFromValue(value any) (*Attention, bool) {
+	if value == nil {
+		return nil, true
+	}
+	if attention, ok := value.(*Attention); ok {
+		return attention, true
+	}
+	if attention, ok := value.(Attention); ok {
+		return &attention, true
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, false
+	}
+	var attention Attention
+	if err := json.Unmarshal(data, &attention); err != nil {
+		return nil, false
+	}
+	return &attention, true
 }
 
 func interfaceNamesFromValue(value any) []string {
@@ -179,6 +217,11 @@ func strictStringSlice(value any) ([]string, bool) {
 	}
 }
 
+func updatesStatusDone(updates map[string]any) bool {
+	status, ok := updates["status"].(string)
+	return ok && NormalizeStatus(Status(status)) == StatusDone
+}
+
 func (s *Service) validateConfiguredFrontmatterUpdates(updates map[string]any) error {
 	if updates == nil {
 		return nil
@@ -194,6 +237,20 @@ func (s *Service) validateConfiguredFrontmatterUpdates(updates map[string]any) e
 		for _, name := range names {
 			if !configuredValueAllowed(name, s.cfg.Interfaces) {
 				return fmt.Errorf("invalid interface: %q (configure available values in config.yaml)", name)
+			}
+		}
+	}
+	if value, ok := updates["attention"]; ok {
+		attention, valid := attentionFromValue(value)
+		if !valid {
+			return fmt.Errorf("attention must include level and summary; use null to clear")
+		}
+		if attention != nil {
+			if attention.Level != "none" && attention.Level != "fyi" && attention.Level != "decide" && attention.Level != "blocked" {
+				return fmt.Errorf("attention.level must be none, fyi, decide, or blocked")
+			}
+			if utf8.RuneCountInString(attention.Summary) > 140 {
+				return fmt.Errorf("attention.summary must be at most 140 characters")
 			}
 		}
 	}
@@ -249,6 +306,18 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 		return Result{}, "", err
 	} else {
 		req.FrontmatterUpdates = updates
+	}
+	actor := NormalizeActor(req.Actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{}, "", NewError(ErrInvalidFrontmatter, err.Error())
+	}
+	if _, changesAttention := req.FrontmatterUpdates["attention"]; changesAttention && ActorIsHuman(actor) {
+		return Result{}, "", NewError(ErrInvalidFrontmatter, "attention is managed by agent or system actors, not humans")
+	}
+	if updatesStatusDone(req.FrontmatterUpdates) {
+		if err := Authorize(actor, "set_done"); err != nil {
+			return Result{}, "", NewError(ErrInvalidFrontmatter, err.Error())
+		}
 	}
 	if _, ok := req.FrontmatterUpdates["slug"]; ok {
 		return Result{}, "", NewError(ErrInvalidFrontmatter, "slug cannot be changed through Save; use Rename")
@@ -361,6 +430,7 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 					_ = s.store.AppendAudit(d.Frontmatter.ID, AuditEvent{
 						TS:             s.clock.Now(),
 						Event:          AuditEventConflictCreated,
+						Actor:          actor,
 						Author:         s.cfg.Author,
 						DossierID:      d.Frontmatter.ID,
 						SessionID:      sessID,
@@ -389,6 +459,12 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 
 	if req.FrontmatterUpdates != nil {
 		applyFrontmatterUpdates(d, req.FrontmatterUpdates)
+	}
+	if d.Frontmatter.Attention != nil && req.FrontmatterUpdates != nil {
+		if _, changed := req.FrontmatterUpdates["attention"]; changed {
+			d.Frontmatter.Attention.Since = s.clock.Now()
+			d.Frontmatter.Attention.By = actor
+		}
 	}
 
 	if req.DistilledStateMarkdown != "" {
@@ -424,6 +500,7 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 	event := AuditEvent{
 		TS:             s.clock.Now(),
 		DossierID:      d.Frontmatter.ID,
+		Actor:          actor,
 		Author:         s.cfg.Author,
 		BeforeRevision: string(baseRev),
 		AfterRevision:  string(newRev),
@@ -582,6 +659,7 @@ func (s *Service) RenameSlug(ctx context.Context, req RenameSlugReq) (Result, er
 }
 
 type LinkReq struct {
+	Actor        string
 	ID           string
 	FromFilePath string
 	Content      string
@@ -589,6 +667,10 @@ type LinkReq struct {
 }
 
 func (s *Service) Link(ctx context.Context, req LinkReq) (Result, error) {
+	actor := NormalizeActor(req.Actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	now := s.clock.Now()
 
 	if req.ID == "" {
@@ -642,6 +724,7 @@ func (s *Service) Link(ctx context.Context, req LinkReq) (Result, error) {
 	_ = s.store.AppendAudit(d.Frontmatter.ID, AuditEvent{
 		TS:             now,
 		Event:          AuditEventSave,
+		Actor:          actor,
 		Author:         s.cfg.Author,
 		DossierID:      d.Frontmatter.ID,
 		BeforeRevision: string(baseRev),
@@ -1036,6 +1119,7 @@ type ListReq struct {
 	Query      string
 	Lead       string   // "me", a username, display name, or unique first-name prefix
 	Include    []string // optional parsed body views: monitors, references
+	Attention  string
 }
 
 func includesListView(includes []string, view string) bool {
@@ -1131,7 +1215,20 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 		}, NewError(ErrAmbiguousTarget, fmt.Sprintf("lead %q is ambiguous; candidates: %s", strings.TrimSpace(req.Lead), strings.Join(candidates, ", ")))
 	}
 	leadMatches := 0
+	attentionFilter := strings.ToLower(strings.TrimSpace(req.Attention))
+	if attentionFilter != "" && attentionFilter != "none" && attentionFilter != "fyi" && attentionFilter != "decide" && attentionFilter != "blocked" {
+		return Result{OK: false}, NewError(ErrInvalidFrontmatter, "attention filter must be none, fyi, decide, or blocked")
+	}
 	for _, fm := range fms {
+		if attentionFilter != "" {
+			level := "none"
+			if fm.Attention != nil {
+				level = fm.Attention.Level
+			}
+			if level != attentionFilter {
+				continue
+			}
+		}
 		if !scope.matches(fm.Lead) {
 			continue
 		}
@@ -1182,6 +1279,7 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 			NextAction:                fm.NextAction,
 			Priority:                  string(fm.Priority),
 			DueDate:                   fm.DueDate,
+			Attention:                 fm.Attention,
 			Path:                      dossierPath,
 			Revision:                  listed.Revision,
 			HasOpenDelegationContract: listed.HasOpenDelegationContract,

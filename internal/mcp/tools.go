@@ -41,6 +41,14 @@ var mcpMutatingTools = map[string]bool{
 	"dossier_inbox_resolve":    true,
 }
 
+func (s *Server) actor() string {
+	if agent := strings.TrimSpace(os.Getenv("DOSSIER_AGENT")); agent != "" {
+		return "agent:" + agent
+	}
+	username, _ := s.svc.CurrentUser()
+	return core.NormalizeActor("", username)
+}
+
 type mcpErrorObject struct {
 	Code    MCPErrorCode   `json:"code"`
 	Message string         `json:"message"`
@@ -87,6 +95,7 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 						"type":        "string",
 						"description": "Filter by lead: use me for the current user, or a teammate's username, display name, or unique first name. An ambiguous name returns ambiguous_target with the candidates.",
 					},
+					"attention":  map[string]any{"type": "string", "enum": []string{"none", "fyi", "decide", "blocked"}, "description": "Filter by principal attention level"},
 					"interfaces": configuredStringListSchema(interfaces, "Filter by discussion interface; matches dossiers assigned to any supplied interface"),
 					"query": map[string]any{
 						"type":        "string",
@@ -293,7 +302,8 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 					"id":          map[string]any{"type": "string", "description": "The dossier slug or ID to update"},
 					"name":        map[string]any{"type": "string", "description": "Replace the display name (omit to leave unchanged). Use dossier_rename when the rename should be explicit."},
 					"description": map[string]any{"type": "string", "description": "Replace the optional progressive-disclosure summary (omit to leave unchanged)"},
-					"status":      map[string]any{"type": "string", "description": "Replace the current status: spark|define|execute|review|blocked|done (omit to leave unchanged)"},
+					"status":      map[string]any{"type": "string", "description": "Replace the current status: spark|define|execute|review|blocked|done (setting done requires a human actor)"},
+					"attention":   map[string]any{"type": []string{"object", "null"}, "description": "Agent/system-managed principal attention; null or level none clears", "properties": map[string]any{"level": map[string]any{"type": "string", "enum": []string{"none", "fyi", "decide", "blocked"}}, "summary": map[string]any{"type": "string", "maxLength": 140}}},
 					"lead":        configuredLeadSchema(leads, "Replace the lead assignee (omit to leave unchanged; empty clears)"),
 					"next_action": map[string]any{"type": "string", "description": "Replace the current next action (omit to leave unchanged)"},
 					"priority":    map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "max"}, "description": "low|medium|high|max (omit to leave unchanged)"},
@@ -415,7 +425,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		case params.InboxID != "":
 			res, err = s.svc.ReadInbox(ctx, core.InboxReadReq{ID: params.ID, InboxID: params.InboxID})
 		case params.Excerpt != "":
-			res, err = s.svc.CreateInbox(ctx, core.InboxCreateReq{ID: params.ID, Source: core.InboxSource{Kind: params.SourceKind, URL: params.URL}, Excerpt: params.Excerpt, RoutedBy: "agent:" + strings.TrimSpace(os.Getenv("DOSSIER_AGENT")), Confidence: params.Confidence})
+			res, err = s.svc.CreateInbox(ctx, core.InboxCreateReq{ID: params.ID, Source: core.InboxSource{Kind: params.SourceKind, URL: params.URL}, Excerpt: params.Excerpt, RoutedBy: s.actor(), Confidence: params.Confidence})
 		default:
 			res, err = s.svc.Inbox(ctx, core.InboxListReq{ID: params.ID})
 		}
@@ -429,7 +439,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			s.sendError(id, -32602, "Invalid inbox resolution arguments", nil)
 			return
 		}
-		res, err = s.svc.ResolveInbox(ctx, core.InboxResolveReq{ID: params.ID, InboxID: params.InboxID, Action: params.Action, Actor: "agent:" + strings.TrimSpace(os.Getenv("DOSSIER_AGENT"))})
+		res, err = s.svc.ResolveInbox(ctx, core.InboxResolveReq{ID: params.ID, InboxID: params.InboxID, Action: params.Action, Actor: s.actor()})
 
 	case "dossier_monitor_polled":
 		var params struct {
@@ -450,9 +460,10 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			Interfaces []string `json:"interfaces"`
 			Query      string   `json:"query"`
 			Include    []string `json:"include"`
+			Attention  string   `json:"attention"`
 		}
 		_ = json.Unmarshal(args, &params)
-		res, err = s.svc.List(ctx, core.ListReq{Status: params.Status, Lead: params.Lead, Interfaces: params.Interfaces, Query: params.Query, Include: params.Include})
+		res, err = s.svc.List(ctx, core.ListReq{Status: params.Status, Lead: params.Lead, Interfaces: params.Interfaces, Query: params.Query, Include: params.Include, Attention: params.Attention})
 		if err == nil {
 			username, displayName := s.svc.CurrentUser()
 			res.Data = map[string]any{
@@ -565,6 +576,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		}
 
 		res, err = s.svc.Save(ctx, core.SaveReq{
+			Actor:                  s.actor(),
 			ID:                     params.ID,
 			BaseRevision:           params.BaseRevision,
 			DistilledStateMarkdown: params.DistilledStateMarkdown,
@@ -589,6 +601,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			return
 		}
 		res, err = s.svc.Promote(ctx, core.PromoteReq{
+			Actor:                  s.actor(),
 			Name:                   params.Name,
 			Description:            params.Description,
 			Priority:               core.Priority(params.Priority),
@@ -611,6 +624,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			return
 		}
 		res, err = s.svc.Link(ctx, core.LinkReq{
+			Actor:        s.actor(),
 			ID:           params.ID,
 			FromFilePath: params.FromFilePath,
 			Content:      params.SessionContent,
@@ -721,8 +735,9 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			NextAction  *string `json:"next_action"`
 			Priority    string  `json:"priority"`
 			// A pointer distinguishes an omitted due date from an empty string that clears it.
-			DueDate    *string  `json:"due_date"`
-			Interfaces []string `json:"interfaces"`
+			DueDate    *string         `json:"due_date"`
+			Interfaces []string        `json:"interfaces"`
+			Attention  json.RawMessage `json:"attention"`
 		}
 		if err := json.Unmarshal(args, &params); err != nil {
 			s.sendError(id, -32602, "Invalid params", nil)
@@ -753,7 +768,20 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		if params.Interfaces != nil {
 			updates["interfaces"] = params.Interfaces
 		}
+		if len(params.Attention) > 0 {
+			if string(params.Attention) == "null" {
+				updates["attention"] = nil
+			} else {
+				var attention core.Attention
+				if decodeErr := json.Unmarshal(params.Attention, &attention); decodeErr != nil {
+					s.sendError(id, -32602, "Invalid attention value", nil)
+					return
+				}
+				updates["attention"] = attention
+			}
+		}
 		res, err = s.svc.Save(ctx, core.SaveReq{
+			Actor:              s.actor(),
 			ID:                 params.ID,
 			FrontmatterUpdates: updates,
 		})

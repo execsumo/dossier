@@ -89,6 +89,7 @@ type ListItem struct {
 	DueDate      string         `json:"due_date,omitempty"`
 	Monitors     []ExternalLink `json:"monitors,omitempty"`
 	References   []ExternalLink `json:"references,omitempty"`
+	Attention    *Attention     `json:"attention,omitempty"`
 	Path         string         `json:"path"`
 	Revision     Revision       `json:"revision,omitempty"`
 	// HasOpenDelegationContract reports whether any Delegation Contract block

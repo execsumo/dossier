@@ -2546,6 +2546,9 @@ func itemTableRow(item core.ListItem, showPriority, showDue bool) table.Row {
 	// bleeding past its reset into the rest of that row's styling. Shape and
 	// position carry the signal instead of color.
 	name := item.Name
+	if item.Attention != nil && item.Attention.Level != "none" {
+		name = "[" + strings.ToUpper(item.Attention.Level) + "] " + name
+	}
 	if item.HasOpenDelegationContract {
 		name = "! " + name
 	}
@@ -3017,6 +3020,9 @@ func (m Model) renderDetailMetadata() string {
 		"Priority:", string(fm.Priority),
 		"Stage:", string(fm.Status),
 	))
+	if fm.Attention != nil && fm.Attention.Level != "none" {
+		sb.WriteString(renderRow("Attention:", strings.ToUpper(fm.Attention.Level)+" — "+fm.Attention.Summary))
+	}
 	sb.WriteString(renderTwoCols(
 		"Lead:", leadLabel,
 		"Due:", fm.DueDate,
