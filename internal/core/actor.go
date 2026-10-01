@@ -36,7 +36,15 @@ func ValidateActor(actor string) error {
 		return fmt.Errorf("actor must be human:<identity>, agent:<slug>, or system:<name>")
 	}
 	switch ActorKind(kind) {
-	case ActorHuman, ActorAgent, ActorSystem:
+	case ActorHuman, ActorSystem:
+		if strings.ContainsAny(identity, "\r\n") {
+			return fmt.Errorf("actor identity must be a single line")
+		}
+		return nil
+	case ActorAgent:
+		if err := ValidateCanonicalSlug(identity); err != nil {
+			return fmt.Errorf("agent actor must use a stable slug: %w", err)
+		}
 		return nil
 	default:
 		return fmt.Errorf("unsupported actor kind %q", kind)
