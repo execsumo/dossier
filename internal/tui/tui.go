@@ -501,8 +501,9 @@ type Model struct {
 	// Cached markdown renderer, rebuilt only when the wrap width changes.
 	mdRenderer      *glamour.TermRenderer
 	mdRendererWidth int
-	// showSourceRefs keeps raw [src:...] citations visible in the detail view;
-	// by default they collapse to footnote numbers (toggled with s).
+	// showSourceRefs shows the Distilled State raw in the detail view, with
+	// [src:...] citations and the Evidence index; by default they are hidden
+	// (toggled with s).
 	showSourceRefs bool
 	help           help.Model
 
@@ -795,7 +796,7 @@ func (m Model) listDossiersCmd() tea.Cmd {
 func (m Model) recallDossierCmd(id string) tea.Cmd {
 	requestID := m.nextRequestID()
 	return func() tea.Msg {
-		res, err := m.svc.Recall(context.Background(), core.RecallReq{ID: id})
+		res, err := m.svc.Recall(context.Background(), core.RecallReq{ID: id, HumanView: true})
 		if err != nil {
 			return recallDossierMsg{requestID: requestID, id: id, err: err}
 		}
@@ -818,7 +819,7 @@ func (m Model) recallDossierCmd(id string) tea.Cmd {
 func (m Model) listArtifactsCmd(dossierID string) tea.Cmd {
 	requestID := m.nextRequestID()
 	return func() tea.Msg {
-		res, err := m.svc.ListArtifacts(context.Background(), core.ListArtifactsReq{DossierID: dossierID})
+		res, err := m.svc.ListArtifacts(context.Background(), core.ListArtifactsReq{DossierID: dossierID, HumanView: true})
 		if err != nil {
 			return artifactIndexMsg{requestID: requestID, dossierID: dossierID, err: err}
 		}
@@ -1429,11 +1430,11 @@ func priorityBefore(a, b core.Priority) bool {
 	}
 }
 
-// renderDistilledState renders the brief for a human reader, collapsing
-// provenance citations to footnotes unless the raw form was asked for.
+// renderDistilledState renders the brief for a human reader, hiding [src:]
+// citations and the agent-facing Evidence index unless the raw form was asked for.
 func (m *Model) renderDistilledState(body string) string {
 	if !m.showSourceRefs {
-		body = core.CollapseProvenance(body)
+		body = core.HumanView(body)
 	}
 	return m.renderMarkdown(body)
 }

@@ -904,6 +904,9 @@ func (s *Service) Merge(ctx context.Context, req MergeReq) (Result, error) {
 
 type RecallReq struct {
 	ID string
+	// HumanView omits agent-facing advisories (uncited artifacts) for callers
+	// that render for a person, such as the TUI. Agents and doctor keep them.
+	HumanView bool
 }
 
 func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
@@ -920,7 +923,7 @@ func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
 		warnings = append(warnings, Warning(fmt.Sprintf("Distilled State exceeds token target (%d > %d tokens). Consider condensing.", tokens, target)))
 	}
 
-	index, indexWarnings := s.evidenceIndex(d.Frontmatter.ID, d.DistilledState.Body)
+	index, indexWarnings := s.evidenceIndex(d.Frontmatter.ID, d.DistilledState.Body, !req.HumanView)
 	warnings = append(warnings, indexWarnings...)
 	externalLinks := ParseExternalLinks(d.DistilledState.Body)
 
@@ -983,7 +986,7 @@ func numberLines(lines []string, startLine int) string {
 
 // evidenceIndex summarizes a dossier's archived artifacts and flags the ones
 // the Distilled State never cites.
-func (s *Service) evidenceIndex(dossierID string, body string) ([]ArtifactSummary, []Warning) {
+func (s *Service) evidenceIndex(dossierID string, body string, advise bool) ([]ArtifactSummary, []Warning) {
 	artifacts, err := s.store.ListArtifacts(dossierID)
 	if err != nil {
 		return nil, []Warning{Warning(fmt.Sprintf("Artifacts could not be listed for the evidence index: %v", err))}
@@ -1016,7 +1019,7 @@ func (s *Service) evidenceIndex(dossierID string, body string) ([]ArtifactSummar
 		})
 	}
 
-	if msg := uncitedArtifactWarning(body, artifacts); msg != "" {
+	if msg := uncitedArtifactWarning(body, artifacts); advise && msg != "" {
 		warnings = append(warnings, Warning(msg))
 	}
 	return index, warnings
@@ -1155,6 +1158,9 @@ func (s *Service) ReadArtifact(ctx context.Context, req ReadArtifactReq) (Result
 // ListArtifactsReq addresses a dossier's evidence index.
 type ListArtifactsReq struct {
 	DossierID string
+	// HumanView omits agent-facing advisories (uncited artifacts) for callers
+	// that render for a person, such as the TUI.
+	HumanView bool
 }
 
 // ListArtifacts returns the evidence index for a dossier.
@@ -1163,7 +1169,7 @@ func (s *Service) ListArtifacts(ctx context.Context, req ListArtifactsReq) (Resu
 	if err != nil {
 		return Result{}, err
 	}
-	index, warnings := s.evidenceIndex(d.Frontmatter.ID, d.DistilledState.Body)
+	index, warnings := s.evidenceIndex(d.Frontmatter.ID, d.DistilledState.Body, !req.HumanView)
 	return Result{OK: true, Data: index, Warnings: warnings}, nil
 }
 
