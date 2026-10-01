@@ -225,6 +225,7 @@ func TestMCPUnconfiguredStoreEmitsNoBackgroundSyncWarning(t *testing.T) {
 // unclassified — which for a mutator means a silently stale teammate clone.
 var mcpNonMutatingTools = map[string]bool{
 	"dossier_list":      true,
+	"dossier_changes":   true,
 	"dossier_recall":    true,
 	"dossier_search":    true,
 	"dossier_artifact":  true,

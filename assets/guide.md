@@ -104,7 +104,7 @@ Immediate execution context. Active files, blockers, or configurations.
 *Conditional*—use only when two or more contributions combine into the Dossier's shared outcome. A single-deliverable Dossier uses the top-level Objective / Done When / Validation directly and does not wrap them in a redundant Deliverables section.
 ### <Deliverable label>
 - Outcome: <The distinct contribution this piece produces.>
-- Owner: <Person, agent, user, or unassigned. The Dossier lead remains accountable for the overall outcome.>
+- Owner: <Person, `agent:<rolodex-slug>`, or unassigned. The Dossier lead remains accountable for the overall outcome. An agent owner is accepted by a human against the named Dossier revision.>
 - Done When: <Observable local completion conditions.>
 - Validation: <How this deliverable gets checked.>
 - Completion: [open|done|dropped] <For done, cite validation evidence; for dropped, retain the reason.>

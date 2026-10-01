@@ -39,6 +39,8 @@ This document closes the implementation-discovery questions so the build can sta
 
 | **B22** | Agent proposals for protected work-definition sections (2026-10-01) | **An agent Save that changes Objective, Done When, Validation, Constraints, or Decisions is captured as a whole-save `agent_proposal` conflict, never applied.** The normal conflict view and resolution path is reused; accepting/rejecting requires a human actor. Routine updates belong in separate saves. | The operational brief is canonical and a constraint/decision change is substantive, not editorial cleanup. A whole-save proposal preserves a simple atomic caller contract and every proposed version. |
 
+| **B23** | Agent owners in delegation contracts (2026-10-01) | **B16's owner may be a registered `agent:<rolodex-slug>` as well as a person. A human accepts that agent against the named Dossier revision; the same Scope / Acceptance / Decision Rights / Escalation / Return Expectations fields apply.** | The assignment is owned by an agent, but mandate and accepted baseline remain a human commitment. |
+
 ## Spec ambiguities resolved
 
 These are smaller inconsistencies a dev agent *will* hit. Resolved here; mechanics in `ARCHITECTURE.md` §"Concurrency & Revisions".

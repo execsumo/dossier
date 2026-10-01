@@ -13,6 +13,13 @@ import (
 func CanonicalFrontmatter(fm Frontmatter) string {
 	var sb strings.Builder
 	// Fields are ordered alphabetically to ensure absolute determinism.
+	if fm.Attention != nil {
+		sb.WriteString("attention:\n")
+		sb.WriteString(fmt.Sprintf("  by: %s\n", fm.Attention.By))
+		sb.WriteString(fmt.Sprintf("  level: %s\n", fm.Attention.Level))
+		sb.WriteString(fmt.Sprintf("  since: %s\n", fm.Attention.Since.UTC().Format(time.RFC3339Nano)))
+		sb.WriteString(fmt.Sprintf("  summary: %s\n", fm.Attention.Summary))
+	}
 	sb.WriteString(fmt.Sprintf("created_at: %s\n", fm.CreatedAt.UTC().Format(time.RFC3339)))
 	if fm.DueDate != "" {
 		sb.WriteString(fmt.Sprintf("due_date: %s\n", fm.DueDate))

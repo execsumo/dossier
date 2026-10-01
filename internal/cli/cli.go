@@ -426,6 +426,38 @@ func NewRootCmd() *cobra.Command {
 	lsCmd.Flags().BoolVar(&mineFlag, "mine", false, "Show dossiers assigned to the current user")
 	lsCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
+	var changesSince string
+	changesCmd := &cobra.Command{
+		Use:   "changes --since <RFC3339>",
+		Short: "Show audited Dossier changes since a timestamp",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			since, err := time.Parse(time.RFC3339, changesSince)
+			if err != nil {
+				return fmt.Errorf("--since must be an RFC3339 timestamp: %w", err)
+			}
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				return err
+			}
+			items, err := svc.Changes(cmd.Context(), since)
+			if err != nil {
+				return err
+			}
+			if jsonFlag {
+				printJSON(items)
+				return nil
+			}
+			for _, item := range items {
+				fmt.Printf("%s  %s  %s  %s  %s\n", item.TS.Format(time.RFC3339), item.Actor, item.Slug, item.Event, item.Summary)
+			}
+			return nil
+		},
+	}
+	changesCmd.Flags().StringVar(&changesSince, "since", "", "RFC3339 timestamp; changes strictly after this time")
+	_ = changesCmd.MarkFlagRequired("since")
+	changesCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
+
 	showCmd := &cobra.Command{
 		Use:   "show <slug-or-id>",
 		Short: "Show a dossier's details and distilled state",
@@ -1663,6 +1695,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(harnessCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(lsCmd)
+	rootCmd.AddCommand(changesCmd)
 	rootCmd.AddCommand(showCmd)
 	rootCmd.AddCommand(pathCmd)
 	rootCmd.AddCommand(archiveCmd)

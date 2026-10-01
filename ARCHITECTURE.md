@@ -294,6 +294,10 @@ Why each is a port:
 
 `Frontmatter.Attention` is optional and participates in the normal canonical revision. It is changed only through `Save`; agents and systems own setting/clearing it, while list filtering and TUI display are read-only for people. `Actor` is explicit request provenance (`human:`, `agent:`, `system:`) and never replaces the machine-local audit-shard author. Core authorization guards high-impact actions; this is not an authentication boundary. Actor propagation is being extended across all mutating use cases.
 
+### Audit-derived changes feed (D9)
+
+`dossier changes --since <RFC3339>` and MCP `dossier_changes` scan existing per-Dossier audit shards, strictly filter by timestamp, and sort chronologically. Each row contains Dossier id/name/slug, after-revision, actor, event, summary, and timestamp. No secondary index is maintained. The feed is a read-only summary, not a replacement for audit detail.
+
 ### Routing-card list views (D5)
 
 `ListReq.Include` opts into parsed `monitors` and/or `references` on each list item. The default path remains frontmatter-only, preserving the scan budget; only matched Dossiers are opened when a routing view is requested. Parsing reuses `core.ParseExternalLinks`. `Service.MonitorPolled` changes the monitor's polling date through `Save` with the revision just read, so audit, validation, and concurrency behavior remain shared across CLI and MCP.

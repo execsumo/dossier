@@ -50,6 +50,8 @@ type DelegationContract struct {
 	Header       string
 	Label        string
 	Owner        string
+	OwnerKind    string // human by default; agent when Owner uses agent:<rolodex-slug>
+	OwnerID      string
 	AcceptedDate string
 	// Legacy is true when the block uses the former seven-field schema. The
 	// parser projects what it can into the current person-specific contract so
@@ -92,6 +94,13 @@ var (
 		`^-\s+(Scope|Acceptance|Decision Rights|Escalation|Return Expectations|Objective|Context|Success Criteria|Validation|Constraints):` +
 			`\s*(?:\[(decided|proposed)\]\s*)?(.*)$`)
 )
+
+func delegationOwner(owner string) (kind, identity string) {
+	if strings.HasPrefix(owner, "agent:") {
+		return "agent", strings.TrimSpace(strings.TrimPrefix(owner, "agent:"))
+	}
+	return "human", owner
+}
 
 // ParseDelegationContracts extracts every `###` block under the Distilled
 // State's `## Delegation Contracts` section (guide.md §4). It is a pure,
@@ -140,6 +149,7 @@ func ParseDelegationContracts(body string) []DelegationContract {
 			if m := contractHeaderRE.FindStringSubmatch(line); m != nil {
 				c.Label = strings.TrimSpace(m[1])
 				c.Owner = strings.TrimSpace(m[2])
+				c.OwnerKind, c.OwnerID = delegationOwner(c.Owner)
 				c.AcceptedDate = strings.TrimSpace(m[3])
 			} else {
 				c.Label = strings.TrimSpace(strings.TrimPrefix(line, "###"))

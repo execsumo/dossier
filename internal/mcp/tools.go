@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 // ToolDefinition represents an MCP tool definition.
@@ -282,6 +283,11 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 			},
 		},
 		{
+			Name:        "dossier_changes",
+			Description: "List changes since an RFC3339 timestamp, derived from Dossier audit logs.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"since": map[string]any{"type": "string", "description": "RFC3339 timestamp; changes strictly after this time are returned."}}, "required": []string{"since"}},
+		},
+		{
 			Name:        "dossier_session",
 			Description: "Get the active dossier bound to the current session, or switch/bind the session to a dossier (by slug or id) if the 'id' parameter is provided. When the user says me, mine, or assigned to me, use dossier_list with lead: me; if several match, ask which one before binding.",
 			InputSchema: map[string]any{
@@ -452,6 +458,21 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			return
 		}
 		res, err = s.svc.MonitorPolled(ctx, core.MonitorPolledReq{ID: params.ID, URL: params.URL, Date: params.Date})
+
+	case "dossier_changes":
+		var params struct {
+			Since string `json:"since"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil || params.Since == "" {
+			s.sendError(id, -32602, "since RFC3339 timestamp is required", nil)
+			return
+		}
+		since, err := time.Parse(time.RFC3339, params.Since)
+		if err != nil {
+			s.sendError(id, -32602, "since must be an RFC3339 timestamp", nil)
+			return
+		}
+		res.Data, err = s.svc.Changes(ctx, since)
 
 	case "dossier_list":
 		var params struct {
