@@ -460,7 +460,8 @@ The first implementation milestone should produce a capability matrix in `docs/h
 
 ```text
 dossier init
-dossier ls [--status spark|define|execute|review|blocked|done|all] [--interface <interface>] [--lead <username-or-name>] [-q|--query <text>] [--json]
+dossier ls [--status spark|define|execute|review|blocked|done|all] [--interface <interface>] [--lead <username-or-name>] [--include monitors,references] [-q|--query <text>] [--json]
+dossier monitor-polled <slug-or-id> <url> [--date YYYY-MM-DD]
 dossier show <slug-or-id> [--json]
 dossier promote [--name <name>] [--from-file <path>] [--distilled-file <path>] [--json]
 dossier link [<slug-or-id>] [--from-file <path>] [--json]
@@ -729,6 +730,8 @@ Required error codes:
 - `harness_capability_unavailable`
 
 ### 8.3 `dossier_list`
+
+`include` is an optional array accepting `monitors` and/or `references`. When requested, the list response includes parsed link lines from the matched Dossier bodies; the default remains frontmatter-only. CLI `dossier ls --include monitors,references --json` provides the same opt-in view. `dossier_monitor_polled` / `dossier monitor-polled <id> <url>` updates a monitor's `(Last polled: YYYY-MM-DD)` marker through the ordinary optimistic-concurrency Save path.
 
 Input:
 

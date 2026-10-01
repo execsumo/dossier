@@ -156,8 +156,8 @@ func TestPromoteScans500DossiersUnderTwoSeconds(t *testing.T) {
 		}
 		content, err := FormatDossierFile(core.Frontmatter{
 			ID: id, Name: fmt.Sprintf("Existing %03d", i), Slug: slug,
-			CreatedAt: old, UpdatedAt: old, Status: core.StatusDone, Priority: core.PriorityLow,
-		}, "# Archived\n\nHistorical material.")
+			CreatedAt: old, UpdatedAt: old, Status: core.StatusExecute, Priority: core.PriorityLow,
+		}, "# Active\n\n## References\n- [ticket: OPS](https://example.test/ops) — Ticket.\n\n## Active Monitors\n- [comms: #ops](https://example.test/ops-feed) — Watch. (Last polled: 2026-09-30)\n")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -170,6 +170,17 @@ func TestPromoteScans500DossiersUnderTwoSeconds(t *testing.T) {
 		dummyClock{now: time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)},
 		core.Config{DossierHome: tempHome}, nil)
 	start := time.Now()
+	listResult, err := svc.List(context.Background(), core.ListReq{Include: []string{"monitors", "references"}})
+	if err != nil {
+		t.Fatalf("List() with routing views error = %v", err)
+	}
+	if len(listResult.Data.([]core.ListItem)) != 500 {
+		t.Fatalf("routing list returned %d dossiers, want 500", len(listResult.Data.([]core.ListItem)))
+	}
+	if elapsed := time.Since(start); elapsed >= 2*time.Second {
+		t.Fatalf("500-Dossier routing list took %s, want <2s", elapsed)
+	}
+	start = time.Now()
 	if _, err := svc.Promote(context.Background(), core.PromoteReq{Name: "Novel target"}); err != nil {
 		t.Fatalf("Promote() error = %v", err)
 	}

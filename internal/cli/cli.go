@@ -38,6 +38,7 @@ var (
 	statusFlag          string
 	queryFlag           string
 	listLeadFlag        string
+	listIncludeFlag     []string
 	mineFlag            bool
 	jsonFlag            bool
 	dossierSearchFlag   string
@@ -358,7 +359,7 @@ func NewRootCmd() *cobra.Command {
 			if leadFilter == "" && mineFlag {
 				leadFilter = "me"
 			}
-			res, err := svc.List(context.Background(), core.ListReq{Status: statusFlag, Lead: leadFilter, Interfaces: interfacesFlag, Query: queryFlag})
+			res, err := svc.List(context.Background(), core.ListReq{Status: statusFlag, Lead: leadFilter, Interfaces: interfacesFlag, Query: queryFlag, Include: listIncludeFlag})
 			if err != nil {
 				fmt.Printf("List failed: %v\n", err)
 				os.Exit(1)
@@ -419,6 +420,7 @@ func NewRootCmd() *cobra.Command {
 	lsCmd.Flags().StringSliceVar(&interfacesFlag, "interface", nil, "Filter by interface (repeat or comma-separate)")
 	lsCmd.Flags().StringVarP(&queryFlag, "query", "q", "", "Filter by name, description, lead, interface, or slug")
 	lsCmd.Flags().StringVar(&listLeadFlag, "lead", "", "Filter by lead (username, display name, or \"me\")")
+	lsCmd.Flags().StringSliceVar(&listIncludeFlag, "include", nil, "Include parsed list views: monitors, references (repeat or comma-separate)")
 	lsCmd.Flags().BoolVar(&mineFlag, "mine", false, "Show dossiers assigned to the current user")
 	lsCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
@@ -1274,6 +1276,26 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
+	var monitorPolledDate string
+	monitorPolledCmd := &cobra.Command{
+		Use:   "monitor-polled <slug-or-id> <url>",
+		Short: "Record when an Active Monitor was last polled",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				return err
+			}
+			res, err := svc.MonitorPolled(context.Background(), core.MonitorPolledReq{ID: args[0], URL: args[1], Date: monitorPolledDate})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Monitor poll date recorded. New revision: %s\n", res.Data.(core.Revision))
+			return nil
+		},
+	}
+	monitorPolledCmd.Flags().StringVar(&monitorPolledDate, "date", "", "Polling date (YYYY-MM-DD; defaults to today)")
+
 	nextCmd := &cobra.Command{
 		Use:   "next <slug-or-id> <next-action>",
 		Short: "Update next action of a dossier",
@@ -1659,6 +1681,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(leadCmd)
 	rootCmd.AddCommand(descriptionCmd)
 	rootCmd.AddCommand(interfaceCmd)
+	rootCmd.AddCommand(monitorPolledCmd)
 	rootCmd.AddCommand(nextCmd)
 	rootCmd.AddCommand(priorityCmd)
 	rootCmd.AddCommand(updateCmd)

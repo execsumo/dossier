@@ -75,20 +75,22 @@ type ArtifactSummary struct {
 
 // ListItem represents a single summary item for dossier listings.
 type ListItem struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Slug         string   `json:"slug"`
-	Status       string   `json:"status"`
-	Lead         string   `json:"lead,omitempty"`
-	LeadUsername string   `json:"-"`
-	LeadFormer   bool     `json:"lead_former,omitempty"`
-	Interfaces   []string `json:"interfaces,omitempty"`
-	NextAction   string   `json:"next_action"`
-	Description  string   `json:"description,omitempty"`
-	Priority     string   `json:"priority"`
-	DueDate      string   `json:"due_date,omitempty"`
-	Path         string   `json:"path"`
-	Revision     Revision `json:"revision,omitempty"`
+	ID           string         `json:"id"`
+	Name         string         `json:"name"`
+	Slug         string         `json:"slug"`
+	Status       string         `json:"status"`
+	Lead         string         `json:"lead,omitempty"`
+	LeadUsername string         `json:"-"`
+	LeadFormer   bool           `json:"lead_former,omitempty"`
+	Interfaces   []string       `json:"interfaces,omitempty"`
+	NextAction   string         `json:"next_action"`
+	Description  string         `json:"description,omitempty"`
+	Priority     string         `json:"priority"`
+	DueDate      string         `json:"due_date,omitempty"`
+	Monitors     []ExternalLink `json:"monitors,omitempty"`
+	References   []ExternalLink `json:"references,omitempty"`
+	Path         string         `json:"path"`
+	Revision     Revision       `json:"revision,omitempty"`
 	// HasOpenDelegationContract reports whether any Delegation Contract block
 	// (guide.md §4) has a field that isn't yet [decided] — an attention signal
 	// a list surface can show without opening the dossier.

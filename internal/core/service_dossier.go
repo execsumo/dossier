@@ -1034,7 +1034,17 @@ type ListReq struct {
 	Status     string
 	Interfaces []string
 	Query      string
-	Lead       string // "me", a username, display name, or unique first-name prefix
+	Lead       string   // "me", a username, display name, or unique first-name prefix
+	Include    []string // optional parsed body views: monitors, references
+}
+
+func includesListView(includes []string, view string) bool {
+	for _, include := range includes {
+		if strings.EqualFold(strings.TrimSpace(include), view) {
+			return true
+		}
+	}
+	return false
 }
 
 func matchesInterfaces(have, want []string) bool {
@@ -1159,7 +1169,7 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 		fm := listed.Frontmatter
 		dossierPath := filepath.Join(s.cfg.DossierHome, fm.Slug)
 		leadView := s.displayLead(roster, hasRoster, fm.Lead)
-		items = append(items, ListItem{
+		item := ListItem{
 			ID:                        fm.ID,
 			Name:                      fm.Name,
 			Slug:                      fm.Slug,
@@ -1175,7 +1185,21 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 			Path:                      dossierPath,
 			Revision:                  listed.Revision,
 			HasOpenDelegationContract: listed.HasOpenDelegationContract,
-		})
+		}
+		if includesListView(req.Include, "monitors") || includesListView(req.Include, "references") {
+			dossier, _, readErr := s.store.Read(fm.ID)
+			if readErr != nil {
+				return Result{OK: false}, WrapError(ErrInternal, "failed to read dossier routing links", readErr)
+			}
+			links := ParseExternalLinks(dossier.DistilledState.Body)
+			if includesListView(req.Include, "monitors") {
+				item.Monitors = links.ActiveMonitors
+			}
+			if includesListView(req.Include, "references") {
+				item.References = links.References
+			}
+		}
+		items = append(items, item)
 	}
 
 	warnings := []Warning(nil)

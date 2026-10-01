@@ -35,6 +35,7 @@ var mcpMutatingTools = map[string]bool{
 	"dossier_merge":            true,
 	"dossier_rename":           true,
 	"dossier_resolve_conflict": true,
+	"dossier_monitor_polled":   true,
 }
 
 type mcpErrorObject struct {
@@ -88,8 +89,18 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 						"type":        "string",
 						"description": "Filter by name, description, lead, interface, or slug; username and display name both match; whitespace-separated terms are ANDed",
 					},
+					"include": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"monitors", "references"}}, "description": "Opt in to parsed Active Monitors and/or References from each matched Dossier body"},
 				},
 			},
+		},
+		{
+			Name:        "dossier_monitor_polled",
+			Description: "Update an Active Monitor's last-polled date after checking it",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+				"id":   map[string]any{"type": "string", "description": "Dossier slug or id"},
+				"url":  map[string]any{"type": "string", "description": "Exact monitor URL from ## Active Monitors"},
+				"date": map[string]any{"type": "string", "description": "Optional YYYY-MM-DD; defaults to today"},
+			}, "required": []string{"id", "url"}},
 		},
 		{
 			Name:        "dossier_recall",
@@ -365,15 +376,28 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 	var res core.Result
 
 	switch name {
+	case "dossier_monitor_polled":
+		var params struct {
+			ID   string `json:"id"`
+			URL  string `json:"url"`
+			Date string `json:"date"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil {
+			s.sendError(id, -32602, "Invalid monitor polling arguments", nil)
+			return
+		}
+		res, err = s.svc.MonitorPolled(ctx, core.MonitorPolledReq{ID: params.ID, URL: params.URL, Date: params.Date})
+
 	case "dossier_list":
 		var params struct {
 			Status     string   `json:"status"`
 			Lead       string   `json:"lead"`
 			Interfaces []string `json:"interfaces"`
 			Query      string   `json:"query"`
+			Include    []string `json:"include"`
 		}
 		_ = json.Unmarshal(args, &params)
-		res, err = s.svc.List(ctx, core.ListReq{Status: params.Status, Lead: params.Lead, Interfaces: params.Interfaces, Query: params.Query})
+		res, err = s.svc.List(ctx, core.ListReq{Status: params.Status, Lead: params.Lead, Interfaces: params.Interfaces, Query: params.Query, Include: params.Include})
 		if err == nil {
 			username, displayName := s.svc.CurrentUser()
 			res.Data = map[string]any{
