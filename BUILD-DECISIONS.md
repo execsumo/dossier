@@ -32,6 +32,8 @@ This document closes the implementation-discovery questions so the build can sta
 
 ---
 
+| **B19** | Team Sync author identities for non-human agents (2026-10-01) | **A headless agent running on another machine is a distinct Team Sync author, not a second device for a human.** Roster entries default to `kind: human`; explicit `kind: agent` entries are displayed distinctly and cannot be Dossier leads. The VM uses its own normalized author (e.g. `sitroom`) and audit shard, while D3 actor attribution identifies the specific agent for each write. Token-file credentials remain usable without TTY or `gh` sign-in. Add the inbox exclusion patterns before the first publish. | Reusing the principal's author on a VM would create two writers for one audit shard and violate B17's single-writer guarantee. Distinct authors retain that guarantee without changing transport or credentials. |
+
 ## Spec ambiguities resolved
 
 These are smaller inconsistencies a dev agent *will* hit. Resolved here; mechanics in `ARCHITECTURE.md` §"Concurrency & Revisions".

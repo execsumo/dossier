@@ -60,6 +60,9 @@ func (s *Service) normalizeLeadUpdate(updates map[string]any) (map[string]any, e
 	if !roster.Has(username) {
 		return updates, NewError(ErrInvalidFrontmatter, fmt.Sprintf("lead %q is a former team member and cannot receive new assignments", lead))
 	}
+	if roster.Kind(username) == "agent" {
+		return updates, NewError(ErrInvalidFrontmatter, fmt.Sprintf("lead %q is an agent; agents may own work only through a Delegation Contract", lead))
+	}
 	copy := make(map[string]any, len(updates))
 	for key, item := range updates {
 		copy[key] = item
@@ -77,6 +80,11 @@ func (s *Service) rosterWarning(roster Roster) []Warning {
 
 // TeamAdd adds or restores a roster member. Usernames are stored normalized.
 func (s *Service) TeamAdd(ctx context.Context, username, displayName string) (Result, error) {
+	return s.TeamAddKind(ctx, username, displayName, "human")
+}
+
+// TeamAddKind adds or restores a roster member with an explicit human/agent kind.
+func (s *Service) TeamAddKind(ctx context.Context, username, displayName, kind string) (Result, error) {
 	store, ok := s.store.(RosterStore)
 	if !ok {
 		return Result{OK: false}, NewError(ErrInternal, "team roster storage is not configured")
@@ -85,6 +93,13 @@ func (s *Service) TeamAdd(ctx context.Context, username, displayName string) (Re
 	displayName = strings.TrimSpace(displayName)
 	if username == "" || displayName == "" {
 		return Result{OK: false}, NewError(ErrInvalidFrontmatter, "username and display name are required")
+	}
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if kind == "" {
+		kind = "human"
+	}
+	if kind != "human" && kind != "agent" {
+		return Result{OK: false}, NewError(ErrInvalidFrontmatter, "member kind must be human or agent")
 	}
 	roster, err := s.Members(ctx)
 	if err != nil {
@@ -97,6 +112,7 @@ func (s *Service) TeamAdd(ctx context.Context, username, displayName string) (Re
 		roster.Former = map[string]string{}
 	}
 	roster.Members[username] = displayName
+	roster.Kinds[username] = kind
 	delete(roster.Former, username)
 	if err := store.WriteRoster(&roster); err != nil {
 		return Result{OK: false}, err
@@ -123,6 +139,7 @@ func (s *Service) TeamRemove(ctx context.Context, username string) (Result, erro
 		return Result{OK: false}, NewError(ErrNotFound, fmt.Sprintf("team member %q not found", username))
 	}
 	delete(roster.Members, username)
+	delete(roster.Kinds, username)
 	if roster.Former == nil {
 		roster.Former = map[string]string{}
 	}

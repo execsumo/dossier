@@ -7,6 +7,14 @@
 
 ## What a shared Dossier store is
 
+### Headless agent machine (operator setup)
+
+A VM running an autonomous agent must have its own Team Sync author; never reuse a person's username from their laptop. Configure `author: sitroom` in that VM's machine-local `~/.dossier/config.yaml`, then have the roster manager add it as an agent with `dossier team add sitroom "Sit Room" --kind agent` and sync the roster. Join non-interactively with a repository-scoped fine-grained token at `~/.dossier/credentials` (mode `0600` on Unix), followed by `dossier team join <url>`. This path does not require a TTY or `gh` login. Agent roster entries are not valid Dossier leads; assign their work through a Delegation Contract. Inbox entries are excluded from sync by default.
+
+Each author must be written by one machine only. If an agent VM is replaced, preserve that single-writer ownership rather than running the same author concurrently on old and new machines.
+
+## What a shared Dossier store is
+
 A **Dossier** is your agent's memory of a topic: the situation, the decisions made, the findings, and the next step — kept in one durable place instead of scattered across chats.
 
 A **shared team store** is that memory, shared with your colleagues. Everyone's sessions contribute to the same set of topics, so the team builds up one shared brain rather than each person starting fresh on every topic.

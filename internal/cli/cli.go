@@ -1947,6 +1947,7 @@ func NewRootCmd() *cobra.Command {
 	teamJoinCmd.Flags().BoolVar(&teamJoinJSON, "json", false, "Output results in JSON format")
 
 	var teamAddJSON bool
+	var teamAddKind string
 	teamAddCmd := &cobra.Command{
 		Use:   "add <username> <display-name>",
 		Short: "Add a member to the team roster",
@@ -1957,7 +1958,7 @@ func NewRootCmd() *cobra.Command {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
-			res, err := svc.TeamAdd(context.Background(), args[0], args[1])
+			res, err := svc.TeamAddKind(context.Background(), args[0], args[1], teamAddKind)
 			if err != nil {
 				fmt.Printf("Team add failed: %v\n", err)
 				os.Exit(1)
@@ -1972,6 +1973,7 @@ func NewRootCmd() *cobra.Command {
 			}
 		},
 	}
+	teamAddCmd.Flags().StringVar(&teamAddKind, "kind", "human", "Roster member kind: human or agent")
 	teamAddCmd.Flags().BoolVar(&teamAddJSON, "json", false, "Output results in JSON format")
 
 	var teamRemoveJSON bool
@@ -2026,12 +2028,12 @@ func NewRootCmd() *cobra.Command {
 			fmt.Printf("Manager: %s (%s)\n", roster.Manager, roster.DisplayName(roster.Manager))
 			fmt.Println("Members:")
 			for _, member := range view.Members {
-				fmt.Printf("- %s (%s)\n", member.DisplayName, member.Username)
+				fmt.Printf("- %s (%s; %s)\n", member.DisplayName, member.Username, member.Kind)
 			}
 			if len(view.Former) > 0 {
 				fmt.Println("Former members:")
 				for _, member := range view.Former {
-					fmt.Printf("- %s (%s)\n", member.DisplayName, member.Username)
+					fmt.Printf("- %s (%s; %s)\n", member.DisplayName, member.Username, member.Kind)
 				}
 			}
 		},

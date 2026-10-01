@@ -473,7 +473,7 @@ dossier sync [--status] [--json]
 dossier team create <url> [--yes] [--name "<Display Name>"] [--json]
 dossier team join <url> [--json]
 dossier signin [--json]
-dossier team add <username> "<Display Name>"
+dossier team add <username> "<Display Name>" [--kind human|agent]
 dossier team remove <username>
 dossier team members [--json]
 dossier ls --mine
@@ -617,9 +617,11 @@ dossier doctor
     psmith: Priya Shah
   former:            # removed members; still resolve for old leads
     jlee: Jordan Lee
+  kinds:             # omitted entries default to human
+    sitroom: agent
   ```
   `team create` writes it with the creator as manager and first member; the display name comes from `--name`, else `display_name` in config, else an interactive prompt, else (with `--yes`) the username.
-- `team add <username> "<Display Name>"` adds or renames a member; `team remove <username>` moves the member to `former:` (never deleted). Usernames are normalized on input. Both work for anyone but warn when the caller is not the roster's manager ("You are not the roster's manager (hgill); roster changes are conventionally manager-owned.").
+- `team add <username> "<Display Name>" [--kind human|agent]` adds or renames a member; kind defaults to `human`. `team remove <username>` moves the member to `former:` (never deleted). Usernames are normalized on input. Both work for anyone but warn when the caller is not the roster's manager ("You are not the roster's manager (hgill); roster changes are conventionally manager-owned."). An `agent` roster entry is visually labeled as an agent and cannot be assigned as a Dossier lead; agent ownership is expressed through a Delegation Contract (B19). A headless machine must use its own `author` username, never a human's laptop identity. It may join non-interactively using a repository-scoped token in `~/.dossier/credentials` without `gh` or a TTY. Per-Dossier `inbox/` is machine-local and excluded before the first sync.
 - `team members [--json]` lists the manager, then members sorted by display name; the MCP read-only tool `dossier_team` returns the same.
 - **Leads with a roster.** A lead may be given as a username, a full display name, or a unique first name/prefix (`Priya` → `psmith`); the username is stored; ambiguous or unknown names are refused with the candidates. Former members are not assignable. The machine-local `leads:` list applies only to stores without a roster. `doctor` advises on leads that are not current members.
 - **Display and "me" (M4–M5).** With a roster, every surface (TUI dashboard, board, detail and filters; `show`, `ls`, `recall`; MCP `dossier_list`, `dossier_recall`, `dossier_search`, `dossier_session`; SessionStart) shows the lead's display name; a former member shows as `<Name> (former)`. Lead filters and queries match the username or the display name. The SessionStart context adds `You are working as <Display Name> (<username>).` when a roster exists. `dossier_list` and `dossier_session` return `current_user: {username, display_name}`. `dossier_list` accepts `lead: "me"`, and the CLI has `dossier ls --mine`. Tool descriptions tell the agent to use `lead: "me"` for "me/mine/assigned to me" and to ask when several Dossiers match.

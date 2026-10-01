@@ -221,6 +221,7 @@ func unionRosters(shared, mine Roster) (Roster, []Warning) {
 		Manager: NormalizeUsername(shared.Manager),
 		Members: map[string]string{},
 		Former:  map[string]string{},
+		Kinds:   map[string]string{},
 	}
 	if merged.Manager == "" {
 		merged.Manager = NormalizeUsername(mine.Manager)
@@ -237,6 +238,9 @@ func unionRosters(shared, mine Roster) (Roster, []Warning) {
 				continue
 			}
 			target[normalized] = displayName
+			if kind := shared.Kind(normalized); kind == "agent" {
+				merged.Kinds[normalized] = kind
+			}
 			sharedNames[normalized] = displayName
 		}
 	}
@@ -265,6 +269,9 @@ func unionRosters(shared, mine Roster) (Roster, []Warning) {
 				continue
 			}
 			target[normalized] = displayName
+			if kind := mine.Kind(normalized); kind == "agent" {
+				merged.Kinds[normalized] = kind
+			}
 		}
 	}
 	addMine(mine.Members, merged.Members)
