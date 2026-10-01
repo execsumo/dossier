@@ -1102,6 +1102,7 @@ func (m Model) openInAgent(t targetDossier) (tea.Model, tea.Cmd) {
 		m.err = err
 		return m, nil
 	}
+	plan.Slug = slug
 
 	switchRes, err := m.svc.Switch(ctx, core.SwitchReq{
 		ID:          t.id,

@@ -81,5 +81,21 @@ func LaunchInHerdr(plan HandoffPlan) error {
 	if _, err := herdrRun("pane", "run", resp.Result.Pane.PaneID, plan.ShellLine()); err != nil {
 		return err
 	}
+	labelHerdr(plan.Slug)
 	return nil
+}
+
+// labelHerdr renames the caller's herdr workspace and tab to the Dossier slug so
+// they stop reflecting whatever folder the pane started in. Purely cosmetic and
+// best-effort: the agent is already running, so a failed rename is ignored.
+func labelHerdr(slug string) {
+	if slug == "" {
+		return
+	}
+	if ws := os.Getenv("HERDR_WORKSPACE_ID"); ws != "" {
+		_, _ = herdrRun("workspace", "rename", ws, slug)
+	}
+	if tab := os.Getenv("HERDR_TAB_ID"); tab != "" {
+		_, _ = herdrRun("tab", "rename", tab, slug)
+	}
 }

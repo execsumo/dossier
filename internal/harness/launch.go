@@ -121,6 +121,8 @@ type HandoffPlan struct {
 	Args      []string
 	Dir       string
 	Env       []string
+	// Slug names the Dossier; herdr launches use it to label the workspace and tab.
+	Slug string
 }
 
 // PlanOpenWith resolves the configured launcher and builds its handoff.
