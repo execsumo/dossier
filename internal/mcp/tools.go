@@ -825,6 +825,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			return
 		}
 		res, err = s.svc.ResolveConflict(ctx, core.ResolveConflictReq{
+			Actor:      s.actor(),
 			ConflictID: params.ConflictID,
 			Choice:     params.Choice,
 		})

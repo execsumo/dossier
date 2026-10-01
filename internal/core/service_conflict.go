@@ -15,6 +15,7 @@ const (
 )
 
 type ResolveConflictReq struct {
+	Actor      string
 	ConflictID string
 	Choice     string
 	Author     string
@@ -86,9 +87,18 @@ func (s *Service) ResolveConflict(ctx context.Context, req ResolveConflictReq) (
 			"invalid conflict choice: must be keep_shared, restore_mine, or keep_both")
 	}
 
+	actor := NormalizeActor(req.Actor, req.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{OK: false}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	conflict, err := s.store.ReadConflict(req.ConflictID)
 	if err != nil {
 		return Result{OK: false}, err
+	}
+	if conflict.Kind == "agent_proposal" {
+		if err := Authorize(actor, "accept_agent_proposal"); err != nil {
+			return Result{OK: false}, NewError(ErrInvalidFrontmatter, err.Error())
+		}
 	}
 	if conflict.Kind == "sync_concurrent_roster_edit" || conflict.DossierID == RosterConflictDossierID {
 		return s.resolveRosterConflict(conflict, req)
@@ -113,6 +123,7 @@ func (s *Service) ResolveConflict(ctx context.Context, req ResolveConflictReq) (
 			restoredBody += "\n"
 		}
 		result, err = s.Save(ctx, SaveReq{
+			Actor:                  actor,
 			ID:                     dossier.Frontmatter.ID,
 			BaseRevision:           currentRevision,
 			DistilledStateMarkdown: restoredBody,
@@ -125,6 +136,7 @@ func (s *Service) ResolveConflict(ctx context.Context, req ResolveConflictReq) (
 			conflict.RejectedBody,
 		)
 		result, err = s.Save(ctx, SaveReq{
+			Actor:                  actor,
 			ID:                     dossier.Frontmatter.ID,
 			BaseRevision:           currentRevision,
 			DistilledStateMarkdown: body,
@@ -148,6 +160,7 @@ func (s *Service) ResolveConflict(ctx context.Context, req ResolveConflictReq) (
 	if err := s.store.AppendAudit(conflict.DossierID, AuditEvent{
 		TS:             now,
 		Event:          AuditEventConflictResolved,
+		Actor:          actor,
 		Author:         author,
 		DossierID:      conflict.DossierID,
 		BeforeRevision: string(currentRevision),

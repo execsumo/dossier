@@ -362,6 +362,24 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 		}
 		beforeFM = d.Frontmatter
 
+		if ActorIsAgent(actor) && req.DistilledStateMarkdown != "" {
+			sections := changedProtectedSections(d.DistilledState.Body, req.DistilledStateMarkdown)
+			if len(sections) > 0 {
+				conflictID := fmt.Sprintf("conf_%d_agent_proposal", s.clock.Now().UnixNano())
+				conflict := &Conflict{
+					ID: conflictID, DossierID: d.Frontmatter.ID, Kind: "agent_proposal",
+					BaseRevision: string(req.BaseRevision), AttemptedRevision: string(baseRev), Session: sessID,
+					TS: s.clock.Now(), RejectedBody: req.DistilledStateMarkdown,
+					DiffAgainstCurrent: GenerateUnifiedDiff(d.DistilledState.Body, req.DistilledStateMarkdown),
+				}
+				if err := s.store.WriteConflict(conflict); err != nil {
+					return Result{}, "", err
+				}
+				_ = s.store.AppendAudit(d.Frontmatter.ID, AuditEvent{TS: s.clock.Now(), Event: AuditEventConflictCreated, Actor: actor, Author: s.cfg.Author, DossierID: d.Frontmatter.ID, SessionID: sessID, BeforeRevision: string(req.BaseRevision), AfterRevision: string(baseRev), Message: fmt.Sprintf("Agent proposal %s touches protected sections: %s", conflictID, strings.Join(sections, ", "))})
+				return Result{OK: true, Data: map[string]any{"proposal_id": conflictID, "applied": false, "protected_sections": sections}, NextActions: []NextAction{"Ask a human to review the proposal and accept or reject it with dossier_resolve_conflict."}}, d.Frontmatter.ID, nil
+			}
+		}
+
 		if req.BaseRevision != "" && baseRev != req.BaseRevision {
 			// Concurrency mismatch! Attempt to read the dossier at the user's base revision.
 			dBase, readRevErr := s.store.ReadRevision(req.ID, req.BaseRevision)
