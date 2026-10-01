@@ -3,6 +3,7 @@ package harness
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"strings"
@@ -42,6 +43,22 @@ func TestNewClaudeSessionID(t *testing.T) {
 	}
 	if a == b {
 		t.Errorf("two mints produced the same id %q", a)
+	}
+}
+
+func TestPlanOpenWithHeadlessClaudeAddsLeanMode(t *testing.T) {
+	t.Setenv(ClaudeBinEnv, "/bin/true")
+	plan, err := PlanOpenWith("claude-code", LaunchRequest{
+		SessionID: "11111111-2222-4333-8444-555555555555", DossierDir: "/tmp/topic", Name: "Topic", Slug: "topic", Headless: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Args) != 4 || plan.Args[0] != "--print" || plan.Args[1] != "--session-id" {
+		t.Fatalf("headless args = %#v", plan.Args)
+	}
+	if !reflect.DeepEqual(plan.Env, []string{"DOSSIER_LEAN_SESSION_START=1"}) {
+		t.Fatalf("headless env = %#v", plan.Env)
 	}
 }
 

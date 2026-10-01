@@ -1494,7 +1494,8 @@ func NewRootCmd() *cobra.Command {
 
 			switch args[0] {
 			case "session-start":
-				resText, err := svc.SessionStart(context.Background(), sessID)
+				lean := os.Getenv("DOSSIER_LEAN_SESSION_START") == "1"
+				resText, err := svc.SessionStartMode(context.Background(), sessID, lean)
 				if err != nil {
 					fmt.Printf("Session start hook failed: %v\n", err)
 					os.Exit(1)
@@ -1532,6 +1533,7 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
+	var openHeadless bool
 	openCmd := &cobra.Command{
 		Use:   "open <slug-or-id>",
 		Short: "Open a dossier in the configured agent",
@@ -1553,6 +1555,9 @@ func NewRootCmd() *cobra.Command {
 			openWith, err := harness.NormalizeOpenWith(cfg.OpenWith)
 			if err != nil {
 				return err
+			}
+			if openHeadless && openWith != "claude-code" {
+				return fmt.Errorf("--headless is currently supported only with open_with: claude-code")
 			}
 
 			ctx := context.Background()
@@ -1587,6 +1592,7 @@ func NewRootCmd() *cobra.Command {
 				DossierDir: dir,
 				Name:       recall.Frontmatter.Name,
 				Slug:       recall.Frontmatter.Slug,
+				Headless:   openHeadless,
 			})
 			if err != nil {
 				return err
@@ -1615,6 +1621,7 @@ func NewRootCmd() *cobra.Command {
 			return agent.Run()
 		},
 	}
+	openCmd.Flags().BoolVar(&openHeadless, "headless", false, "Run Claude Code in print mode with a lean, dossier-bound SessionStart payload")
 
 	versionCmd := &cobra.Command{
 		Use:   "version",
