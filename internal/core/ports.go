@@ -41,6 +41,12 @@ type RosterSnapshot struct {
 
 // RosterRollbackStore lets team create restore the roster if the initial push
 // fails, without bringing serialization or filesystem operations into core.
+// RosterAuditStore stores synced root-level audit shards for team.yaml actions,
+// which do not belong to any individual Dossier.
+type RosterAuditStore interface {
+	AppendTeamAudit(AuditEvent) error
+}
+
 type RosterRollbackStore interface {
 	RosterStore
 	SnapshotRoster() (RosterSnapshot, error)

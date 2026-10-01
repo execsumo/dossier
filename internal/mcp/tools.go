@@ -6,7 +6,9 @@ import (
 	"dossier/internal/harness"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
+	"time"
 )
 
 // ToolDefinition represents an MCP tool definition.
@@ -35,6 +37,17 @@ var mcpMutatingTools = map[string]bool{
 	"dossier_merge":            true,
 	"dossier_rename":           true,
 	"dossier_resolve_conflict": true,
+	"dossier_monitor_polled":   true,
+	"dossier_inbox":            true,
+	"dossier_inbox_resolve":    true,
+}
+
+func (s *Server) actor() string {
+	if agent := strings.TrimSpace(os.Getenv("DOSSIER_AGENT")); agent != "" {
+		return "agent:" + agent
+	}
+	username, _ := s.svc.CurrentUser()
+	return core.NormalizeActor("", username)
 }
 
 type mcpErrorObject struct {
@@ -83,13 +96,24 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 						"type":        "string",
 						"description": "Filter by lead: use me for the current user, or a teammate's username, display name, or unique first name. An ambiguous name returns ambiguous_target with the candidates.",
 					},
+					"attention":  map[string]any{"type": "string", "enum": []string{"none", "fyi", "decide", "blocked"}, "description": "Filter by principal attention level"},
 					"interfaces": configuredStringListSchema(interfaces, "Filter by discussion interface; matches dossiers assigned to any supplied interface"),
 					"query": map[string]any{
 						"type":        "string",
 						"description": "Filter by name, description, lead, interface, or slug; username and display name both match; whitespace-separated terms are ANDed",
 					},
+					"include": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"monitors", "references"}}, "description": "Opt in to parsed Active Monitors and/or References from each matched Dossier body"},
 				},
 			},
+		},
+		{
+			Name:        "dossier_monitor_polled",
+			Description: "Update an Active Monitor's last-polled date after checking it",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+				"id":   map[string]any{"type": "string", "description": "Dossier slug or id"},
+				"url":  map[string]any{"type": "string", "description": "Exact monitor URL from ## Active Monitors"},
+				"date": map[string]any{"type": "string", "description": "Optional YYYY-MM-DD; defaults to today"},
+			}, "required": []string{"id", "url"}},
 		},
 		{
 			Name:        "dossier_recall",
@@ -259,6 +283,11 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 			},
 		},
 		{
+			Name:        "dossier_changes",
+			Description: "List changes since an RFC3339 timestamp, derived from Dossier audit logs.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"since": map[string]any{"type": "string", "description": "RFC3339 timestamp; changes strictly after this time are returned."}}, "required": []string{"since"}},
+		},
+		{
 			Name:        "dossier_session",
 			Description: "Get the active dossier bound to the current session, or switch/bind the session to a dossier (by slug or id) if the 'id' parameter is provided. When the user says me, mine, or assigned to me, use dossier_list with lead: me; if several match, ask which one before binding.",
 			InputSchema: map[string]any{
@@ -279,7 +308,8 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 					"id":          map[string]any{"type": "string", "description": "The dossier slug or ID to update"},
 					"name":        map[string]any{"type": "string", "description": "Replace the display name (omit to leave unchanged). Use dossier_rename when the rename should be explicit."},
 					"description": map[string]any{"type": "string", "description": "Replace the optional progressive-disclosure summary (omit to leave unchanged)"},
-					"status":      map[string]any{"type": "string", "description": "Replace the current status: spark|define|execute|review|blocked|done (omit to leave unchanged)"},
+					"status":      map[string]any{"type": "string", "description": "Replace the current status: spark|define|execute|review|blocked|done (setting done requires a human actor)"},
+					"attention":   map[string]any{"type": []string{"object", "null"}, "description": "Agent/system-managed principal attention; null or level none clears", "properties": map[string]any{"level": map[string]any{"type": "string", "enum": []string{"none", "fyi", "decide", "blocked"}}, "summary": map[string]any{"type": "string", "maxLength": 140}}},
 					"lead":        configuredLeadSchema(leads, "Replace the lead assignee (omit to leave unchanged; empty clears)"),
 					"next_action": map[string]any{"type": "string", "description": "Replace the current next action (omit to leave unchanged)"},
 					"priority":    map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "max"}, "description": "low|medium|high|max (omit to leave unchanged)"},
@@ -288,6 +318,25 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 				},
 				"required": []string{"id"},
 			},
+		},
+		{
+			Name:        "dossier_inbox",
+			Description: "List or read routed inbox items, or capture a new routed intake item",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+				"id":          map[string]any{"type": "string", "description": "Dossier slug or id"},
+				"inbox_id":    map[string]any{"type": "string", "description": "Optional inbox item id to read"},
+				"source_kind": map[string]any{"type": "string", "description": "Required when creating an item; source category"},
+				"url":         map[string]any{"type": "string", "description": "Optional external source URL"},
+				"excerpt":     map[string]any{"type": "string", "description": "Routed excerpt; required when creating an item"},
+				"confidence":  map[string]any{"type": "number", "description": "Routing confidence from 0 to 1"},
+			}, "required": []string{"id"}},
+		},
+		{
+			Name:        "dossier_inbox_resolve",
+			Description: "Absorb an inbox excerpt into the Archive or dismiss it while retaining the inbox record",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+				"id": map[string]any{"type": "string"}, "inbox_id": map[string]any{"type": "string"}, "action": map[string]any{"type": "string", "enum": []string{"absorb", "dismiss"}},
+			}, "required": []string{"id", "inbox_id", "action"}},
 		},
 		{
 			Name:        "dossier_team",
@@ -365,15 +414,77 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 	var res core.Result
 
 	switch name {
+	case "dossier_inbox":
+		var params struct {
+			ID         string  `json:"id"`
+			InboxID    string  `json:"inbox_id"`
+			SourceKind string  `json:"source_kind"`
+			URL        string  `json:"url"`
+			Excerpt    string  `json:"excerpt"`
+			Confidence float64 `json:"confidence"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil {
+			s.sendError(id, -32602, "Invalid inbox arguments", nil)
+			return
+		}
+		switch {
+		case params.InboxID != "":
+			res, err = s.svc.ReadInbox(ctx, core.InboxReadReq{ID: params.ID, InboxID: params.InboxID})
+		case params.Excerpt != "":
+			res, err = s.svc.CreateInbox(ctx, core.InboxCreateReq{ID: params.ID, Source: core.InboxSource{Kind: params.SourceKind, URL: params.URL}, Excerpt: params.Excerpt, RoutedBy: s.actor(), Confidence: params.Confidence})
+		default:
+			res, err = s.svc.Inbox(ctx, core.InboxListReq{ID: params.ID})
+		}
+	case "dossier_inbox_resolve":
+		var params struct {
+			ID      string `json:"id"`
+			InboxID string `json:"inbox_id"`
+			Action  string `json:"action"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil {
+			s.sendError(id, -32602, "Invalid inbox resolution arguments", nil)
+			return
+		}
+		res, err = s.svc.ResolveInbox(ctx, core.InboxResolveReq{ID: params.ID, InboxID: params.InboxID, Action: params.Action, Actor: s.actor()})
+
+	case "dossier_monitor_polled":
+		var params struct {
+			ID   string `json:"id"`
+			URL  string `json:"url"`
+			Date string `json:"date"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil {
+			s.sendError(id, -32602, "Invalid monitor polling arguments", nil)
+			return
+		}
+		res, err = s.svc.MonitorPolled(ctx, core.MonitorPolledReq{Actor: s.actor(), ID: params.ID, URL: params.URL, Date: params.Date})
+
+	case "dossier_changes":
+		var params struct {
+			Since string `json:"since"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil || params.Since == "" {
+			s.sendError(id, -32602, "since RFC3339 timestamp is required", nil)
+			return
+		}
+		since, err := time.Parse(time.RFC3339, params.Since)
+		if err != nil {
+			s.sendError(id, -32602, "since must be an RFC3339 timestamp", nil)
+			return
+		}
+		res.Data, err = s.svc.Changes(ctx, since)
+
 	case "dossier_list":
 		var params struct {
 			Status     string   `json:"status"`
 			Lead       string   `json:"lead"`
 			Interfaces []string `json:"interfaces"`
 			Query      string   `json:"query"`
+			Include    []string `json:"include"`
+			Attention  string   `json:"attention"`
 		}
 		_ = json.Unmarshal(args, &params)
-		res, err = s.svc.List(ctx, core.ListReq{Status: params.Status, Lead: params.Lead, Interfaces: params.Interfaces, Query: params.Query})
+		res, err = s.svc.List(ctx, core.ListReq{Status: params.Status, Lead: params.Lead, Interfaces: params.Interfaces, Query: params.Query, Include: params.Include, Attention: params.Attention})
 		if err == nil {
 			username, displayName := s.svc.CurrentUser()
 			res.Data = map[string]any{
@@ -486,6 +597,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		}
 
 		res, err = s.svc.Save(ctx, core.SaveReq{
+			Actor:                  s.actor(),
 			ID:                     params.ID,
 			BaseRevision:           params.BaseRevision,
 			DistilledStateMarkdown: params.DistilledStateMarkdown,
@@ -510,6 +622,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			return
 		}
 		res, err = s.svc.Promote(ctx, core.PromoteReq{
+			Actor:                  s.actor(),
 			Name:                   params.Name,
 			Description:            params.Description,
 			Priority:               core.Priority(params.Priority),
@@ -532,6 +645,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			return
 		}
 		res, err = s.svc.Link(ctx, core.LinkReq{
+			Actor:        s.actor(),
 			ID:           params.ID,
 			FromFilePath: params.FromFilePath,
 			Content:      params.SessionContent,
@@ -548,6 +662,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			return
 		}
 		res, err = s.svc.Merge(ctx, core.MergeReq{
+			Actor:             s.actor(),
 			SourceID:          params.SourceID,
 			TargetID:          params.TargetID,
 			ResolvedConflicts: params.ResolvedConflicts,
@@ -642,8 +757,9 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			NextAction  *string `json:"next_action"`
 			Priority    string  `json:"priority"`
 			// A pointer distinguishes an omitted due date from an empty string that clears it.
-			DueDate    *string  `json:"due_date"`
-			Interfaces []string `json:"interfaces"`
+			DueDate    *string         `json:"due_date"`
+			Interfaces []string        `json:"interfaces"`
+			Attention  json.RawMessage `json:"attention"`
 		}
 		if err := json.Unmarshal(args, &params); err != nil {
 			s.sendError(id, -32602, "Invalid params", nil)
@@ -674,7 +790,20 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		if params.Interfaces != nil {
 			updates["interfaces"] = params.Interfaces
 		}
+		if len(params.Attention) > 0 {
+			if string(params.Attention) == "null" {
+				updates["attention"] = nil
+			} else {
+				var attention core.Attention
+				if decodeErr := json.Unmarshal(params.Attention, &attention); decodeErr != nil {
+					s.sendError(id, -32602, "Invalid attention value", nil)
+					return
+				}
+				updates["attention"] = attention
+			}
+		}
 		res, err = s.svc.Save(ctx, core.SaveReq{
+			Actor:              s.actor(),
 			ID:                 params.ID,
 			FrontmatterUpdates: updates,
 		})
@@ -718,6 +847,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			return
 		}
 		res, err = s.svc.ResolveConflict(ctx, core.ResolveConflictReq{
+			Actor:      s.actor(),
 			ConflictID: params.ConflictID,
 			Choice:     params.Choice,
 		})
@@ -742,7 +872,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			params.NewName = params.NewTitle
 		}
 		res, err = s.svc.Rename(ctx, core.RenameReq{
-			ID: params.ID, NewSlug: params.NewSlug, NewName: params.NewName, BaseRevision: core.Revision(params.BaseRevision),
+			Actor: s.actor(), ID: params.ID, NewSlug: params.NewSlug, NewName: params.NewName, BaseRevision: core.Revision(params.BaseRevision),
 		})
 
 	default:

@@ -2,14 +2,18 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+	"unicode/utf8"
 )
 
 type SaveReq struct {
+	Actor                  string
 	ID                     string
 	BaseRevision           Revision
 	DistilledStateMarkdown string
@@ -90,6 +94,11 @@ func getFMField(fm Frontmatter, field string) any {
 		return string(fm.Priority)
 	case "due_date":
 		return fm.DueDate
+	case "attention":
+		if fm.Attention == nil {
+			return ""
+		}
+		return fmt.Sprintf("%s|%s|%s|%s", fm.Attention.Level, fm.Attention.Summary, fm.Attention.Since.Format(time.RFC3339Nano), fm.Attention.By)
 	default:
 		return nil
 	}
@@ -134,6 +143,35 @@ func applyFrontmatterUpdates(d *Dossier, updates map[string]any) {
 			d.Frontmatter.DueDate = strVal
 		}
 	}
+	if val, ok := updates["attention"]; ok {
+		attention, _ := attentionFromValue(val)
+		if attention == nil || attention.Level == "none" {
+			d.Frontmatter.Attention = nil
+		} else {
+			d.Frontmatter.Attention = attention
+		}
+	}
+}
+
+func attentionFromValue(value any) (*Attention, bool) {
+	if value == nil {
+		return nil, true
+	}
+	if attention, ok := value.(*Attention); ok {
+		return attention, true
+	}
+	if attention, ok := value.(Attention); ok {
+		return &attention, true
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, false
+	}
+	var attention Attention
+	if err := json.Unmarshal(data, &attention); err != nil {
+		return nil, false
+	}
+	return &attention, true
 }
 
 func interfaceNamesFromValue(value any) []string {
@@ -179,6 +217,11 @@ func strictStringSlice(value any) ([]string, bool) {
 	}
 }
 
+func updatesStatusDone(updates map[string]any) bool {
+	status, ok := updates["status"].(string)
+	return ok && NormalizeStatus(Status(status)) == StatusDone
+}
+
 func (s *Service) validateConfiguredFrontmatterUpdates(updates map[string]any) error {
 	if updates == nil {
 		return nil
@@ -194,6 +237,20 @@ func (s *Service) validateConfiguredFrontmatterUpdates(updates map[string]any) e
 		for _, name := range names {
 			if !configuredValueAllowed(name, s.cfg.Interfaces) {
 				return fmt.Errorf("invalid interface: %q (configure available values in config.yaml)", name)
+			}
+		}
+	}
+	if value, ok := updates["attention"]; ok {
+		attention, valid := attentionFromValue(value)
+		if !valid {
+			return fmt.Errorf("attention must include level and summary; use null to clear")
+		}
+		if attention != nil {
+			if attention.Level != "none" && attention.Level != "fyi" && attention.Level != "decide" && attention.Level != "blocked" {
+				return fmt.Errorf("attention.level must be none, fyi, decide, or blocked")
+			}
+			if utf8.RuneCountInString(attention.Summary) > 140 {
+				return fmt.Errorf("attention.summary must be at most 140 characters")
 			}
 		}
 	}
@@ -250,6 +307,18 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 	} else {
 		req.FrontmatterUpdates = updates
 	}
+	actor := NormalizeActor(req.Actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{}, "", NewError(ErrInvalidFrontmatter, err.Error())
+	}
+	if _, changesAttention := req.FrontmatterUpdates["attention"]; changesAttention && ActorIsHuman(actor) {
+		return Result{}, "", NewError(ErrInvalidFrontmatter, "attention is managed by agent or system actors, not humans")
+	}
+	if updatesStatusDone(req.FrontmatterUpdates) {
+		if err := Authorize(actor, "set_done"); err != nil {
+			return Result{}, "", NewError(ErrInvalidFrontmatter, err.Error())
+		}
+	}
 	if _, ok := req.FrontmatterUpdates["slug"]; ok {
 		return Result{}, "", NewError(ErrInvalidFrontmatter, "slug cannot be changed through Save; use Rename")
 	}
@@ -292,6 +361,31 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 			return Result{}, "", err
 		}
 		beforeFM = d.Frontmatter
+
+		if req.DistilledStateMarkdown != "" {
+			acceptanceChanged := changedDelegationAcceptance(d.DistilledState.Body, req.DistilledStateMarkdown)
+			if acceptanceChanged && !ActorIsHuman(actor) && !ActorIsAgent(actor) {
+				return Result{}, "", NewError(ErrInvalidFrontmatter, "accepting a Delegation Contract requires a human actor")
+			}
+			sections := changedProtectedSections(d.DistilledState.Body, req.DistilledStateMarkdown)
+			if acceptanceChanged {
+				sections = append(sections, "Delegation Contracts / Acceptance")
+			}
+			if ActorIsAgent(actor) && len(sections) > 0 {
+				conflictID := fmt.Sprintf("conf_%d_agent_proposal", s.clock.Now().UnixNano())
+				conflict := &Conflict{
+					ID: conflictID, DossierID: d.Frontmatter.ID, Kind: "agent_proposal",
+					BaseRevision: string(req.BaseRevision), AttemptedRevision: string(baseRev), Session: sessID,
+					TS: s.clock.Now(), RejectedBody: req.DistilledStateMarkdown,
+					DiffAgainstCurrent: GenerateUnifiedDiff(d.DistilledState.Body, req.DistilledStateMarkdown),
+				}
+				if err := s.store.WriteConflict(conflict); err != nil {
+					return Result{}, "", err
+				}
+				_ = s.store.AppendAudit(d.Frontmatter.ID, AuditEvent{TS: s.clock.Now(), Event: AuditEventConflictCreated, Actor: actor, Author: s.cfg.Author, DossierID: d.Frontmatter.ID, SessionID: sessID, BeforeRevision: string(req.BaseRevision), AfterRevision: string(baseRev), Message: fmt.Sprintf("Agent proposal %s touches protected sections: %s", conflictID, strings.Join(sections, ", "))})
+				return Result{OK: true, Data: map[string]any{"proposal_id": conflictID, "applied": false, "protected_sections": sections}, NextActions: []NextAction{"Ask a human to review the proposal and accept or reject it with dossier_resolve_conflict."}}, d.Frontmatter.ID, nil
+			}
+		}
 
 		if req.BaseRevision != "" && baseRev != req.BaseRevision {
 			// Concurrency mismatch! Attempt to read the dossier at the user's base revision.
@@ -361,6 +455,7 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 					_ = s.store.AppendAudit(d.Frontmatter.ID, AuditEvent{
 						TS:             s.clock.Now(),
 						Event:          AuditEventConflictCreated,
+						Actor:          actor,
 						Author:         s.cfg.Author,
 						DossierID:      d.Frontmatter.ID,
 						SessionID:      sessID,
@@ -389,6 +484,12 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 
 	if req.FrontmatterUpdates != nil {
 		applyFrontmatterUpdates(d, req.FrontmatterUpdates)
+	}
+	if d.Frontmatter.Attention != nil && req.FrontmatterUpdates != nil {
+		if _, changed := req.FrontmatterUpdates["attention"]; changed {
+			d.Frontmatter.Attention.Since = s.clock.Now()
+			d.Frontmatter.Attention.By = actor
+		}
 	}
 
 	if req.DistilledStateMarkdown != "" {
@@ -424,6 +525,7 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 	event := AuditEvent{
 		TS:             s.clock.Now(),
 		DossierID:      d.Frontmatter.ID,
+		Actor:          actor,
 		Author:         s.cfg.Author,
 		BeforeRevision: string(baseRev),
 		AfterRevision:  string(newRev),
@@ -467,6 +569,7 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 // NewName and NewSlug must be supplied. BaseRevision is optional for interactive
 // callers; when provided it protects against a stale rename.
 type RenameReq struct {
+	Actor        string
 	ID           string
 	NewSlug      string
 	NewName      string
@@ -495,6 +598,13 @@ type RenameSlugResult = RenameResult
 // operation. Keeping this separate from Save ensures a slug change cannot update
 // frontmatter without moving the backing directory.
 func (s *Service) Rename(ctx context.Context, req RenameReq) (Result, error) {
+	actor := NormalizeActor(req.Actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
+	if err := Authorize(actor, "rename"); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	if req.ID == "" {
 		return Result{}, NewError(ErrInvalidFrontmatter, "dossier id or slug is required")
 	}
@@ -543,7 +653,7 @@ func (s *Service) Rename(ctx context.Context, req RenameReq) (Result, error) {
 		updated, newRev, err = s.store.RenameSlug(old.ID, newSlug, base)
 	} else if newSlug == old.Slug {
 		// A title-only rename is safely representable by the older Save port.
-		saved, saveErr := s.Save(ctx, SaveReq{ID: old.ID, BaseRevision: base, FrontmatterUpdates: map[string]any{"name": newName}})
+		saved, saveErr := s.Save(ctx, SaveReq{Actor: actor, ID: old.ID, BaseRevision: base, FrontmatterUpdates: map[string]any{"name": newName}})
 		err = saveErr
 		if err == nil {
 			newRev = saved.Data.(Revision)
@@ -567,7 +677,7 @@ func (s *Service) Rename(ctx context.Context, req RenameReq) (Result, error) {
 		event = AuditEventRenamed
 	}
 	if err := s.store.AppendAudit(updated.Frontmatter.ID, AuditEvent{
-		TS: s.clock.Now(), Event: event, Author: s.cfg.Author,
+		TS: s.clock.Now(), Event: event, Actor: actor, Author: s.cfg.Author,
 		DossierID: updated.Frontmatter.ID, BeforeRevision: string(base),
 		AfterRevision: string(newRev), Message: describeFrontmatterChanges(old, updated.Frontmatter),
 	}); err != nil {
@@ -582,6 +692,7 @@ func (s *Service) RenameSlug(ctx context.Context, req RenameSlugReq) (Result, er
 }
 
 type LinkReq struct {
+	Actor        string
 	ID           string
 	FromFilePath string
 	Content      string
@@ -589,6 +700,10 @@ type LinkReq struct {
 }
 
 func (s *Service) Link(ctx context.Context, req LinkReq) (Result, error) {
+	actor := NormalizeActor(req.Actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	now := s.clock.Now()
 
 	if req.ID == "" {
@@ -642,6 +757,7 @@ func (s *Service) Link(ctx context.Context, req LinkReq) (Result, error) {
 	_ = s.store.AppendAudit(d.Frontmatter.ID, AuditEvent{
 		TS:             now,
 		Event:          AuditEventSave,
+		Actor:          actor,
 		Author:         s.cfg.Author,
 		DossierID:      d.Frontmatter.ID,
 		BeforeRevision: string(baseRev),
@@ -656,12 +772,20 @@ func (s *Service) Link(ctx context.Context, req LinkReq) (Result, error) {
 }
 
 type MergeReq struct {
+	Actor             string
 	SourceID          string
 	TargetID          string
 	ResolvedConflicts []string
 }
 
 func (s *Service) Merge(ctx context.Context, req MergeReq) (Result, error) {
+	actor := NormalizeActor(req.Actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
+	if err := Authorize(actor, "merge"); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	sourceD, sourceRev, err := s.store.Read(req.SourceID)
 	if err != nil {
 		return Result{}, WrapError(ErrNotFound, "failed to read source dossier", err)
@@ -712,6 +836,7 @@ func (s *Service) Merge(ctx context.Context, req MergeReq) (Result, error) {
 			_ = s.store.AppendAudit(targetD.Frontmatter.ID, AuditEvent{
 				TS:             s.clock.Now(),
 				Event:          AuditEventMergeConflict,
+				Actor:          actor,
 				Author:         s.cfg.Author,
 				DossierID:      targetD.Frontmatter.ID,
 				BeforeRevision: string(targetRev),
@@ -729,6 +854,7 @@ func (s *Service) Merge(ctx context.Context, req MergeReq) (Result, error) {
 	_ = s.store.AppendAudit(targetD.Frontmatter.ID, AuditEvent{
 		TS:        s.clock.Now(),
 		Event:     AuditEventMergeStarted,
+		Actor:     actor,
 		Author:    s.cfg.Author,
 		DossierID: targetD.Frontmatter.ID,
 		Message:   fmt.Sprintf("Starting merge of source %s into target %s", req.SourceID, req.TargetID),
@@ -762,6 +888,7 @@ func (s *Service) Merge(ctx context.Context, req MergeReq) (Result, error) {
 	_ = s.store.AppendAudit(targetD.Frontmatter.ID, AuditEvent{
 		TS:             s.clock.Now(),
 		Event:          AuditEventMergeCompleted,
+		Actor:          actor,
 		Author:         s.cfg.Author,
 		DossierID:      targetD.Frontmatter.ID,
 		BeforeRevision: string(targetRev),
@@ -777,6 +904,9 @@ func (s *Service) Merge(ctx context.Context, req MergeReq) (Result, error) {
 
 type RecallReq struct {
 	ID string
+	// HumanView omits agent-facing advisories (uncited artifacts) for callers
+	// that render for a person, such as the TUI. Agents and doctor keep them.
+	HumanView bool
 }
 
 func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
@@ -793,9 +923,19 @@ func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
 		warnings = append(warnings, Warning(fmt.Sprintf("Distilled State exceeds token target (%d > %d tokens). Consider condensing.", tokens, target)))
 	}
 
-	index, indexWarnings := s.evidenceIndex(d.Frontmatter.ID, d.DistilledState.Body)
+	index, indexWarnings := s.evidenceIndex(d.Frontmatter.ID, d.DistilledState.Body, !req.HumanView)
 	warnings = append(warnings, indexWarnings...)
 	externalLinks := ParseExternalLinks(d.DistilledState.Body)
+
+	var files []WorkingFile
+	if fileStore, ok := s.store.(FileStore); ok {
+		listed, err := fileStore.ListWorkingFiles(d.Frontmatter.ID)
+		if err != nil {
+			warnings = append(warnings, Warning(fmt.Sprintf("files/ could not be listed: %v", err)))
+		} else {
+			files = listed
+		}
+	}
 
 	dossierPath := filepath.Join(s.cfg.DossierHome, d.Frontmatter.Slug)
 	roster, hasRoster := s.currentRoster()
@@ -804,7 +944,7 @@ func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
 	frontmatter.Lead = leadView.DisplayName
 	return Result{
 		OK:       true,
-		Data:     RecallResult{DistilledState: d.DistilledState.Body, Frontmatter: frontmatter, LeadFormer: leadView.Former, Revision: rev, TokenEstimate: tokens, Path: dossierPath, Artifacts: index, References: externalLinks.References, ActiveMonitors: externalLinks.ActiveMonitors},
+		Data:     RecallResult{DistilledState: d.DistilledState.Body, Frontmatter: frontmatter, LeadFormer: leadView.Former, Revision: rev, TokenEstimate: tokens, Path: dossierPath, Artifacts: index, Files: files, References: externalLinks.References, ActiveMonitors: externalLinks.ActiveMonitors},
 		Warnings: warnings,
 	}, nil
 }
@@ -846,7 +986,7 @@ func numberLines(lines []string, startLine int) string {
 
 // evidenceIndex summarizes a dossier's archived artifacts and flags the ones
 // the Distilled State never cites.
-func (s *Service) evidenceIndex(dossierID string, body string) ([]ArtifactSummary, []Warning) {
+func (s *Service) evidenceIndex(dossierID string, body string, advise bool) ([]ArtifactSummary, []Warning) {
 	artifacts, err := s.store.ListArtifacts(dossierID)
 	if err != nil {
 		return nil, []Warning{Warning(fmt.Sprintf("Artifacts could not be listed for the evidence index: %v", err))}
@@ -879,7 +1019,7 @@ func (s *Service) evidenceIndex(dossierID string, body string) ([]ArtifactSummar
 		})
 	}
 
-	if msg := uncitedArtifactWarning(body, artifacts); msg != "" {
+	if msg := uncitedArtifactWarning(body, artifacts); advise && msg != "" {
 		warnings = append(warnings, Warning(msg))
 	}
 	return index, warnings
@@ -1018,6 +1158,9 @@ func (s *Service) ReadArtifact(ctx context.Context, req ReadArtifactReq) (Result
 // ListArtifactsReq addresses a dossier's evidence index.
 type ListArtifactsReq struct {
 	DossierID string
+	// HumanView omits agent-facing advisories (uncited artifacts) for callers
+	// that render for a person, such as the TUI.
+	HumanView bool
 }
 
 // ListArtifacts returns the evidence index for a dossier.
@@ -1026,7 +1169,7 @@ func (s *Service) ListArtifacts(ctx context.Context, req ListArtifactsReq) (Resu
 	if err != nil {
 		return Result{}, err
 	}
-	index, warnings := s.evidenceIndex(d.Frontmatter.ID, d.DistilledState.Body)
+	index, warnings := s.evidenceIndex(d.Frontmatter.ID, d.DistilledState.Body, !req.HumanView)
 	return Result{OK: true, Data: index, Warnings: warnings}, nil
 }
 
@@ -1034,7 +1177,18 @@ type ListReq struct {
 	Status     string
 	Interfaces []string
 	Query      string
-	Lead       string // "me", a username, display name, or unique first-name prefix
+	Lead       string   // "me", a username, display name, or unique first-name prefix
+	Include    []string // optional parsed body views: monitors, references
+	Attention  string
+}
+
+func includesListView(includes []string, view string) bool {
+	for _, include := range includes {
+		if strings.EqualFold(strings.TrimSpace(include), view) {
+			return true
+		}
+	}
+	return false
 }
 
 func matchesInterfaces(have, want []string) bool {
@@ -1121,7 +1275,20 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 		}, NewError(ErrAmbiguousTarget, fmt.Sprintf("lead %q is ambiguous; candidates: %s", strings.TrimSpace(req.Lead), strings.Join(candidates, ", ")))
 	}
 	leadMatches := 0
+	attentionFilter := strings.ToLower(strings.TrimSpace(req.Attention))
+	if attentionFilter != "" && attentionFilter != "none" && attentionFilter != "fyi" && attentionFilter != "decide" && attentionFilter != "blocked" {
+		return Result{OK: false}, NewError(ErrInvalidFrontmatter, "attention filter must be none, fyi, decide, or blocked")
+	}
 	for _, fm := range fms {
+		if attentionFilter != "" {
+			level := "none"
+			if fm.Attention != nil {
+				level = fm.Attention.Level
+			}
+			if level != attentionFilter {
+				continue
+			}
+		}
 		if !scope.matches(fm.Lead) {
 			continue
 		}
@@ -1154,12 +1321,35 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 
 	sortListedFrontmatters(filtered)
 
+	// Routing views need each listed Dossier's body. Read them in one streaming
+	// pass: a point Read per ID rescans the whole store to resolve the ID, which
+	// made this O(n²) in file reads.
+	var scanWarnings []Warning
+	var linksByID map[string]ExternalLinkSet
+	if includesListView(req.Include, "monitors") || includesListView(req.Include, "references") {
+		wanted := make(map[string]bool, len(filtered))
+		for _, listed := range filtered {
+			wanted[listed.ID] = true
+		}
+		linksByID = make(map[string]ExternalLinkSet, len(filtered))
+		var scanErr error
+		scanWarnings, scanErr = s.scanDossiers("all", func(d *Dossier) error {
+			if wanted[d.Frontmatter.ID] {
+				linksByID[d.Frontmatter.ID] = ParseExternalLinks(d.DistilledState.Body)
+			}
+			return nil
+		})
+		if scanErr != nil {
+			return Result{OK: false}, WrapError(ErrInternal, "failed to read dossier routing links", scanErr)
+		}
+	}
+
 	var items []ListItem
 	for _, listed := range filtered {
 		fm := listed.Frontmatter
 		dossierPath := filepath.Join(s.cfg.DossierHome, fm.Slug)
 		leadView := s.displayLead(roster, hasRoster, fm.Lead)
-		items = append(items, ListItem{
+		item := ListItem{
 			ID:                        fm.ID,
 			Name:                      fm.Name,
 			Slug:                      fm.Slug,
@@ -1172,13 +1362,23 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 			NextAction:                fm.NextAction,
 			Priority:                  string(fm.Priority),
 			DueDate:                   fm.DueDate,
+			Attention:                 fm.Attention,
 			Path:                      dossierPath,
 			Revision:                  listed.Revision,
 			HasOpenDelegationContract: listed.HasOpenDelegationContract,
-		})
+		}
+		if links, ok := linksByID[fm.ID]; ok {
+			if includesListView(req.Include, "monitors") {
+				item.Monitors = links.ActiveMonitors
+			}
+			if includesListView(req.Include, "references") {
+				item.References = links.References
+			}
+		}
+		items = append(items, item)
 	}
 
-	warnings := []Warning(nil)
+	warnings := scanWarnings
 	if scope.unresolved && leadMatches == 0 {
 		warnings = append(warnings, Warning(fmt.Sprintf("lead %q did not match any team member; check dossier_team for the roster.", strings.TrimSpace(req.Lead))))
 	}

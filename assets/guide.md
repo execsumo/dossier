@@ -30,6 +30,7 @@ A world-class Dossier is complete enough to act from, structured enough to scan,
   `- [<kind>: <label>](<URL>) — <purpose or description>.`
   Use `kind` values such as `comms`, `ticket`, `document`, or `other`; the kind is intentionally tool-agnostic. Put ordinary pointers in `## References`; put live streams that require resumption polling in `## Active Monitors`. A monitor is not duplicated in both sections. A URL alone is not evidence: when external content supports a claim, capture it as an Archive artifact and cite it with `[src:art_id]`.
 - **Keep Context Current:** Maintain the session's active Dossier using a best-effort approach each turn. Save state on lifecycle events (session end, `/clear`, `/exit`, pre-compaction).
+- **Protected work definition:** Agent saves may freely update Situation, Findings, Open Questions, Current State, and Next Steps. Never silently change Objective, Done When, Validation, Constraints, or Decisions. Keep routine updates and any protected-section proposal in separate saves; a protected-section change is preserved as a whole-save `agent_proposal` conflict for human review, not applied. Ask a human to accept or reject it through the normal conflict-resolution flow.
 - **Never Silently Truncate:** Never truncate the Distilled State to meet arbitrary token limits. If approaching limits, warn the user.
 - **Optimistic Concurrency & Disambiguation:** Concurrent edits produce conflict files. Prompt the user for ambiguous link targets and manual merge conflict resolution. Never rely on last-write-wins.
 - **Degrade Visibly:** If a harness fails to capture transcripts or lifecycle hooks, warn the user explicitly. Never silently ignore failures.
@@ -84,6 +85,10 @@ Validated insights, metrics, constraints, or test results. Include abandoned pat
 Index of the Archive: what is stored, what is in it, and where the citable spans are. One line per artifact. Keep it current—an artifact absent from this index is one nobody will think to fetch.
 - `art_<id>` (<type>, <n> lines): <what it contains>. Key spans: L<a>-L<b> <what is there>.
 
+## Files
+*Conditional*—omit when no working files exist. Index of loose deliverables and attachments in `files/` (decks, HTML, spreadsheets, binaries) that are not citable Archive evidence. One line per file, path relative to the Dossier directory, so the next session can find the work without browsing the folder.
+- `files/<name>` (<kind>): <what it is and its status: draft, final, superseded>.
+
 ## Open Questions
 Unresolved questions that materially affect the topic or next move.
 - <Question that needs an answer or decision>
@@ -103,7 +108,7 @@ Immediate execution context. Active files, blockers, or configurations.
 *Conditional*—use only when two or more contributions combine into the Dossier's shared outcome. A single-deliverable Dossier uses the top-level Objective / Done When / Validation directly and does not wrap them in a redundant Deliverables section.
 ### <Deliverable label>
 - Outcome: <The distinct contribution this piece produces.>
-- Owner: <Person, agent, user, or unassigned. The Dossier lead remains accountable for the overall outcome.>
+- Owner: <Person, `agent:<rolodex-slug>`, or unassigned. The Dossier lead remains accountable for the overall outcome. An agent owner is accepted by a human against the named Dossier revision.>
 - Done When: <Observable local completion conditions.>
 - Validation: <How this deliverable gets checked.>
 - Completion: [open|done|dropped] <For done, cite validation evidence; for dropped, retain the reason.>

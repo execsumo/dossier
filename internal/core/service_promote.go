@@ -8,6 +8,7 @@ import (
 // Stubs for future milestones
 
 type PromoteReq struct {
+	Actor                  string
 	Name                   string
 	Description            string
 	Priority               Priority
@@ -68,6 +69,7 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 		updates["priority"] = string(req.Priority)
 	}
 	saveRes, newID, err := s.save(ctx, SaveReq{
+		Actor:                  req.Actor,
 		DistilledStateMarkdown: req.DistilledStateMarkdown,
 		FrontmatterUpdates:     updates,
 	})
@@ -103,7 +105,7 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 				RefreshedAt:   now,
 			}
 			var writeErr error
-			newRevision, writeErr = s.writePromoteTranscriptArtifact(newID, newRevision, &raw,
+			newRevision, writeErr = s.writePromoteTranscriptArtifact(newID, newRevision, &raw, req.Actor,
 				"Archived byte-preserved raw promote session transcript before compilation.")
 			if writeErr != nil {
 				return Result{}, writeErr
@@ -119,7 +121,7 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 				CapturedAt:    now,
 				RefreshedAt:   now,
 			}
-			newRevision, writeErr = s.writePromoteTranscriptArtifact(newID, newRevision, &compiledArt,
+			newRevision, writeErr = s.writePromoteTranscriptArtifact(newID, newRevision, &compiledArt, req.Actor,
 				fmt.Sprintf("Archived compiled citable transcript view derived from raw artifact %s.", raw.ID))
 			if writeErr != nil {
 				return Result{}, writeErr
@@ -136,7 +138,7 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 				RefreshedAt:   now,
 			}
 			var writeErr error
-			newRevision, writeErr = s.writePromoteTranscriptArtifact(newID, newRevision, &art,
+			newRevision, writeErr = s.writePromoteTranscriptArtifact(newID, newRevision, &art, req.Actor,
 				"Archived verbatim plain-text promote session transcript.")
 			if writeErr != nil {
 				return Result{}, writeErr
@@ -159,7 +161,7 @@ func (s *Service) Promote(ctx context.Context, req PromoteReq) (Result, error) {
 // writePromoteTranscriptArtifact persists and audits one promote capture. Each
 // source/view write is audited independently so a partial failure remains
 // legible, and every store error is returned rather than silently ignored.
-func (s *Service) writePromoteTranscriptArtifact(dossierID string, before Revision, art *Artifact, message string) (Revision, error) {
+func (s *Service) writePromoteTranscriptArtifact(dossierID string, before Revision, art *Artifact, actor, message string) (Revision, error) {
 	if err := s.store.WriteArtifact(dossierID, art); err != nil {
 		return before, fmt.Errorf("archive promote transcript %q: %w", art.Title, err)
 	}
@@ -170,6 +172,7 @@ func (s *Service) writePromoteTranscriptArtifact(dossierID string, before Revisi
 	if err := s.store.AppendAudit(dossierID, AuditEvent{
 		TS:             s.clock.Now(),
 		Event:          AuditEventSave,
+		Actor:          NormalizeActor(actor, s.cfg.Author),
 		Author:         s.cfg.Author,
 		DossierID:      dossierID,
 		BeforeRevision: string(before),

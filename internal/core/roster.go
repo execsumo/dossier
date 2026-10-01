@@ -47,6 +47,7 @@ type Roster struct {
 	Manager string            `yaml:"manager" json:"manager"`
 	Members map[string]string `yaml:"members" json:"members"`
 	Former  map[string]string `yaml:"former,omitempty" json:"former,omitempty"`
+	Kinds   map[string]string `yaml:"kinds,omitempty" json:"kinds,omitempty"`
 }
 
 // RosterMember is the stable, display-oriented representation used by team
@@ -54,6 +55,7 @@ type Roster struct {
 type RosterMember struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
+	Kind        string `json:"kind"`
 }
 
 // RosterView is the ordered read-only team representation returned by adapters.
@@ -66,11 +68,15 @@ type RosterView struct {
 // View returns current members with the manager first, then case-insensitive
 // display-name order. Former members are sorted by the same stable rule.
 func (r Roster) View() RosterView {
-	return RosterView{
-		Manager: r.Manager,
-		Members: orderedRosterMembers(r.Members, r.Manager),
-		Former:  orderedRosterMembers(r.Former, ""),
+	members := orderedRosterMembers(r.Members, r.Manager)
+	former := orderedRosterMembers(r.Former, "")
+	for i := range members {
+		members[i].Kind = r.Kind(members[i].Username)
 	}
+	for i := range former {
+		former[i].Kind = r.Kind(former[i].Username)
+	}
+	return RosterView{Manager: r.Manager, Members: members, Former: former}
 }
 
 func orderedRosterMembers(members map[string]string, manager string) []RosterMember {
@@ -95,6 +101,9 @@ func orderedRosterMembers(members map[string]string, manager string) []RosterMem
 }
 
 func (r *Roster) normalize() {
+	if r.Kinds == nil {
+		r.Kinds = map[string]string{}
+	}
 	if r.Members == nil {
 		r.Members = map[string]string{}
 	}
@@ -126,6 +135,17 @@ func (r Roster) DisplayName(username string) string {
 }
 
 // Has reports whether username is a current roster member.
+// Kind returns the roster kind, defaulting legacy and unspecified entries to human.
+func (r Roster) Kind(username string) string {
+	username = NormalizeUsername(username)
+	for key, kind := range r.Kinds {
+		if NormalizeUsername(key) == username && strings.EqualFold(strings.TrimSpace(kind), "agent") {
+			return "agent"
+		}
+	}
+	return "human"
+}
+
 func (r Roster) Has(username string) bool {
 	username = NormalizeUsername(username)
 	for key := range r.Members {

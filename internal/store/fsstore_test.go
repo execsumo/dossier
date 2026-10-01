@@ -156,8 +156,8 @@ func TestPromoteScans500DossiersUnderTwoSeconds(t *testing.T) {
 		}
 		content, err := FormatDossierFile(core.Frontmatter{
 			ID: id, Name: fmt.Sprintf("Existing %03d", i), Slug: slug,
-			CreatedAt: old, UpdatedAt: old, Status: core.StatusDone, Priority: core.PriorityLow,
-		}, "# Archived\n\nHistorical material.")
+			CreatedAt: old, UpdatedAt: old, Status: core.StatusExecute, Priority: core.PriorityLow,
+		}, "# Active\n\n## References\n- [ticket: OPS](https://example.test/ops) — Ticket.\n\n## Active Monitors\n- [comms: #ops](https://example.test/ops-feed) — Watch. (Last polled: 2026-09-30)\n")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -170,6 +170,17 @@ func TestPromoteScans500DossiersUnderTwoSeconds(t *testing.T) {
 		dummyClock{now: time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)},
 		core.Config{DossierHome: tempHome}, nil)
 	start := time.Now()
+	listResult, err := svc.List(context.Background(), core.ListReq{Include: []string{"monitors", "references"}})
+	if err != nil {
+		t.Fatalf("List() with routing views error = %v", err)
+	}
+	if len(listResult.Data.([]core.ListItem)) != 500 {
+		t.Fatalf("routing list returned %d dossiers, want 500", len(listResult.Data.([]core.ListItem)))
+	}
+	if elapsed := time.Since(start); elapsed >= 2*time.Second {
+		t.Fatalf("500-Dossier routing list took %s, want <2s", elapsed)
+	}
+	start = time.Now()
 	if _, err := svc.Promote(context.Background(), core.PromoteReq{Name: "Novel target"}); err != nil {
 		t.Fatalf("Promote() error = %v", err)
 	}
@@ -1284,5 +1295,64 @@ func TestFSStoreDoneDossiersLiveUnderArchive(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "archived-renamed", "dossier.md")); err != nil {
 		t.Fatalf("reopened dossier not back at root: %v", err)
+	}
+}
+
+func TestFSStoreListWorkingFiles(t *testing.T) {
+	home := t.TempDir()
+	store := NewFSStore(home)
+	if err := store.Init(); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	now := time.Now().Truncate(time.Second)
+	d := &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID: "dos_wf", Name: "Working Files", Slug: "working-files",
+			CreatedAt: now, UpdatedAt: now, Status: core.StatusActive, Priority: core.PriorityHigh,
+		},
+		DistilledState: core.DistilledState{Body: "# Working files"},
+	}
+	if _, err := store.Write(d, ""); err != nil {
+		t.Fatalf("write dossier: %v", err)
+	}
+
+	files, err := store.ListWorkingFiles("dos_wf")
+	if err != nil || len(files) != 0 {
+		t.Fatalf("empty files/ = %v, %v; want no files", files, err)
+	}
+
+	filesDir := filepath.Join(home, "working-files", "files")
+	for rel, content := range map[string]string{
+		"deck.pptx":        "binary\x00data",
+		"site/index.html":  "<html></html>",
+		".hidden":          "skip",
+		".cache/skip.json": "{}",
+	} {
+		path := filepath.Join(filesDir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	files, err = store.ListWorkingFiles("dos_wf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range files {
+		got = append(got, f.Path)
+	}
+	if want := "files/deck.pptx,files/site/index.html"; strings.Join(got, ",") != want {
+		t.Fatalf("paths = %v, want %s", got, want)
+	}
+	if files[0].Size != int64(len("binary\x00data")) {
+		t.Errorf("size = %d", files[0].Size)
+	}
+
+	if _, err := store.ListWorkingFiles("dos_missing"); err == nil {
+		t.Error("expected an error for an unknown dossier")
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 // TeamCreateReq specifies parameters for creating a new team store.
 type TeamCreateReq struct {
+	Actor              string
 	RemoteURL          string
 	Branch             string
 	Confirmed          bool
@@ -60,12 +61,43 @@ func (s *Service) normalizeLeadUpdate(updates map[string]any) (map[string]any, e
 	if !roster.Has(username) {
 		return updates, NewError(ErrInvalidFrontmatter, fmt.Sprintf("lead %q is a former team member and cannot receive new assignments", lead))
 	}
+	if roster.Kind(username) == "agent" {
+		return updates, NewError(ErrInvalidFrontmatter, fmt.Sprintf("lead %q is an agent; agents may own work only through a Delegation Contract", lead))
+	}
 	copy := make(map[string]any, len(updates))
 	for key, item := range updates {
 		copy[key] = item
 	}
 	copy["lead"] = username
 	return copy, nil
+}
+
+func cloneRoster(roster Roster) Roster {
+	clone := roster
+	clone.Members = make(map[string]string, len(roster.Members))
+	for key, value := range roster.Members {
+		clone.Members[key] = value
+	}
+	clone.Former = make(map[string]string, len(roster.Former))
+	for key, value := range roster.Former {
+		clone.Former[key] = value
+	}
+	clone.Kinds = make(map[string]string, len(roster.Kinds))
+	for key, value := range roster.Kinds {
+		clone.Kinds[key] = value
+	}
+	return clone
+}
+
+func (s *Service) appendTeamAudit(actor, event, message string) error {
+	store, ok := s.store.(RosterAuditStore)
+	if !ok {
+		return NewError(ErrInternal, "team audit storage is not configured")
+	}
+	return store.AppendTeamAudit(AuditEvent{
+		TS: s.clock.Now(), Event: event, Actor: actor, Author: s.cfg.Author,
+		DossierID: RosterConflictDossierID, Message: message,
+	})
 }
 
 func (s *Service) rosterWarning(roster Roster) []Warning {
@@ -77,6 +109,23 @@ func (s *Service) rosterWarning(roster Roster) []Warning {
 
 // TeamAdd adds or restores a roster member. Usernames are stored normalized.
 func (s *Service) TeamAdd(ctx context.Context, username, displayName string) (Result, error) {
+	return s.TeamAddKindAs(ctx, NormalizeActor("", s.cfg.Author), username, displayName, "human")
+}
+
+// TeamAddKind adds or restores a roster member with an explicit human/agent kind.
+func (s *Service) TeamAddKind(ctx context.Context, username, displayName, kind string) (Result, error) {
+	return s.TeamAddKindAs(ctx, NormalizeActor("", s.cfg.Author), username, displayName, kind)
+}
+
+// TeamAddKindAs authorizes and audits an explicit team-management actor.
+func (s *Service) TeamAddKindAs(ctx context.Context, actor, username, displayName, kind string) (Result, error) {
+	actor = NormalizeActor(actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{OK: false}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
+	if err := Authorize(actor, "team_admin"); err != nil {
+		return Result{OK: false}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	store, ok := s.store.(RosterStore)
 	if !ok {
 		return Result{OK: false}, NewError(ErrInternal, "team roster storage is not configured")
@@ -86,10 +135,18 @@ func (s *Service) TeamAdd(ctx context.Context, username, displayName string) (Re
 	if username == "" || displayName == "" {
 		return Result{OK: false}, NewError(ErrInvalidFrontmatter, "username and display name are required")
 	}
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if kind == "" {
+		kind = "human"
+	}
+	if kind != "human" && kind != "agent" {
+		return Result{OK: false}, NewError(ErrInvalidFrontmatter, "member kind must be human or agent")
+	}
 	roster, err := s.Members(ctx)
 	if err != nil {
 		return Result{OK: false}, err
 	}
+	before := cloneRoster(roster)
 	if roster.Members == nil {
 		roster.Members = map[string]string{}
 	}
@@ -97,15 +154,33 @@ func (s *Service) TeamAdd(ctx context.Context, username, displayName string) (Re
 		roster.Former = map[string]string{}
 	}
 	roster.Members[username] = displayName
+	roster.Kinds[username] = kind
 	delete(roster.Former, username)
 	if err := store.WriteRoster(&roster); err != nil {
 		return Result{OK: false}, err
+	}
+	if err := s.appendTeamAudit(actor, "team_member_added", fmt.Sprintf("Added %s member %s (%s).", kind, username, displayName)); err != nil {
+		if rollbackErr := store.WriteRoster(&before); rollbackErr != nil {
+			return Result{OK: false}, fmt.Errorf("team member added but audit failed (%v) and roster rollback failed: %w", err, rollbackErr)
+		}
+		return Result{OK: false}, fmt.Errorf("team member change rolled back because audit failed: %w", err)
 	}
 	return Result{OK: true, Data: roster, Warnings: s.rosterWarning(roster)}, nil
 }
 
 // TeamRemove moves a member to former rather than deleting their identity.
 func (s *Service) TeamRemove(ctx context.Context, username string) (Result, error) {
+	return s.TeamRemoveAs(ctx, NormalizeActor("", s.cfg.Author), username)
+}
+
+func (s *Service) TeamRemoveAs(ctx context.Context, actor, username string) (Result, error) {
+	actor = NormalizeActor(actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{OK: false}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
+	if err := Authorize(actor, "team_admin"); err != nil {
+		return Result{OK: false}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	store, ok := s.store.(RosterStore)
 	if !ok {
 		return Result{OK: false}, NewError(ErrInternal, "team roster storage is not configured")
@@ -118,11 +193,13 @@ func (s *Service) TeamRemove(ctx context.Context, username string) (Result, erro
 	if err != nil {
 		return Result{OK: false}, err
 	}
+	before := cloneRoster(roster)
 	displayName, exists := roster.Members[username]
 	if !exists {
 		return Result{OK: false}, NewError(ErrNotFound, fmt.Sprintf("team member %q not found", username))
 	}
 	delete(roster.Members, username)
+	delete(roster.Kinds, username)
 	if roster.Former == nil {
 		roster.Former = map[string]string{}
 	}
@@ -130,11 +207,26 @@ func (s *Service) TeamRemove(ctx context.Context, username string) (Result, erro
 	if err := store.WriteRoster(&roster); err != nil {
 		return Result{OK: false}, err
 	}
+	if err := s.appendTeamAudit(actor, "team_member_removed", fmt.Sprintf("Moved team member %s (%s) to former.", username, displayName)); err != nil {
+		if rollbackErr := store.WriteRoster(&before); rollbackErr != nil {
+			return Result{OK: false}, fmt.Errorf("team member removed but audit failed (%v) and roster rollback failed: %w", err, rollbackErr)
+		}
+		return Result{OK: false}, fmt.Errorf("team member change rolled back because audit failed: %w", err)
+	}
 	return Result{OK: true, Data: roster, Warnings: s.rosterWarning(roster)}, nil
 }
 
 // TeamCreate initializes the current store as a team store and pushes to the remote.
 func (s *Service) TeamCreate(ctx context.Context, req TeamCreateReq) (Result, error) {
+	actor := NormalizeActor(req.Actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
+	if req.Confirmed {
+		if err := Authorize(actor, "team_admin"); err != nil {
+			return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+		}
+	}
 	if req.RemoteURL == "" {
 		return Result{}, NewError(ErrInvalidFrontmatter, "remote URL is required")
 	}
@@ -199,7 +291,16 @@ func (s *Service) TeamCreate(ctx context.Context, req TeamCreateReq) (Result, er
 		return Result{}, mappedErr
 	}
 
-	return Result{OK: true}, nil
+	if err := s.appendTeamAudit(actor, "team_created", fmt.Sprintf("Created team store on branch %s.", req.Branch)); err != nil {
+		return Result{OK: true, Warnings: []Warning{Warning("Team was created, but its team audit entry could not be written: " + err.Error())}}, nil
+	}
+	var warnings []Warning
+	if report, err := s.syncer.Sync(ctx); err != nil {
+		warnings = append(warnings, Warning("Team was created, but its audit entry could not be synced: "+err.Error()))
+	} else if report.Error != "" {
+		warnings = append(warnings, Warning("Team was created, but its audit entry could not be synced: "+report.Error))
+	}
+	return Result{OK: true, Warnings: warnings}, nil
 }
 
 func teamCreateFailureError(err error, remoteURL string) error {
@@ -222,12 +323,20 @@ func teamCreateRollbackError(err, rollbackErr error) error {
 
 // TeamJoinReq specifies parameters for joining an existing team store.
 type TeamJoinReq struct {
+	Actor     string
 	RemoteURL string
 	Branch    string
 }
 
 // TeamJoin joins an existing team store by cloning it locally.
 func (s *Service) TeamJoin(ctx context.Context, req TeamJoinReq) (Result, error) {
+	actor := NormalizeActor(req.Actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
+	if err := Authorize(actor, "team_admin"); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	if req.RemoteURL == "" {
 		return Result{}, NewError(ErrInvalidFrontmatter, "remote URL is required")
 	}
@@ -263,7 +372,15 @@ func (s *Service) TeamJoin(ctx context.Context, req TeamJoinReq) (Result, error)
 		return Result{}, fmt.Errorf("post-join init failed: %w", initErr)
 	}
 
-	return Result{OK: true, Warnings: initRes.Warnings}, nil
+	warnings := append([]Warning(nil), initRes.Warnings...)
+	if err := s.appendTeamAudit(actor, "team_joined", fmt.Sprintf("Joined team store on branch %s.", req.Branch)); err != nil {
+		warnings = append(warnings, Warning("Team was joined, but its team audit entry could not be written: "+err.Error()))
+	} else if report, err := s.syncer.Sync(ctx); err != nil {
+		warnings = append(warnings, Warning("Team was joined, but its audit entry could not be synced: "+err.Error()))
+	} else if report.Error != "" {
+		warnings = append(warnings, Warning("Team was joined, but its audit entry could not be synced: "+report.Error))
+	}
+	return Result{OK: true, Warnings: warnings}, nil
 }
 
 // Sync orchestrates the dossier team sync.
@@ -337,10 +454,15 @@ func (s *Service) Sync(ctx context.Context) (Result, error) {
 		writeErr := s.store.WriteConflict(conflict)
 		if writeErr == nil {
 			createdConflicts = append(createdConflicts, confID)
-			if targetID != RosterConflictDossierID {
+			if targetID == RosterConflictDossierID {
+				if err := s.appendTeamAudit("system:team-sync", AuditEventConflictCreated, fmt.Sprintf("Team roster sync conflict %s was created.", confID)); err != nil {
+					warnings = append(warnings, Warning("Team roster conflict was preserved, but team audit failed: "+err.Error()))
+				}
+			} else {
 				_ = s.store.AppendAudit(targetID, AuditEvent{
 					TS:             s.clock.Now(),
 					Event:          AuditEventConflictCreated,
+					Actor:          "system:team-sync",
 					Author:         s.cfg.Author,
 					DossierID:      targetID,
 					BeforeRevision: conf.LocalRevision,

@@ -74,6 +74,8 @@ Store layout:
   archive/
     <slug>/               # done Dossiers; same layout as a live <slug>/
   <slug>/
+    inbox/
+      inbox_<id>.md       # routed intake, machine-local and outside revisions
     dossier.md
     artifacts/
       <artifact-id>.md
@@ -93,7 +95,7 @@ Store layout:
 
 **Done Dossiers live under `archive/`.** While a Dossier's status is anything other than `done`, its folder is `<slug>/` at the store root. Setting the status to `done` (by any path: `dossier done`, `dossier status`, `dossier_save`/`dossier_update`) moves the complete folder to `archive/<slug>/` in one same-store rename; moving the status back out of `done` moves it back. `archive` is a reserved slug (like `context` and `sessions`). The move is not a rename: slug, ID, revision history, and audit are unchanged, and every lookup by slug or ID, list, search, conflict listing, and `doctor` scan covers both locations. There is no migration: a done Dossier still at the store root keeps resolving and is moved into `archive/` on its next write.
 
-`<slug>/artifacts/` is a **frontmatter-only namespace**: it is parsed, not scanned. A file without valid artifact frontmatter is skipped by the evidence index, carries no `art_` id to cite, and never enters the revision hash — while still surfacing in `dossier search`, so it reads as captured evidence while being none. `dossier doctor` reports such a file as an issue. `<slug>/files/` is the namespace for loose deliverables, scratch, and user attachments; promote one to evidence with `dossier link --from-file`.
+`<slug>/artifacts/` is a **frontmatter-only namespace**: it is parsed, not scanned. A file without valid artifact frontmatter is skipped by the evidence index, carries no `art_` id to cite, and never enters the revision hash — while still surfacing in `dossier search`, so it reads as captured evidence while being none. `dossier doctor` reports such a file as an issue. `<slug>/files/` is the namespace for loose deliverables, scratch, and user attachments; promote one to evidence with `dossier link --from-file`. `<slug>/inbox/` holds routed, unverified excerpts separately from Archive evidence. Each Markdown file has strict YAML frontmatter: `id`, `dossier_id`, `source` (`kind`, optional `url`), `excerpt`, `routed_by`, `confidence` in `[0,1]`, `received_at`, `state` (`pending|absorbed|dismissed`), and optional `artifact_id`. Inbox items are outside the Dossier revision hash. They are machine-local and excluded from Team Sync before the first publish (`*/inbox/`, `archive/*/inbox/`). `doctor` validates item frontmatter and identity.
 
 `config.yaml` records install settings, the machine-local default launch profile (`open_with`, defaulting to `claude-code`), user-configurable interface and lead vocabularies, global token warning ceiling (`token_limit`, defaulting to 100,000), detected harness capabilities, and optional team-sync settings. The launch profile accepts `claude-code`, `cursor`, `codex`, `pi`, or `antigravity` (`agy`); each profile owns its executable, session handoff, and generated resume prompt, so the prompt is not stored in configuration. In the TUI, when `HERDR_ENV=1` the handoff opens in a new focused right-hand split via `herdr pane split --current --direction right --cwd <dossier dir> --focus` followed by `herdr pane run <pane_id> "<command>"` (the pane id comes from `result.pane.pane_id`); any herdr failure surfaces a warning and falls back to the normal in-terminal launch. `dossier open` is unchanged. New installs include the legacy seven interface defaults; older configs that omit `interfaces` inherit those defaults. An empty `leads` list preserves free-form lead assignment. Readers also accept the retired `token_target` key from pre-simplification configs (mapping it to `token_limit`) and `schema_version` (ignoring its value), omitting them on the next normal config write. All other unknown config keys remain errors.
 
@@ -145,6 +147,9 @@ Optional fields:
 - `lead`
 - `interfaces`
 - `due_date`
+- `attention` (optional machine-managed signal: `level` in `none|fyi|decide|blocked`, `summary` ≤140 characters, `since`, and `by`)
+
+Attention is set or cleared only by `agent:` or `system:` actors; it is read-only to humans and filterable by level. It is distinct from lifecycle status and `next_action`.
 
 The read schema accepts the legacy `last_touched_at`, `open_questions`, `importance`, `urgency`, and `token_target` fields, while continuing to reject every other unknown YAML key. Historical slug aliases are not supported and are rejected. When canonical `priority` is absent, the old matrix maps `high/high` → `max`, `high/low` → `high`, `low/high` → `medium`, and `low/low` → `low`; a missing or unknown legacy dimension uses the old normalize-toward-attention behavior and is treated as `high`. A present canonical `priority` takes precedence. Legacy `open_questions` are merged into the body's `## Open Questions` section without duplicates. Compatibility is lazy: reads do not rewrite files; the next ordinary Save writes canonical frontmatter only and preserves the prior bytes in revision history. Retired fields are never re-emitted.
 
@@ -325,6 +330,8 @@ Rules:
 
 ### 4.4 Audit Log
 
+Every mutation records its actor (`human:<identity>`, `agent:<stable-slug>`, or `system:<name>`) separately from the machine-local `author` that owns the audit shard. Actor labels support provenance and core accident-prevention checks; they are not authentication.
+
 Audit events are written to per-author shards in `audit/<author>.log` as append-only JSON Lines (the legacy `audit.log` remains readable but is never rewritten).
 
 Example:
@@ -460,7 +467,8 @@ The first implementation milestone should produce a capability matrix in `docs/h
 
 ```text
 dossier init
-dossier ls [--status spark|define|execute|review|blocked|done|all] [--interface <interface>] [--lead <username-or-name>] [-q|--query <text>] [--json]
+dossier ls [--status spark|define|execute|review|blocked|done|all] [--interface <interface>] [--lead <username-or-name>] [--include monitors,references] [-q|--query <text>] [--json]
+dossier monitor-polled <slug-or-id> <url> [--date YYYY-MM-DD]
 dossier show <slug-or-id> [--json]
 dossier promote [--name <name>] [--from-file <path>] [--distilled-file <path>] [--json]
 dossier link [<slug-or-id>] [--from-file <path>] [--json]
@@ -473,7 +481,7 @@ dossier sync [--status] [--json]
 dossier team create <url> [--yes] [--name "<Display Name>"] [--json]
 dossier team join <url> [--json]
 dossier signin [--json]
-dossier team add <username> "<Display Name>"
+dossier team add <username> "<Display Name>" [--kind human|agent]
 dossier team remove <username>
 dossier team members [--json]
 dossier ls --mine
@@ -584,6 +592,8 @@ dossier doctor
 - Validates the target repo is empty before any local change: a remote with any refs is refused ("not empty") and nothing changes locally or remotely.
 - Lists every Dossier that will be published, archived ones included, warns that everything in the store directory syncs, and asks for confirmation. `--yes` skips the prompt; non-interactive input without `--yes` is refused.
 - Writes `team.remote` to config only after the push succeeded. A failed create moves the `.git/` it made (and a `.gitignore` it created) to a sibling `<DOSSIER_HOME>.failed-create-<UTC>/` directory, and rolls back the roster: a `team.yaml` the attempt wrote is moved aside the same way, into its own `<DOSSIER_HOME>.failed-create-<UTC>/` sibling, while a roster the store already had is restored in place. A retry starts clean, and nothing is deleted.
+- After successful creation, records `team_created` in `team-audit/<author>.log` and syncs that audit row to the new remote; an audit/push problem is a visible warning because the team operation already succeeded.
+- The confirmed operation is human-only; an unconfirmed preview is read-only.
 - Supports `--json`.
 
 `dossier team join <url>` (Team Sync — implemented)
@@ -600,6 +610,7 @@ dossier doctor
 - **Access check.** It then lists the remote and, on failure, explains the next step: repository not found / authorization failed (GitHub's answer for a private repo the account can't see) ⇒ "Your GitHub account can't see <owner/repo>. Ask the manager or the person who invited you to add you as a collaborator, and accept the invitation email from GitHub."; a SAML/SSO response is shown verbatim plus how to authorize the GitHub CLI for the organization; authentication required ⇒ the `sync_auth_failed` next step. Nothing is written on these failures.
 - **Identity line.** After a successful join: `You'll appear to teammates as <Display Name> (<username>).` when the joiner is in the roster, or `You're not in the team roster yet. Ask <manager> to run: dossier team add <username> "Your Name"`; nothing when the store has no roster. Author confirmation as a prompt is not implemented; the roster supplies the name (B17).
 - Runs capability detect and hook install (existing `init` path).
+- A successful join is human-only and records `team_joined` in `team-audit/<author>.log`, then attempts to sync the new audit row; failures are surfaced as warnings without undoing the successful clone.
 - Supports `--json`.
 
 `dossier signin` (Team MVP M6)
@@ -617,13 +628,15 @@ dossier doctor
     psmith: Priya Shah
   former:            # removed members; still resolve for old leads
     jlee: Jordan Lee
+  kinds:             # omitted entries default to human
+    sitroom: agent
   ```
   `team create` writes it with the creator as manager and first member; the display name comes from `--name`, else `display_name` in config, else an interactive prompt, else (with `--yes`) the username.
-- `team add <username> "<Display Name>"` adds or renames a member; `team remove <username>` moves the member to `former:` (never deleted). Usernames are normalized on input. Both work for anyone but warn when the caller is not the roster's manager ("You are not the roster's manager (hgill); roster changes are conventionally manager-owned.").
+- `team add <username> "<Display Name>" [--kind human|agent]` adds or renames a member; kind defaults to `human`. `team remove <username>` moves the member to `former:` (never deleted). Usernames are normalized on input. Team roster edits, confirmed `team create`, and `team join` require a human actor in core. The configured author identifies the human actor on interactive CLI; `DOSSIER_AGENT` identifies a headless agent and causes these mutations to be refused. Successful team actions are recorded in synced `team-audit/<author>.log` shards, separate from per-Dossier audits; roster writes roll back if audit append fails. This is provenance/accident prevention, not authentication. An `agent` roster entry is visually labeled as an agent and cannot be assigned as a Dossier lead; agent ownership is expressed through a Delegation Contract (B19). A headless machine must use its own `author` username, never a human's laptop identity. It may join non-interactively using a repository-scoped token in `~/.dossier/credentials` without `gh` or a TTY. Per-Dossier `inbox/` is machine-local and excluded before the first sync.
 - `team members [--json]` lists the manager, then members sorted by display name; the MCP read-only tool `dossier_team` returns the same.
 - **Leads with a roster.** A lead may be given as a username, a full display name, or a unique first name/prefix (`Priya` → `psmith`); the username is stored; ambiguous or unknown names are refused with the candidates. Former members are not assignable. The machine-local `leads:` list applies only to stores without a roster. `doctor` advises on leads that are not current members.
 - **Display and "me" (M4–M5).** With a roster, every surface (TUI dashboard, board, detail and filters; `show`, `ls`, `recall`; MCP `dossier_list`, `dossier_recall`, `dossier_search`, `dossier_session`; SessionStart) shows the lead's display name; a former member shows as `<Name> (former)`. Lead filters and queries match the username or the display name. The SessionStart context adds `You are working as <Display Name> (<username>).` when a roster exists. `dossier_list` and `dossier_session` return `current_user: {username, display_name}`. `dossier_list` accepts `lead: "me"`, and the CLI has `dossier ls --mine`. Tool descriptions tell the agent to use `lead: "me"` for "me/mine/assigned to me" and to ask when several Dossiers match.
-- **Roster conflicts.** A concurrent edit of `team.yaml` from two machines is captured like a `dossier.md` conflict (kind `sync_concurrent_roster_edit`, Dossier shown as "Team roster") with the full preserved YAML, listed by `conflicts`, counted by `doctor`, and resolved with the same three choices: keep shared, restore mine (writes the preserved roster), keep both (union of members and former; on a username with two display names the shared one wins and the clash is reported). The resolution is recorded in the archived conflict file's frontmatter (there is no Dossier audit shard for the roster).
+- **Roster conflicts.** A concurrent edit of `team.yaml` from two machines is captured like a `dossier.md` conflict (kind `sync_concurrent_roster_edit`, Dossier shown as "Team roster") with the full preserved YAML, listed by `conflicts`, counted by `doctor`, and resolved with the same three choices: keep shared, restore mine (writes the preserved roster), keep both (union of members and former; on a username with two display names the shared one wins and the clash is reported). Roster conflict resolution is human-only and receives a typed root team-audit entry. Sync-generated roster conflicts receive `system:team-sync` attribution there as well; the archived conflict frontmatter records the resolution choice and author.
 
 `dossier conflicts` / `dossier resolve` (P0-5, 2026-09-18)
 
@@ -676,6 +689,8 @@ Required tools:
 - `dossier_conflicts`
 - `dossier_resolve_conflict`
 - `dossier_team` (read-only roster)
+- `dossier_inbox` (list/read/capture routed intake)
+- `dossier_inbox_resolve` (absorb or dismiss without deleting)
 
 > **Note on `dossier_conflicts` / `dossier_resolve_conflict` (P0-5):** `dossier_conflicts` without arguments returns the unresolved conflicts; with `conflict_id` it returns the same comparison as `dossier conflicts <id>` (shared, mine, diff). `dossier_resolve_conflict` takes `conflict_id` and `choice` (`keep_shared`, `restore_mine`, `keep_both`) and behaves exactly as `dossier resolve`; it returns the resulting revision. Error codes: `not_found`, `invalid_frontmatter`, `concurrent_edit`.
 
@@ -726,7 +741,13 @@ Required error codes:
 - `concurrent_edit`
 - `harness_capability_unavailable`
 
+### Routed inbox
+
+`dossier_inbox` lists items when given `id`, reads one when `inbox_id` is supplied, and captures a new item when `source_kind` and `excerpt` are supplied. `dossier_inbox_resolve` takes `id`, `inbox_id`, and `action` (`absorb|dismiss`). Dismissing changes state only and retains the file. Absorbing saves the excerpt as a normal Archive artifact (with its source provenance), marks the inbox item absorbed, returns the minted artifact id, and prompts the caller to cite it in the Distilled State; only an agent can distil its meaning. Repeating resolution of a non-pending item is rejected.
+
 ### 8.3 `dossier_list`
+
+`include` is an optional array accepting `monitors` and/or `references`. When requested, the list response includes parsed link lines from the matched Dossier bodies; the default remains frontmatter-only. CLI `dossier ls --include monitors,references --json` provides the same opt-in view. `dossier_monitor_polled` / `dossier monitor-polled <id> <url>` updates a monitor's `(Last polled: YYYY-MM-DD)` marker through the ordinary optimistic-concurrency Save path.
 
 Input:
 

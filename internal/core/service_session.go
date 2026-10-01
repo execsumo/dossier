@@ -162,10 +162,18 @@ func (s *Service) Active(ctx context.Context, req ActiveReq) (Result, error) {
 }
 
 type ArchiveReq struct {
-	ID string
+	Actor string
+	ID    string
 }
 
 func (s *Service) Archive(ctx context.Context, req ArchiveReq) (Result, error) {
+	actor := NormalizeActor(req.Actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
+	if err := Authorize(actor, "set_done"); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	d, rev, err := s.store.Read(req.ID)
 	if err != nil {
 		return Result{}, err
@@ -181,6 +189,7 @@ func (s *Service) Archive(ctx context.Context, req ArchiveReq) (Result, error) {
 	_ = s.store.AppendAudit(d.Frontmatter.ID, AuditEvent{
 		TS:             s.clock.Now(),
 		Event:          AuditEventArchived,
+		Actor:          actor,
 		Author:         s.cfg.Author,
 		DossierID:      d.Frontmatter.ID,
 		BeforeRevision: string(rev),
@@ -212,6 +221,11 @@ func (s *Service) Path(ctx context.Context, req PathReq) (Result, error) {
 
 // SessionStart returns the injected context payload for a harness session.
 func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, error) {
+	return s.SessionStartMode(ctx, sessionID, false)
+}
+
+// SessionStartMode optionally omits the library listing for explicitly lean agent runs.
+func (s *Service) SessionStartMode(ctx context.Context, sessionID string, lean bool) (string, error) {
 	var syncResult *Result
 	var syncErr error
 	if s.syncer != nil {
@@ -230,17 +244,18 @@ func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, e
 
 	attentionLine, boundConflicts, needsAttention := s.syncAttention(ctx, activeDossierID, syncResult, syncErr)
 
-	// Fetch open dossiers
-	fms, err := s.store.List("all")
-	if err != nil {
-		return "", err
-	}
-
-	sortListedFrontmatters(fms)
 	var names []string
-	for _, fm := range fms {
-		if fm.Status != StatusArchived {
-			names = append(names, fm.Name)
+	if !lean {
+		// Fetch open dossiers only for ordinary session starts.
+		fms, err := s.store.List("all")
+		if err != nil {
+			return "", err
+		}
+		sortListedFrontmatters(fms)
+		for _, fm := range fms {
+			if fm.Status != StatusArchived {
+				names = append(names, fm.Name)
+			}
 		}
 	}
 	namesStr := "(none)"
@@ -276,10 +291,14 @@ func (s *Service) SessionStart(ctx context.Context, sessionID string) (string, e
 	// Distilled State) is delivered by the MCP tool calls themselves — see
 	// dossier_session's response — the moment the agent actually enters a
 	// dossier's context, not passively here.
-	sb.WriteString(fmt.Sprintf(
-		"%d open dossier(s): %s. Before choosing or creating a topic, use dossier_list to check for a match; use dossier_promote for a confirmed new thread, dossier_session to bind/resume one, or dossier_recall to read its state. Guide: ~/.dossier/context/guide.md\n",
-		len(names), namesStr,
-	))
+	if lean {
+		sb.WriteString("Lean SessionStart: library listing omitted; only the bound Dossier is included.\n")
+	} else {
+		sb.WriteString(fmt.Sprintf(
+			"%d open dossier(s): %s. Before choosing or creating a topic, use dossier_list to check for a match; use dossier_promote for a confirmed new thread, dossier_session to bind/resume one, or dossier_recall to read its state. Guide: ~/.dossier/context/guide.md\n",
+			len(names), namesStr,
+		))
+	}
 
 	if activeDossierID != "" {
 		// Deliver the Guide here, at the earliest point in the session, so it is
@@ -385,8 +404,19 @@ func (s *Service) EnsureContextAssets() ([]string, error) {
 	return s.store.EnsureContextAssets()
 }
 
-// SessionEnd saves state and appends the transcript artifact on session completion.
+// SessionEnd preserves the historical system-hook attribution for callers that
+// do not know which agent produced the session.
 func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledState string, transcript string) ([]Warning, error) {
+	return s.SessionEndAs(ctx, sessionID, "system:session-end", distilledState, transcript)
+}
+
+// SessionEndAs saves state and appends the transcript artifact with explicit
+// actor provenance supplied by the hook surface.
+func (s *Service) SessionEndAs(ctx context.Context, sessionID, actor, distilledState, transcript string) ([]Warning, error) {
+	actor = NormalizeActor(actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return nil, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	binding, err := s.store.GetSessionBinding(sessionID)
 	if err != nil {
 		return nil, nil
@@ -406,6 +436,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 
 	if distilledState != "" {
 		saveRes, err := s.Save(ctx, SaveReq{
+			Actor:                  actor,
 			ID:                     binding.DossierID,
 			BaseRevision:           Revision(binding.LastSeenRevision),
 			DistilledStateMarkdown: distilledState,
@@ -414,7 +445,11 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 		if err != nil {
 			return warnings, err
 		}
-		finalRevision = saveRes.Data.(Revision)
+		if revision, ok := saveRes.Data.(Revision); ok {
+			finalRevision = revision
+		} else {
+			warnings = append(warnings, Warning("Session-end state proposal was preserved for human review and was not applied."))
+		}
 	}
 
 	if transcript != "" {
@@ -427,6 +462,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 			_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 				TS:        now,
 				Event:     AuditEventSave,
+				Actor:     actor,
 				Author:    s.cfg.Author,
 				DossierID: binding.DossierID,
 				SessionID: sessionID,
@@ -438,6 +474,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 			_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 				TS:        now,
 				Event:     AuditEventSave,
+				Actor:     actor,
 				Author:    s.cfg.Author,
 				DossierID: binding.DossierID,
 				SessionID: sessionID,
@@ -465,6 +502,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 		_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 			TS:             now,
 			Event:          AuditEventSave,
+			Actor:          actor,
 			Author:         s.cfg.Author,
 			DossierID:      binding.DossierID,
 			SessionID:      sessionID,
@@ -477,6 +515,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 		_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 			TS:        now,
 			Event:     AuditEventTranscriptCaptureUnavailable,
+			Actor:     actor,
 			Author:    s.cfg.Author,
 			DossierID: binding.DossierID,
 			SessionID: sessionID,
@@ -493,6 +532,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 			_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 				TS:        now,
 				Event:     AuditEventSave,
+				Actor:     actor,
 				Author:    s.cfg.Author,
 				DossierID: binding.DossierID,
 				SessionID: sessionID,
@@ -507,6 +547,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 			_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 				TS:        now,
 				Event:     AuditEventDistilledStateNotCaptured,
+				Actor:     actor,
 				Author:    s.cfg.Author,
 				DossierID: binding.DossierID,
 				SessionID: sessionID,

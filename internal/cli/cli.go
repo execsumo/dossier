@@ -38,6 +38,8 @@ var (
 	statusFlag          string
 	queryFlag           string
 	listLeadFlag        string
+	listIncludeFlag     []string
+	listAttentionFlag   string
 	mineFlag            bool
 	jsonFlag            bool
 	dossierSearchFlag   string
@@ -358,7 +360,7 @@ func NewRootCmd() *cobra.Command {
 			if leadFilter == "" && mineFlag {
 				leadFilter = "me"
 			}
-			res, err := svc.List(context.Background(), core.ListReq{Status: statusFlag, Lead: leadFilter, Interfaces: interfacesFlag, Query: queryFlag})
+			res, err := svc.List(context.Background(), core.ListReq{Status: statusFlag, Lead: leadFilter, Interfaces: interfacesFlag, Query: queryFlag, Include: listIncludeFlag, Attention: listAttentionFlag})
 			if err != nil {
 				fmt.Printf("List failed: %v\n", err)
 				os.Exit(1)
@@ -419,8 +421,42 @@ func NewRootCmd() *cobra.Command {
 	lsCmd.Flags().StringSliceVar(&interfacesFlag, "interface", nil, "Filter by interface (repeat or comma-separate)")
 	lsCmd.Flags().StringVarP(&queryFlag, "query", "q", "", "Filter by name, description, lead, interface, or slug")
 	lsCmd.Flags().StringVar(&listLeadFlag, "lead", "", "Filter by lead (username, display name, or \"me\")")
+	lsCmd.Flags().StringSliceVar(&listIncludeFlag, "include", nil, "Include parsed list views: monitors, references (repeat or comma-separate)")
+	lsCmd.Flags().StringVar(&listAttentionFlag, "attention", "", "Filter by attention: none|fyi|decide|blocked")
 	lsCmd.Flags().BoolVar(&mineFlag, "mine", false, "Show dossiers assigned to the current user")
 	lsCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
+
+	var changesSince string
+	changesCmd := &cobra.Command{
+		Use:   "changes --since <RFC3339>",
+		Short: "Show audited Dossier changes since a timestamp",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			since, err := time.Parse(time.RFC3339, changesSince)
+			if err != nil {
+				return fmt.Errorf("--since must be an RFC3339 timestamp: %w", err)
+			}
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				return err
+			}
+			items, err := svc.Changes(cmd.Context(), since)
+			if err != nil {
+				return err
+			}
+			if jsonFlag {
+				printJSON(items)
+				return nil
+			}
+			for _, item := range items {
+				fmt.Printf("%s  %s  %s  %s  %s\n", item.TS.Format(time.RFC3339), item.Actor, item.Slug, item.Event, item.Summary)
+			}
+			return nil
+		},
+	}
+	changesCmd.Flags().StringVar(&changesSince, "since", "", "RFC3339 timestamp; changes strictly after this time")
+	_ = changesCmd.MarkFlagRequired("since")
+	changesCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
 	showCmd := &cobra.Command{
 		Use:   "show <slug-or-id>",
@@ -1274,6 +1310,26 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
+	var monitorPolledDate string
+	monitorPolledCmd := &cobra.Command{
+		Use:   "monitor-polled <slug-or-id> <url>",
+		Short: "Record when an Active Monitor was last polled",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				return err
+			}
+			res, err := svc.MonitorPolled(context.Background(), core.MonitorPolledReq{ID: args[0], URL: args[1], Date: monitorPolledDate})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Monitor poll date recorded. New revision: %s\n", res.Data.(core.Revision))
+			return nil
+		},
+	}
+	monitorPolledCmd.Flags().StringVar(&monitorPolledDate, "date", "", "Polling date (YYYY-MM-DD; defaults to today)")
+
 	nextCmd := &cobra.Command{
 		Use:   "next <slug-or-id> <next-action>",
 		Short: "Update next action of a dossier",
@@ -1494,7 +1550,8 @@ func NewRootCmd() *cobra.Command {
 
 			switch args[0] {
 			case "session-start":
-				resText, err := svc.SessionStart(context.Background(), sessID)
+				lean := os.Getenv("DOSSIER_LEAN_SESSION_START") == "1"
+				resText, err := svc.SessionStartMode(context.Background(), sessID, lean)
 				if err != nil {
 					fmt.Printf("Session start hook failed: %v\n", err)
 					os.Exit(1)
@@ -1502,7 +1559,11 @@ func NewRootCmd() *cobra.Command {
 				fmt.Print(resText)
 
 			case "session-end", "pre-compaction":
-				warnings, err := svc.SessionEnd(context.Background(), sessID, payload.DistilledState, transcript)
+				actor := "system:session-end"
+				if agent := strings.TrimSpace(os.Getenv("DOSSIER_AGENT")); agent != "" {
+					actor = "agent:" + agent
+				}
+				warnings, err := svc.SessionEndAs(context.Background(), sessID, actor, payload.DistilledState, transcript)
 				if err != nil {
 					fmt.Printf("Session end hook failed: %v\n", err)
 					os.Exit(1)
@@ -1532,6 +1593,7 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
+	var openHeadless bool
 	openCmd := &cobra.Command{
 		Use:   "open <slug-or-id>",
 		Short: "Open a dossier in the configured agent",
@@ -1553,6 +1615,9 @@ func NewRootCmd() *cobra.Command {
 			openWith, err := harness.NormalizeOpenWith(cfg.OpenWith)
 			if err != nil {
 				return err
+			}
+			if openHeadless && openWith != "claude-code" {
+				return fmt.Errorf("--headless is currently supported only with open_with: claude-code")
 			}
 
 			ctx := context.Background()
@@ -1587,6 +1652,7 @@ func NewRootCmd() *cobra.Command {
 				DossierDir: dir,
 				Name:       recall.Frontmatter.Name,
 				Slug:       recall.Frontmatter.Slug,
+				Headless:   openHeadless,
 			})
 			if err != nil {
 				return err
@@ -1615,6 +1681,7 @@ func NewRootCmd() *cobra.Command {
 			return agent.Run()
 		},
 	}
+	openCmd.Flags().BoolVar(&openHeadless, "headless", false, "Run Claude Code in print mode with a lean, dossier-bound SessionStart payload")
 
 	versionCmd := &cobra.Command{
 		Use:   "version",
@@ -1632,6 +1699,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(harnessCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(lsCmd)
+	rootCmd.AddCommand(changesCmd)
 	rootCmd.AddCommand(showCmd)
 	rootCmd.AddCommand(pathCmd)
 	rootCmd.AddCommand(archiveCmd)
@@ -1652,6 +1720,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(leadCmd)
 	rootCmd.AddCommand(descriptionCmd)
 	rootCmd.AddCommand(interfaceCmd)
+	rootCmd.AddCommand(monitorPolledCmd)
 	rootCmd.AddCommand(nextCmd)
 	rootCmd.AddCommand(priorityCmd)
 	rootCmd.AddCommand(updateCmd)
@@ -1833,7 +1902,7 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
-			preview, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{RemoteURL: args[0], Branch: "main"})
+			preview, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{Actor: actorForCLI(svc), RemoteURL: args[0], Branch: "main"})
 			if err != nil {
 				errStr := err.Error()
 				if dErr, ok := err.(*core.DomainError); ok {
@@ -1873,7 +1942,7 @@ func NewRootCmd() *cobra.Command {
 					os.Exit(1)
 				}
 			}
-			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{RemoteURL: args[0], Branch: "main", Confirmed: true, ManagerDisplayName: managerName})
+			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{Actor: actorForCLI(svc), RemoteURL: args[0], Branch: "main", Confirmed: true, ManagerDisplayName: managerName})
 			if err != nil {
 				fmt.Printf("Team create failed: %v\n", err)
 				os.Exit(1)
@@ -1919,7 +1988,7 @@ func NewRootCmd() *cobra.Command {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
-			res, err := svc.TeamJoin(context.Background(), core.TeamJoinReq{RemoteURL: args[0], Branch: "main"})
+			res, err := svc.TeamJoin(context.Background(), core.TeamJoinReq{Actor: actorForCLI(svc), RemoteURL: args[0], Branch: "main"})
 			if err != nil {
 				errStr := err.Error()
 				if dErr, ok := err.(*core.DomainError); ok {
@@ -1947,6 +2016,7 @@ func NewRootCmd() *cobra.Command {
 	teamJoinCmd.Flags().BoolVar(&teamJoinJSON, "json", false, "Output results in JSON format")
 
 	var teamAddJSON bool
+	var teamAddKind string
 	teamAddCmd := &cobra.Command{
 		Use:   "add <username> <display-name>",
 		Short: "Add a member to the team roster",
@@ -1957,7 +2027,7 @@ func NewRootCmd() *cobra.Command {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
-			res, err := svc.TeamAdd(context.Background(), args[0], args[1])
+			res, err := svc.TeamAddKindAs(context.Background(), actorForCLI(svc), args[0], args[1], teamAddKind)
 			if err != nil {
 				fmt.Printf("Team add failed: %v\n", err)
 				os.Exit(1)
@@ -1972,6 +2042,7 @@ func NewRootCmd() *cobra.Command {
 			}
 		},
 	}
+	teamAddCmd.Flags().StringVar(&teamAddKind, "kind", "human", "Roster member kind: human or agent")
 	teamAddCmd.Flags().BoolVar(&teamAddJSON, "json", false, "Output results in JSON format")
 
 	var teamRemoveJSON bool
@@ -1985,7 +2056,7 @@ func NewRootCmd() *cobra.Command {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
-			res, err := svc.TeamRemove(context.Background(), args[0])
+			res, err := svc.TeamRemoveAs(context.Background(), actorForCLI(svc), args[0])
 			if err != nil {
 				fmt.Printf("Team remove failed: %v\n", err)
 				os.Exit(1)
@@ -2026,12 +2097,12 @@ func NewRootCmd() *cobra.Command {
 			fmt.Printf("Manager: %s (%s)\n", roster.Manager, roster.DisplayName(roster.Manager))
 			fmt.Println("Members:")
 			for _, member := range view.Members {
-				fmt.Printf("- %s (%s)\n", member.DisplayName, member.Username)
+				fmt.Printf("- %s (%s; %s)\n", member.DisplayName, member.Username, member.Kind)
 			}
 			if len(view.Former) > 0 {
 				fmt.Println("Former members:")
 				for _, member := range view.Former {
-					fmt.Printf("- %s (%s)\n", member.DisplayName, member.Username)
+					fmt.Printf("- %s (%s; %s)\n", member.DisplayName, member.Username, member.Kind)
 				}
 			}
 		},
@@ -2054,6 +2125,14 @@ func Execute() {
 	if err := NewRootCmd().Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func actorForCLI(svc *core.Service) string {
+	if agent := strings.TrimSpace(os.Getenv("DOSSIER_AGENT")); agent != "" {
+		return "agent:" + agent
+	}
+	username, _ := svc.CurrentUser()
+	return core.NormalizeActor("", username)
 }
 
 func resolveHomeDir() string {

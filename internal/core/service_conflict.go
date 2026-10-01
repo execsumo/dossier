@@ -15,6 +15,7 @@ const (
 )
 
 type ResolveConflictReq struct {
+	Actor      string
 	ConflictID string
 	Choice     string
 	Author     string
@@ -86,11 +87,28 @@ func (s *Service) ResolveConflict(ctx context.Context, req ResolveConflictReq) (
 			"invalid conflict choice: must be keep_shared, restore_mine, or keep_both")
 	}
 
+	actorIdentity := req.Author
+	if actorIdentity == "" {
+		actorIdentity = s.cfg.Author
+	}
+	actor := NormalizeActor(req.Actor, actorIdentity)
+	if err := ValidateActor(actor); err != nil {
+		return Result{OK: false}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	conflict, err := s.store.ReadConflict(req.ConflictID)
 	if err != nil {
 		return Result{OK: false}, err
 	}
+	if conflict.Kind == "agent_proposal" {
+		if err := Authorize(actor, "accept_agent_proposal"); err != nil {
+			return Result{OK: false}, NewError(ErrInvalidFrontmatter, err.Error())
+		}
+	}
 	if conflict.Kind == "sync_concurrent_roster_edit" || conflict.DossierID == RosterConflictDossierID {
+		if err := Authorize(actor, "team_admin"); err != nil {
+			return Result{OK: false}, NewError(ErrInvalidFrontmatter, err.Error())
+		}
+		req.Actor = actor
 		return s.resolveRosterConflict(conflict, req)
 	}
 
@@ -113,6 +131,7 @@ func (s *Service) ResolveConflict(ctx context.Context, req ResolveConflictReq) (
 			restoredBody += "\n"
 		}
 		result, err = s.Save(ctx, SaveReq{
+			Actor:                  actor,
 			ID:                     dossier.Frontmatter.ID,
 			BaseRevision:           currentRevision,
 			DistilledStateMarkdown: restoredBody,
@@ -125,6 +144,7 @@ func (s *Service) ResolveConflict(ctx context.Context, req ResolveConflictReq) (
 			conflict.RejectedBody,
 		)
 		result, err = s.Save(ctx, SaveReq{
+			Actor:                  actor,
 			ID:                     dossier.Frontmatter.ID,
 			BaseRevision:           currentRevision,
 			DistilledStateMarkdown: body,
@@ -148,6 +168,7 @@ func (s *Service) ResolveConflict(ctx context.Context, req ResolveConflictReq) (
 	if err := s.store.AppendAudit(conflict.DossierID, AuditEvent{
 		TS:             now,
 		Event:          AuditEventConflictResolved,
+		Actor:          actor,
 		Author:         author,
 		DossierID:      conflict.DossierID,
 		BeforeRevision: string(currentRevision),
@@ -175,6 +196,7 @@ func (s *Service) resolveRosterConflict(conflict *Conflict, req ResolveConflictR
 
 	var resolved Roster
 	var warnings []Warning
+	rosterChanged := req.Choice != ConflictChoiceKeepShared
 	switch req.Choice {
 	case ConflictChoiceKeepShared:
 		resolved = *shared
@@ -208,6 +230,15 @@ func (s *Service) resolveRosterConflict(conflict *Conflict, req ResolveConflictR
 	conflict.Choice = req.Choice
 	// There is no dossier to receive an audit shard for a root team.yaml
 	// conflict; the archived conflict frontmatter is the resolution audit.
+	actor := NormalizeActor(req.Actor, author)
+	if err := s.appendTeamAudit(actor, "team_roster_conflict_resolved", fmt.Sprintf("Resolved team roster conflict %s with %s.", conflict.ID, req.Choice)); err != nil {
+		if rosterChanged {
+			if rollbackErr := rosterStore.WriteRoster(shared); rollbackErr != nil {
+				return Result{OK: false}, fmt.Errorf("roster conflict audit failed (%v) and roster rollback failed: %w", err, rollbackErr)
+			}
+		}
+		return Result{OK: false}, err
+	}
 	if err := s.store.ResolveConflict(conflict.ID, conflict); err != nil {
 		return Result{OK: false}, err
 	}
@@ -221,6 +252,7 @@ func unionRosters(shared, mine Roster) (Roster, []Warning) {
 		Manager: NormalizeUsername(shared.Manager),
 		Members: map[string]string{},
 		Former:  map[string]string{},
+		Kinds:   map[string]string{},
 	}
 	if merged.Manager == "" {
 		merged.Manager = NormalizeUsername(mine.Manager)
@@ -237,6 +269,9 @@ func unionRosters(shared, mine Roster) (Roster, []Warning) {
 				continue
 			}
 			target[normalized] = displayName
+			if kind := shared.Kind(normalized); kind == "agent" {
+				merged.Kinds[normalized] = kind
+			}
 			sharedNames[normalized] = displayName
 		}
 	}
@@ -265,6 +300,9 @@ func unionRosters(shared, mine Roster) (Roster, []Warning) {
 				continue
 			}
 			target[normalized] = displayName
+			if kind := mine.Kind(normalized); kind == "agent" {
+				merged.Kinds[normalized] = kind
+			}
 		}
 	}
 	addMine(mine.Members, merged.Members)

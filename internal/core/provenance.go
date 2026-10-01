@@ -177,70 +177,40 @@ func uncitedArtifactWarning(body string, artifacts []Artifact) string {
 		len(ids), strings.Join(shown, ", "), suffix)
 }
 
-// CollapseProvenance rewrites every [src:...] citation outside code fences as a
-// superscript footnote number and appends a Sources list mapping each number to
-// its artifact and line range. It is a display transform for human viewers: the
-// stored Distilled State keeps the full citation, which is what agents follow.
-// Numbers are assigned by first appearance, so a repeated citation reuses its
-// number and the numbering is stable across re-renders of the same body.
-func CollapseProvenance(body string) string {
-	if !strings.Contains(body, "[src:") {
+// provenanceStripRE matches a citation with the single space that set it off, so
+// removing it leaves no gap before punctuation or at end of line.
+var provenanceStripRE = regexp.MustCompile(`[ \t]?` + provenanceRefRE.String())
+
+// HumanView returns the Distilled State as a human reader should see it: [src:]
+// citations are removed and the agent-facing ## Evidence index is dropped. Both
+// exist so an agent can follow a compressed claim back to the Archive; for a
+// person reading the brief they are noise. It is a display transform only — the
+// stored body keeps everything, and callers that want the raw form use the body
+// directly. Code fences are left untouched.
+func HumanView(body string) string {
+	if !strings.Contains(body, "[src:") && !evidenceHeadingRE.MatchString(body) {
 		return body
 	}
-	var sources []string
-	index := map[string]int{}
-	inFence := false
-	lines := strings.Split(body, "\n")
-	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+	var out []string
+	inFence, skipping := false, false
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		fence := strings.HasPrefix(trimmed, "```")
+		if fence {
 			inFence = !inFence
+		}
+		if !inFence && !fence && strings.HasPrefix(line, "#") {
+			skipping = evidenceHeadingRE.MatchString(line)
+		}
+		if skipping {
 			continue
 		}
-		if inFence || !strings.Contains(line, "[src:") {
-			continue
+		if !inFence && !fence {
+			line = provenanceStripRE.ReplaceAllString(line, "")
 		}
-		prevEnd := -1
-		var sb strings.Builder
-		last := 0
-		for _, loc := range provenanceRefRE.FindAllStringSubmatchIndex(line, -1) {
-			raw := line[loc[0]:loc[1]]
-			label := line[loc[2]:loc[3]]
-			if loc[4] >= 0 {
-				label += " " + strings.TrimPrefix(line[loc[4]:loc[5]], "#")
-			}
-			n, ok := index[raw]
-			if !ok {
-				sources = append(sources, label)
-				n = len(sources)
-				index[raw] = n
-			}
-			sb.WriteString(line[last:loc[0]])
-			if prevEnd == loc[0] {
-				sb.WriteString(" ")
-			}
-			sb.WriteString(superscript(n))
-			last, prevEnd = loc[1], loc[1]
-		}
-		sb.WriteString(line[last:])
-		lines[i] = sb.String()
+		out = append(out, line)
 	}
-	if len(sources) == 0 {
-		return body
-	}
-	var out strings.Builder
-	out.WriteString(strings.Join(lines, "\n"))
-	out.WriteString("\n\n---\n\n")
-	for i, label := range sources {
-		fmt.Fprintf(&out, "%s `%s`  \n", superscript(i+1), label)
-	}
-	return out.String()
+	return strings.Join(out, "\n")
 }
 
-func superscript(n int) string {
-	digits := []rune("⁰¹²³⁴⁵⁶⁷⁸⁹")
-	var sb strings.Builder
-	for _, c := range strconv.Itoa(n) {
-		sb.WriteRune(digits[c-'0'])
-	}
-	return sb.String()
-}
+var evidenceHeadingRE = regexp.MustCompile(`(?m)^## Evidence[ \t]*$`)

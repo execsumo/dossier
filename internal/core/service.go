@@ -58,6 +58,10 @@ type RecallResult struct {
 	// alone, which left the Archive invisible to the caller that has to decide
 	// what to cite.
 	Artifacts []ArtifactSummary `json:"artifacts,omitempty"`
+	// Files lists what is physically in the Dossier's files/ directory, so the
+	// caller sees loose deliverables even when the Distilled State's ## Files
+	// index is missing or stale.
+	Files []WorkingFile `json:"files,omitempty"`
 }
 
 // ArtifactSummary is one entry in the evidence index.
@@ -75,20 +79,23 @@ type ArtifactSummary struct {
 
 // ListItem represents a single summary item for dossier listings.
 type ListItem struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Slug         string   `json:"slug"`
-	Status       string   `json:"status"`
-	Lead         string   `json:"lead,omitempty"`
-	LeadUsername string   `json:"-"`
-	LeadFormer   bool     `json:"lead_former,omitempty"`
-	Interfaces   []string `json:"interfaces,omitempty"`
-	NextAction   string   `json:"next_action"`
-	Description  string   `json:"description,omitempty"`
-	Priority     string   `json:"priority"`
-	DueDate      string   `json:"due_date,omitempty"`
-	Path         string   `json:"path"`
-	Revision     Revision `json:"revision,omitempty"`
+	ID           string         `json:"id"`
+	Name         string         `json:"name"`
+	Slug         string         `json:"slug"`
+	Status       string         `json:"status"`
+	Lead         string         `json:"lead,omitempty"`
+	LeadUsername string         `json:"-"`
+	LeadFormer   bool           `json:"lead_former,omitempty"`
+	Interfaces   []string       `json:"interfaces,omitempty"`
+	NextAction   string         `json:"next_action"`
+	Description  string         `json:"description,omitempty"`
+	Priority     string         `json:"priority"`
+	DueDate      string         `json:"due_date,omitempty"`
+	Monitors     []ExternalLink `json:"monitors,omitempty"`
+	References   []ExternalLink `json:"references,omitempty"`
+	Attention    *Attention     `json:"attention,omitempty"`
+	Path         string         `json:"path"`
+	Revision     Revision       `json:"revision,omitempty"`
 	// HasOpenDelegationContract reports whether any Delegation Contract block
 	// (guide.md §4) has a field that isn't yet [decided] — an attention signal
 	// a list surface can show without opening the dossier.
@@ -472,6 +479,27 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 
 		for _, issue := range s.store.ValidateArtifactFiles(fm.ID) {
 			addIssue("%s", issue)
+		}
+
+		if fileStore, ok := s.store.(FileStore); ok {
+			files, err := fileStore.ListWorkingFiles(fm.ID)
+			if err != nil {
+				addIssue("Dossier %s files/ could not be listed: %v", fm.ID, err)
+			} else {
+				missing, unindexed := filesIndexIssues(d.DistilledState.Body, files)
+				for _, path := range missing {
+					addIssue("Dossier %s lists %s under ## Files but it does not exist", fm.ID, path)
+				}
+				if len(unindexed) > 0 {
+					addAdvisory(unindexedFilesAdvisory(fm.ID, unindexed))
+				}
+			}
+		}
+
+		if inboxStore, ok := s.store.(InboxStore); ok {
+			for _, issue := range inboxStore.ValidateInbox(fm.ID) {
+				addIssue("%s", issue)
+			}
 		}
 
 		for _, issue := range s.store.ValidateAuditShards(fm.ID) {

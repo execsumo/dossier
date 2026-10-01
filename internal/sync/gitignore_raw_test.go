@@ -24,7 +24,9 @@ func TestEnsureGitignoreMergesRawArtifactEntry(t *testing.T) {
 	if !strings.Contains(got, "# user rule\n/private/") {
 		t.Fatalf("user entries changed: %q", got)
 	}
-	if !strings.Contains(got, "*/artifacts/*_raw.*") {
-		t.Fatalf("raw artifact entry missing: %q", got)
+	for _, entry := range []string{"*/artifacts/*_raw.*", "*/inbox/", "archive/*/inbox/"} {
+		if !strings.Contains(got, entry) {
+			t.Errorf("managed entry %q missing: %q", entry, got)
+		}
 	}
 }

@@ -55,3 +55,30 @@ func TestLaunchInHerdr(t *testing.T) {
 		t.Error("expected an error when split returns no pane id")
 	}
 }
+
+func TestLaunchInHerdrLabelsWorkspaceAndTab(t *testing.T) {
+	t.Setenv("HERDR_WORKSPACE_ID", "w1")
+	t.Setenv("HERDR_TAB_ID", "w1:t2")
+	var calls [][]string
+	orig := herdrRun
+	defer func() { herdrRun = orig }()
+	herdrRun = func(args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		if args[1] == "split" {
+			return []byte(`{"result":{"pane":{"pane_id":"1-3"}}}`), nil
+		}
+		return []byte(`{}`), nil
+	}
+	plan := HandoffPlan{Bin: "claude", Dir: "/d", Slug: "my-dossier"}
+	if err := LaunchInHerdr(plan); err != nil {
+		t.Fatal(err)
+	}
+	got := calls[len(calls)-2:]
+	want := [][]string{
+		{"workspace", "rename", "w1", "my-dossier"},
+		{"tab", "rename", "w1:t2", "my-dossier"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("rename calls = %v, want %v", got, want)
+	}
+}

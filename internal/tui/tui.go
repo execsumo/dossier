@@ -501,8 +501,9 @@ type Model struct {
 	// Cached markdown renderer, rebuilt only when the wrap width changes.
 	mdRenderer      *glamour.TermRenderer
 	mdRendererWidth int
-	// showSourceRefs keeps raw [src:...] citations visible in the detail view;
-	// by default they collapse to footnote numbers (toggled with s).
+	// showSourceRefs shows the Distilled State raw in the detail view, with
+	// [src:...] citations and the Evidence index; by default they are hidden
+	// (toggled with s).
 	showSourceRefs bool
 	help           help.Model
 
@@ -795,7 +796,7 @@ func (m Model) listDossiersCmd() tea.Cmd {
 func (m Model) recallDossierCmd(id string) tea.Cmd {
 	requestID := m.nextRequestID()
 	return func() tea.Msg {
-		res, err := m.svc.Recall(context.Background(), core.RecallReq{ID: id})
+		res, err := m.svc.Recall(context.Background(), core.RecallReq{ID: id, HumanView: true})
 		if err != nil {
 			return recallDossierMsg{requestID: requestID, id: id, err: err}
 		}
@@ -818,7 +819,7 @@ func (m Model) recallDossierCmd(id string) tea.Cmd {
 func (m Model) listArtifactsCmd(dossierID string) tea.Cmd {
 	requestID := m.nextRequestID()
 	return func() tea.Msg {
-		res, err := m.svc.ListArtifacts(context.Background(), core.ListArtifactsReq{DossierID: dossierID})
+		res, err := m.svc.ListArtifacts(context.Background(), core.ListArtifactsReq{DossierID: dossierID, HumanView: true})
 		if err != nil {
 			return artifactIndexMsg{requestID: requestID, dossierID: dossierID, err: err}
 		}
@@ -1102,6 +1103,7 @@ func (m Model) openInAgent(t targetDossier) (tea.Model, tea.Cmd) {
 		m.err = err
 		return m, nil
 	}
+	plan.Slug = slug
 
 	switchRes, err := m.svc.Switch(ctx, core.SwitchReq{
 		ID:          t.id,
@@ -1428,11 +1430,11 @@ func priorityBefore(a, b core.Priority) bool {
 	}
 }
 
-// renderDistilledState renders the brief for a human reader, collapsing
-// provenance citations to footnotes unless the raw form was asked for.
+// renderDistilledState renders the brief for a human reader, hiding [src:]
+// citations and the agent-facing Evidence index unless the raw form was asked for.
 func (m *Model) renderDistilledState(body string) string {
 	if !m.showSourceRefs {
-		body = core.CollapseProvenance(body)
+		body = core.HumanView(body)
 	}
 	return m.renderMarkdown(body)
 }
@@ -2546,6 +2548,9 @@ func itemTableRow(item core.ListItem, showPriority, showDue bool) table.Row {
 	// bleeding past its reset into the rest of that row's styling. Shape and
 	// position carry the signal instead of color.
 	name := item.Name
+	if item.Attention != nil && item.Attention.Level != "none" {
+		name = "[" + strings.ToUpper(item.Attention.Level) + "] " + name
+	}
 	if item.HasOpenDelegationContract {
 		name = "! " + name
 	}
@@ -3017,6 +3022,9 @@ func (m Model) renderDetailMetadata() string {
 		"Priority:", string(fm.Priority),
 		"Stage:", string(fm.Status),
 	))
+	if fm.Attention != nil && fm.Attention.Level != "none" {
+		sb.WriteString(renderRow("Attention:", strings.ToUpper(fm.Attention.Level)+" — "+fm.Attention.Summary))
+	}
 	sb.WriteString(renderTwoCols(
 		"Lead:", leadLabel,
 		"Due:", fm.DueDate,
@@ -3024,6 +3032,9 @@ func (m Model) renderDetailMetadata() string {
 	sb.WriteString(renderRow("Interfaces:", strings.Join(fm.Interfaces, ", ")))
 	sb.WriteString(renderRow("Tokens:", fmt.Sprintf("%d estimated", m.recallResult.TokenEstimate)))
 	sb.WriteString(renderRow("Next:", fm.NextAction))
+	if files := summarizeWorkingFiles(m.recallResult.Files); files != "" {
+		sb.WriteString(renderRow("Files:", files))
+	}
 
 	w := m.width
 	if w <= 0 {
@@ -3439,4 +3450,25 @@ func Run(ctx context.Context, svc *core.Service, openWith ...string) error {
 	)
 	_, err := p.Run()
 	return err
+}
+
+// summarizeWorkingFiles renders the files/ listing as one metadata value: a count
+// and the first few names, so loose deliverables are findable from the detail view.
+func summarizeWorkingFiles(files []core.WorkingFile) string {
+	if len(files) == 0 {
+		return ""
+	}
+	const shown = 3
+	names := make([]string, 0, shown)
+	for i, f := range files {
+		if i == shown {
+			break
+		}
+		names = append(names, strings.TrimPrefix(f.Path, "files/"))
+	}
+	summary := fmt.Sprintf("%d in files/ — %s", len(files), strings.Join(names, ", "))
+	if len(files) > shown {
+		summary += fmt.Sprintf(" (+%d more)", len(files)-shown)
+	}
+	return summary
 }

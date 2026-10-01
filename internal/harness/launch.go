@@ -25,6 +25,7 @@ type LaunchRequest struct {
 	DossierDir string
 	Name       string
 	Slug       string
+	Headless   bool
 }
 
 // ClaudeBin resolves the claude executable: $DOSSIER_CLAUDE_BIN when set,
@@ -120,6 +121,8 @@ type HandoffPlan struct {
 	Args      []string
 	Dir       string
 	Env       []string
+	// Slug names the Dossier; herdr launches use it to label the workspace and tab.
+	Slug string
 }
 
 // PlanOpenWith resolves the configured launcher and builds its handoff.
@@ -142,7 +145,12 @@ func PlanOpenWith(name string, req LaunchRequest) (HandoffPlan, error) {
 		if err != nil {
 			return HandoffPlan{}, err
 		}
-		return PlanClaudeHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug), nil
+		plan := PlanClaudeHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug)
+		if req.Headless {
+			plan.Args = append([]string{"--print"}, plan.Args...)
+			plan.Env = []string{"DOSSIER_LEAN_SESSION_START=1"}
+		}
+		return plan, nil
 	case "cursor":
 		bin, err := CursorBin()
 		if err != nil {
@@ -189,7 +197,7 @@ func PlanClaudeHandoff(bin, sessionID, dossierDir, name, slug string) HandoffPla
 	// so a call with a "slug" key would silently return the *active* Dossier
 	// instead of binding this one.
 	prompt := fmt.Sprintf(
-		"Resume the Dossier %q (slug: %s). Call dossier_session with id %q to bind it and load its distilled state; if the dossier MCP tools are unavailable, read ./dossier.md in this directory instead.",
+		"Resume the Dossier %q (slug: %s). Call dossier_session with id %q to bind it and load its distilled state; if the dossier MCP tools are unavailable, read ./dossier.md in this directory instead. Save any files you produce (decks, HTML, documents) to ./files/ and list them under ## Files in the distilled state.",
 		name, slug, slug,
 	)
 	return HandoffPlan{
@@ -228,7 +236,7 @@ func PlanPromptHandoff(bin, sessionID, dossierDir, name, slug string, env []stri
 // flags before the initial prompt, such as Antigravity's -i mode.
 func PlanPromptHandoffWithPrefix(bin string, prefix []string, sessionID, dossierDir, name, slug string, env []string) HandoffPlan {
 	prompt := fmt.Sprintf(
-		"Resume the Dossier %q (slug: %s). Call dossier_session with id %q to bind it and load its distilled state; if the dossier MCP tools are unavailable, read ./dossier.md in this directory instead.",
+		"Resume the Dossier %q (slug: %s). Call dossier_session with id %q to bind it and load its distilled state; if the dossier MCP tools are unavailable, read ./dossier.md in this directory instead. Save any files you produce (decks, HTML, documents) to ./files/ and list them under ## Files in the distilled state.",
 		name, slug, slug,
 	)
 	args := append([]string{}, prefix...)

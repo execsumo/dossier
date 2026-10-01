@@ -3180,3 +3180,16 @@ func typeString(t *testing.T, m Model, s string) Model {
 	}
 	return m
 }
+
+func TestSummarizeWorkingFiles(t *testing.T) {
+	if got := summarizeWorkingFiles(nil); got != "" {
+		t.Fatalf("no files should render nothing, got %q", got)
+	}
+	files := []core.WorkingFile{{Path: "files/a.pptx"}, {Path: "files/b.html"}, {Path: "files/c.pdf"}, {Path: "files/d.md"}}
+	if got, want := summarizeWorkingFiles(files), "4 in files/ — a.pptx, b.html, c.pdf (+1 more)"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if got, want := summarizeWorkingFiles(files[:1]), "1 in files/ — a.pptx"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

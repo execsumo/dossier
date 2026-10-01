@@ -717,6 +717,9 @@ func TestSessionEndCapturesTranscriptWithoutDistilledState(t *testing.T) {
 	for _, event := range fakeStore.audits["dos_fake_id"] {
 		if event.Event == AuditEventDistilledStateNotCaptured {
 			sawNoDistilledAudit = true
+			if event.Actor != "system:session-end" {
+				t.Errorf("session-end audit actor = %q, want system:session-end", event.Actor)
+			}
 		}
 	}
 	if !sawNoDistilledAudit {
@@ -915,6 +918,23 @@ func TestSessionStartUnboundIsCompactNudge(t *testing.T) {
 	}
 	if strings.Count(payload, "\n") > 4 {
 		t.Errorf("expected a compact few-line payload for an unbound session, got %d lines:\n%s", strings.Count(payload, "\n"), payload)
+	}
+}
+
+func TestSessionStartLeanOmitsLibraryAndSignalsOmission(t *testing.T) {
+	fakeStore := newLocalFakeStore()
+	now := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
+	fakeStore.dossiers["dos_a"] = &Dossier{Frontmatter: Frontmatter{ID: "dos_a", Name: "Private list entry", Slug: "private-list-entry", Status: StatusExecute, Priority: PriorityHigh, CreatedAt: now, UpdatedAt: now}}
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: now}, Config{}, nil)
+	payload, err := svc.SessionStartMode(context.Background(), "sess_headless", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(payload, "Private list entry") {
+		t.Fatalf("lean SessionStart included library listing: %s", payload)
+	}
+	if !strings.Contains(payload, "Lean SessionStart: library listing omitted") {
+		t.Fatalf("lean SessionStart did not disclose omission: %s", payload)
 	}
 }
 

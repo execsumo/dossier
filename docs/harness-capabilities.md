@@ -202,6 +202,26 @@ This is a code-read finding, not yet confirmed in a live Pi session. The CLI is 
   - **Unverified (review 2026-09-18):** whether that warning is *seen* in Claude Code. `dossier hook session-end` prints it to stdout (`internal/cli/cli.go:1344`) from a hook that runs while the session is closing, when there is no turn left to inject into. Until a live session shows the text somewhere a user looks, treat it as recorded (in the audit log, `distilled_state_not_captured`) rather than visible. Pi surfaces hook failures with `ctx.ui.notify`, but a warning printed by a successful hook is a different path, also unverified.
 - **Session ID:** A stable UUID is passed in the JSON payload on `stdin` to any hook handler. (Note: Previously, this session ID was only available to hooks and was not automatically resolved by MCP adapters; the addition of env-var resolution closes this gap).
 
+### Headless runs (D8, verified 2026-10-01)
+
+The installed Claude Code CLI identifies `-p`/`--print` as non-interactive
+execution and exposes `--session-id`. The existing `dossier open` path resolves
+and binds a session UUID before launching Claude; `dossier open <slug-or-id>
+--headless` now uses that same ordering with `claude --print --session-id <uuid>`.
+A test stub verifies argv, the persisted binding, and that the headless launch
+plan sets `DOSSIER_LEAN_SESSION_START=1`. The lifecycle hook recognizes that
+flag, skips the store-wide library scan/listing, and reports that only the bound
+Dossier is injected. Its bound brief and Guide remain available. This saves the
+per-run library payload and scan; it does not remove Team Sync's bounded
+SessionStart pull or sync-health reporting.
+
+This verifies Dossier's launch and payload construction, not a live API-backed
+Claude `-p` turn. The installed CLI help was inspected; a production model call
+was not made. SessionEnd with no save remains intentionally visible as a
+warning and `distilled_state_not_captured` audit event; Claude's display of
+SessionEnd stdout remains unverified (see below), so operators should not treat
+that hook output as a guaranteed user-visible notice.
+
 ### MCP Session Identity
 
 The stdio MCP server (`dossier mcp serve`) is launched per session with `CLAUDE_CODE_SESSION_ID` set in its environment. This UUID is identical to:
