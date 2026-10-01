@@ -10,7 +10,7 @@ Autonomous agents need to update operational Dossiers, but some work decisions r
 
 ## Decision
 
-Represent the actor on each mutation as `human:<identity>`, `agent:<stable-slug>`, or `system:<name>`, and retain the machine-local author independently in audit. MCP reads `DOSSIER_AGENT` for an explicit autonomous agent; absent that, existing interactive behavior is preserved. Core authorization is an accident-prevention rule, not an authentication boundary. Agents may not mark a Dossier `done`.
+Represent the actor on each mutation as `human:<identity>`, `agent:<stable-slug>`, or `system:<name>`, and retain the machine-local author independently in audit. MCP reads `DOSSIER_AGENT` for an explicit autonomous agent; absent that, existing interactive behavior is preserved. Core authorization is an accident-prevention rule, not an authentication boundary. Agents may not mark a Dossier `done` or accept a Delegation Contract. An agent's decided Acceptance field is retained as an `agent_proposal` and is not applied live.
 
 Add an optional frontmatter `attention` value (`none|fyi|decide|blocked`, summary ≤140 characters, timestamp and actor). Only agents and systems may set or clear it. It is separate from lifecycle and next action; interactive surfaces display it read-only and list filtering can select a level.
 

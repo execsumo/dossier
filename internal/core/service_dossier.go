@@ -362,9 +362,16 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 		}
 		beforeFM = d.Frontmatter
 
-		if ActorIsAgent(actor) && req.DistilledStateMarkdown != "" {
+		if req.DistilledStateMarkdown != "" {
+			acceptanceChanged := changedDelegationAcceptance(d.DistilledState.Body, req.DistilledStateMarkdown)
+			if acceptanceChanged && !ActorIsHuman(actor) && !ActorIsAgent(actor) {
+				return Result{}, "", NewError(ErrInvalidFrontmatter, "accepting a Delegation Contract requires a human actor")
+			}
 			sections := changedProtectedSections(d.DistilledState.Body, req.DistilledStateMarkdown)
-			if len(sections) > 0 {
+			if acceptanceChanged {
+				sections = append(sections, "Delegation Contracts / Acceptance")
+			}
+			if ActorIsAgent(actor) && len(sections) > 0 {
 				conflictID := fmt.Sprintf("conf_%d_agent_proposal", s.clock.Now().UnixNano())
 				conflict := &Conflict{
 					ID: conflictID, DossierID: d.Frontmatter.ID, Kind: "agent_proposal",
