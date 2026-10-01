@@ -717,6 +717,9 @@ func TestSessionEndCapturesTranscriptWithoutDistilledState(t *testing.T) {
 	for _, event := range fakeStore.audits["dos_fake_id"] {
 		if event.Event == AuditEventDistilledStateNotCaptured {
 			sawNoDistilledAudit = true
+			if event.Actor != "system:session-end" {
+				t.Errorf("session-end audit actor = %q, want system:session-end", event.Actor)
+			}
 		}
 	}
 	if !sawNoDistilledAudit {

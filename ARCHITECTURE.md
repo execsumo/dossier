@@ -292,7 +292,7 @@ Why each is a port:
 
 ### Agent-managed attention and actors (B20/B21)
 
-`Frontmatter.Attention` is optional and participates in the normal canonical revision. It is changed only through `Save`; agents and systems own setting/clearing it, while list filtering and TUI display are read-only for people. `Actor` is explicit request provenance (`human:`, `agent:`, `system:`) and never replaces the machine-local audit-shard author. Save/promote/link/rename/merge/monitor/resolve/archive mutations carry actors; rename, merge, archive/done, and agent-proposal acceptance require a human actor. Session-end lifecycle attribution and team-administration actor coverage remain incomplete. Core authorization guards high-impact actions; this is not an authentication boundary. Actor coverage for team administration and remaining lifecycle mutations is incomplete.
+`Frontmatter.Attention` is optional and participates in the normal canonical revision. It is changed only through `Save`; agents and systems own setting/clearing it, while list filtering and TUI display are read-only for people. `Actor` is explicit request provenance (`human:`, `agent:`, `system:`) and never replaces the machine-local audit-shard author. Save/promote/link/rename/merge/monitor/resolve/archive mutations carry actors; rename, merge, archive/done, and agent-proposal acceptance require a human actor. Session-end lifecycle events use the supplied actor (or `system:session-end` fallback); team-administration actor coverage remains incomplete. Core authorization guards high-impact actions; this is not an authentication boundary. Actor coverage for team administration and remaining lifecycle mutations is incomplete.
 
 ### Audit-derived changes feed (D9)
 

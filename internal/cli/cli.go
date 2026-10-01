@@ -1559,7 +1559,11 @@ func NewRootCmd() *cobra.Command {
 				fmt.Print(resText)
 
 			case "session-end", "pre-compaction":
-				warnings, err := svc.SessionEnd(context.Background(), sessID, payload.DistilledState, transcript)
+				actor := "system:session-end"
+				if agent := strings.TrimSpace(os.Getenv("DOSSIER_AGENT")); agent != "" {
+					actor = "agent:" + agent
+				}
+				warnings, err := svc.SessionEndAs(context.Background(), sessID, actor, payload.DistilledState, transcript)
 				if err != nil {
 					fmt.Printf("Session end hook failed: %v\n", err)
 					os.Exit(1)

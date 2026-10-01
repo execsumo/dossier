@@ -404,8 +404,19 @@ func (s *Service) EnsureContextAssets() ([]string, error) {
 	return s.store.EnsureContextAssets()
 }
 
-// SessionEnd saves state and appends the transcript artifact on session completion.
+// SessionEnd preserves the historical system-hook attribution for callers that
+// do not know which agent produced the session.
 func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledState string, transcript string) ([]Warning, error) {
+	return s.SessionEndAs(ctx, sessionID, "system:session-end", distilledState, transcript)
+}
+
+// SessionEndAs saves state and appends the transcript artifact with explicit
+// actor provenance supplied by the hook surface.
+func (s *Service) SessionEndAs(ctx context.Context, sessionID, actor, distilledState, transcript string) ([]Warning, error) {
+	actor = NormalizeActor(actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return nil, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	binding, err := s.store.GetSessionBinding(sessionID)
 	if err != nil {
 		return nil, nil
@@ -425,6 +436,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 
 	if distilledState != "" {
 		saveRes, err := s.Save(ctx, SaveReq{
+			Actor:                  actor,
 			ID:                     binding.DossierID,
 			BaseRevision:           Revision(binding.LastSeenRevision),
 			DistilledStateMarkdown: distilledState,
@@ -446,6 +458,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 			_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 				TS:        now,
 				Event:     AuditEventSave,
+				Actor:     actor,
 				Author:    s.cfg.Author,
 				DossierID: binding.DossierID,
 				SessionID: sessionID,
@@ -457,6 +470,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 			_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 				TS:        now,
 				Event:     AuditEventSave,
+				Actor:     actor,
 				Author:    s.cfg.Author,
 				DossierID: binding.DossierID,
 				SessionID: sessionID,
@@ -484,6 +498,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 		_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 			TS:             now,
 			Event:          AuditEventSave,
+			Actor:          actor,
 			Author:         s.cfg.Author,
 			DossierID:      binding.DossierID,
 			SessionID:      sessionID,
@@ -496,6 +511,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 		_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 			TS:        now,
 			Event:     AuditEventTranscriptCaptureUnavailable,
+			Actor:     actor,
 			Author:    s.cfg.Author,
 			DossierID: binding.DossierID,
 			SessionID: sessionID,
@@ -512,6 +528,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 			_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 				TS:        now,
 				Event:     AuditEventSave,
+				Actor:     actor,
 				Author:    s.cfg.Author,
 				DossierID: binding.DossierID,
 				SessionID: sessionID,
@@ -526,6 +543,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID string, distilledSta
 			_ = s.store.AppendAudit(binding.DossierID, AuditEvent{
 				TS:        now,
 				Event:     AuditEventDistilledStateNotCaptured,
+				Actor:     actor,
 				Author:    s.cfg.Author,
 				DossierID: binding.DossierID,
 				SessionID: sessionID,
