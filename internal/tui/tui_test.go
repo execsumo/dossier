@@ -2010,8 +2010,29 @@ func TestOpenInClaudeInHerdrUsesSplitPane(t *testing.T) {
 	}
 	newM, cmd = m.Update(msg)
 	m = newM.(Model)
-	if cmd != nil || m.err != nil {
-		t.Errorf("success should be quiet: cmd=%v err=%v", cmd != nil, m.err)
+	if cmd == nil || m.err != nil {
+		t.Errorf("success should schedule the notice to clear: cmd=%v err=%v", cmd != nil, m.err)
+	}
+	if len(m.warnings) != 1 || string(m.warnings[0]) != herdrOpenedNotice {
+		t.Fatalf("expected the opened notice, got %v", m.warnings)
+	}
+	// A stale timer from an earlier launch must not clear the current notice.
+	newM, _ = m.Update(clearNoticeMsg{seq: m.noticeSeq - 1})
+	m = newM.(Model)
+	if len(m.warnings) != 1 {
+		t.Fatalf("stale timer cleared the notice: %v", m.warnings)
+	}
+	// Other status that replaced the notice survives its timer.
+	other := m
+	other.warnings = []core.Warning{"something else"}
+	newM, _ = other.Update(clearNoticeMsg{seq: other.noticeSeq})
+	if got := newM.(Model).warnings; len(got) != 1 || got[0] != "something else" {
+		t.Fatalf("timer clobbered unrelated status: %v", got)
+	}
+	newM, _ = m.Update(clearNoticeMsg{seq: m.noticeSeq})
+	m = newM.(Model)
+	if len(m.warnings) != 0 {
+		t.Fatalf("notice not cleared by its own timer: %v", m.warnings)
 	}
 
 	// A herdr failure falls back to taking over this terminal.

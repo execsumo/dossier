@@ -422,6 +422,7 @@ type Model struct {
 	err             error
 	warnings        []core.Warning
 	nextActions     []core.NextAction
+	noticeSeq       int // latest transient notice; a stale clear timer is ignored
 	watcherErr      error
 	healthSummary   core.HealthSummary
 	healthReady     bool
@@ -2370,7 +2371,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return agentFinishedMsg{err: err, id: id, fromView: fromView}
 			})
 		}
-		m.warnings = []core.Warning{core.Warning("opened the agent in a new herdr pane to the right")}
+		m.noticeSeq++
+		m.warnings = []core.Warning{core.Warning(herdrOpenedNotice)}
+		return m, clearNoticeAfter(m.noticeSeq, noticeDuration)
+
+	case clearNoticeMsg:
+		// Only the notice this timer was started for may be cleared: a newer launch
+		// bumps noticeSeq, and any other status replaces the text.
+		if msg.seq == m.noticeSeq && len(m.warnings) == 1 && string(m.warnings[0]) == herdrOpenedNotice {
+			m.warnings = nil
+		}
 		return m, nil
 
 	case agentFinishedMsg:
@@ -2447,6 +2457,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 type editorFinishedMsg struct {
 	err error
 	id  string
+}
+
+// herdrOpenedNotice is informational, not a problem, so it clears itself.
+const herdrOpenedNotice = "opened the agent in a new herdr pane to the right"
+
+// noticeDuration is how long a transient notice stays in the status area.
+const noticeDuration = 5 * time.Second
+
+// clearNoticeMsg asks Update to drop the transient notice with this sequence.
+type clearNoticeMsg struct{ seq int }
+
+func clearNoticeAfter(seq int, d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(time.Time) tea.Msg { return clearNoticeMsg{seq: seq} })
 }
 
 // herdrLaunchMsg reports the outcome of opening the agent in a herdr split. On
