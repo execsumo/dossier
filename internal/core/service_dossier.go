@@ -562,6 +562,7 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 // NewName and NewSlug must be supplied. BaseRevision is optional for interactive
 // callers; when provided it protects against a stale rename.
 type RenameReq struct {
+	Actor        string
 	ID           string
 	NewSlug      string
 	NewName      string
@@ -590,6 +591,13 @@ type RenameSlugResult = RenameResult
 // operation. Keeping this separate from Save ensures a slug change cannot update
 // frontmatter without moving the backing directory.
 func (s *Service) Rename(ctx context.Context, req RenameReq) (Result, error) {
+	actor := NormalizeActor(req.Actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
+	if err := Authorize(actor, "rename"); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	if req.ID == "" {
 		return Result{}, NewError(ErrInvalidFrontmatter, "dossier id or slug is required")
 	}
@@ -638,7 +646,7 @@ func (s *Service) Rename(ctx context.Context, req RenameReq) (Result, error) {
 		updated, newRev, err = s.store.RenameSlug(old.ID, newSlug, base)
 	} else if newSlug == old.Slug {
 		// A title-only rename is safely representable by the older Save port.
-		saved, saveErr := s.Save(ctx, SaveReq{ID: old.ID, BaseRevision: base, FrontmatterUpdates: map[string]any{"name": newName}})
+		saved, saveErr := s.Save(ctx, SaveReq{Actor: actor, ID: old.ID, BaseRevision: base, FrontmatterUpdates: map[string]any{"name": newName}})
 		err = saveErr
 		if err == nil {
 			newRev = saved.Data.(Revision)
@@ -662,7 +670,7 @@ func (s *Service) Rename(ctx context.Context, req RenameReq) (Result, error) {
 		event = AuditEventRenamed
 	}
 	if err := s.store.AppendAudit(updated.Frontmatter.ID, AuditEvent{
-		TS: s.clock.Now(), Event: event, Author: s.cfg.Author,
+		TS: s.clock.Now(), Event: event, Actor: actor, Author: s.cfg.Author,
 		DossierID: updated.Frontmatter.ID, BeforeRevision: string(base),
 		AfterRevision: string(newRev), Message: describeFrontmatterChanges(old, updated.Frontmatter),
 	}); err != nil {
@@ -757,12 +765,20 @@ func (s *Service) Link(ctx context.Context, req LinkReq) (Result, error) {
 }
 
 type MergeReq struct {
+	Actor             string
 	SourceID          string
 	TargetID          string
 	ResolvedConflicts []string
 }
 
 func (s *Service) Merge(ctx context.Context, req MergeReq) (Result, error) {
+	actor := NormalizeActor(req.Actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
+	if err := Authorize(actor, "merge"); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	sourceD, sourceRev, err := s.store.Read(req.SourceID)
 	if err != nil {
 		return Result{}, WrapError(ErrNotFound, "failed to read source dossier", err)
@@ -813,6 +829,7 @@ func (s *Service) Merge(ctx context.Context, req MergeReq) (Result, error) {
 			_ = s.store.AppendAudit(targetD.Frontmatter.ID, AuditEvent{
 				TS:             s.clock.Now(),
 				Event:          AuditEventMergeConflict,
+				Actor:          actor,
 				Author:         s.cfg.Author,
 				DossierID:      targetD.Frontmatter.ID,
 				BeforeRevision: string(targetRev),
@@ -830,6 +847,7 @@ func (s *Service) Merge(ctx context.Context, req MergeReq) (Result, error) {
 	_ = s.store.AppendAudit(targetD.Frontmatter.ID, AuditEvent{
 		TS:        s.clock.Now(),
 		Event:     AuditEventMergeStarted,
+		Actor:     actor,
 		Author:    s.cfg.Author,
 		DossierID: targetD.Frontmatter.ID,
 		Message:   fmt.Sprintf("Starting merge of source %s into target %s", req.SourceID, req.TargetID),
@@ -863,6 +881,7 @@ func (s *Service) Merge(ctx context.Context, req MergeReq) (Result, error) {
 	_ = s.store.AppendAudit(targetD.Frontmatter.ID, AuditEvent{
 		TS:             s.clock.Now(),
 		Event:          AuditEventMergeCompleted,
+		Actor:          actor,
 		Author:         s.cfg.Author,
 		DossierID:      targetD.Frontmatter.ID,
 		BeforeRevision: string(targetRev),

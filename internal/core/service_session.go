@@ -162,10 +162,18 @@ func (s *Service) Active(ctx context.Context, req ActiveReq) (Result, error) {
 }
 
 type ArchiveReq struct {
-	ID string
+	Actor string
+	ID    string
 }
 
 func (s *Service) Archive(ctx context.Context, req ArchiveReq) (Result, error) {
+	actor := NormalizeActor(req.Actor, s.cfg.Author)
+	if err := ValidateActor(actor); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
+	if err := Authorize(actor, "set_done"); err != nil {
+		return Result{}, NewError(ErrInvalidFrontmatter, err.Error())
+	}
 	d, rev, err := s.store.Read(req.ID)
 	if err != nil {
 		return Result{}, err
@@ -181,6 +189,7 @@ func (s *Service) Archive(ctx context.Context, req ArchiveReq) (Result, error) {
 	_ = s.store.AppendAudit(d.Frontmatter.ID, AuditEvent{
 		TS:             s.clock.Now(),
 		Event:          AuditEventArchived,
+		Actor:          actor,
 		Author:         s.cfg.Author,
 		DossierID:      d.Frontmatter.ID,
 		BeforeRevision: string(rev),

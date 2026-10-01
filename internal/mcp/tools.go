@@ -457,7 +457,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			s.sendError(id, -32602, "Invalid monitor polling arguments", nil)
 			return
 		}
-		res, err = s.svc.MonitorPolled(ctx, core.MonitorPolledReq{ID: params.ID, URL: params.URL, Date: params.Date})
+		res, err = s.svc.MonitorPolled(ctx, core.MonitorPolledReq{Actor: s.actor(), ID: params.ID, URL: params.URL, Date: params.Date})
 
 	case "dossier_changes":
 		var params struct {
@@ -662,6 +662,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			return
 		}
 		res, err = s.svc.Merge(ctx, core.MergeReq{
+			Actor:             s.actor(),
 			SourceID:          params.SourceID,
 			TargetID:          params.TargetID,
 			ResolvedConflicts: params.ResolvedConflicts,
@@ -871,7 +872,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			params.NewName = params.NewTitle
 		}
 		res, err = s.svc.Rename(ctx, core.RenameReq{
-			ID: params.ID, NewSlug: params.NewSlug, NewName: params.NewName, BaseRevision: core.Revision(params.BaseRevision),
+			Actor: s.actor(), ID: params.ID, NewSlug: params.NewSlug, NewName: params.NewName, BaseRevision: core.Revision(params.BaseRevision),
 		})
 
 	default:

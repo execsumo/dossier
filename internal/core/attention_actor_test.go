@@ -35,6 +35,19 @@ func TestAttentionAgentManagedAndFilterable(t *testing.T) {
 	}
 }
 
+func TestHighImpactMutationRequiresHumanActor(t *testing.T) {
+	svc := NewService(newLocalFakeStore(), &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{Author: "alice"}, nil)
+	if _, err := svc.Rename(context.Background(), RenameReq{Actor: "agent:case-officer", ID: "dos_missing", NewName: "Renamed"}); err == nil || !strings.Contains(err.Error(), "requires a human") {
+		t.Fatalf("agent rename error = %v", err)
+	}
+	if _, err := svc.Merge(context.Background(), MergeReq{Actor: "agent:case-officer", SourceID: "dos_a", TargetID: "dos_b"}); err == nil || !strings.Contains(err.Error(), "requires a human") {
+		t.Fatalf("agent merge error = %v", err)
+	}
+	if _, err := svc.Archive(context.Background(), ArchiveReq{Actor: "agent:case-officer", ID: "dos_missing"}); err == nil || !strings.Contains(err.Error(), "requires a human") {
+		t.Fatalf("agent archive error = %v", err)
+	}
+}
+
 func TestOnlyHumanActorMayMarkDone(t *testing.T) {
 	fake := newLocalFakeStore()
 	fake.dossiers["dos_done"] = &Dossier{Frontmatter: Frontmatter{ID: "dos_done", Name: "Finish", Slug: "finish", Status: StatusExecute, Priority: PriorityMedium, CreatedAt: time.Now(), UpdatedAt: time.Now()}}

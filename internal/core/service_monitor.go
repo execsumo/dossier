@@ -9,9 +9,10 @@ import (
 
 // MonitorPolledReq updates the polling date for one Active Monitor through Save.
 type MonitorPolledReq struct {
-	ID   string
-	URL  string
-	Date string // optional YYYY-MM-DD; defaults to the service clock's current date
+	Actor string
+	ID    string
+	URL   string
+	Date  string // optional YYYY-MM-DD; defaults to the service clock's current date
 }
 
 // MonitorPolled replaces the selected monitor's Last polled marker using the
@@ -67,5 +68,5 @@ func (s *Service) MonitorPolled(ctx context.Context, req MonitorPolledReq) (Resu
 	}
 
 	body := strings.Join(lines, "\n")
-	return s.Save(ctx, SaveReq{ID: dossier.Frontmatter.ID, BaseRevision: revision, DistilledStateMarkdown: body})
+	return s.Save(ctx, SaveReq{Actor: req.Actor, ID: dossier.Frontmatter.ID, BaseRevision: revision, DistilledStateMarkdown: body})
 }
