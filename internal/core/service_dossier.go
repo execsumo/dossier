@@ -1321,6 +1321,29 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 
 	sortListedFrontmatters(filtered)
 
+	// Routing views need each listed Dossier's body. Read them in one streaming
+	// pass: a point Read per ID rescans the whole store to resolve the ID, which
+	// made this O(n²) in file reads.
+	var scanWarnings []Warning
+	var linksByID map[string]ExternalLinkSet
+	if includesListView(req.Include, "monitors") || includesListView(req.Include, "references") {
+		wanted := make(map[string]bool, len(filtered))
+		for _, listed := range filtered {
+			wanted[listed.ID] = true
+		}
+		linksByID = make(map[string]ExternalLinkSet, len(filtered))
+		var scanErr error
+		scanWarnings, scanErr = s.scanDossiers("all", func(d *Dossier) error {
+			if wanted[d.Frontmatter.ID] {
+				linksByID[d.Frontmatter.ID] = ParseExternalLinks(d.DistilledState.Body)
+			}
+			return nil
+		})
+		if scanErr != nil {
+			return Result{OK: false}, WrapError(ErrInternal, "failed to read dossier routing links", scanErr)
+		}
+	}
+
 	var items []ListItem
 	for _, listed := range filtered {
 		fm := listed.Frontmatter
@@ -1344,12 +1367,7 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 			Revision:                  listed.Revision,
 			HasOpenDelegationContract: listed.HasOpenDelegationContract,
 		}
-		if includesListView(req.Include, "monitors") || includesListView(req.Include, "references") {
-			dossier, _, readErr := s.store.Read(fm.ID)
-			if readErr != nil {
-				return Result{OK: false}, WrapError(ErrInternal, "failed to read dossier routing links", readErr)
-			}
-			links := ParseExternalLinks(dossier.DistilledState.Body)
+		if links, ok := linksByID[fm.ID]; ok {
 			if includesListView(req.Include, "monitors") {
 				item.Monitors = links.ActiveMonitors
 			}
@@ -1360,7 +1378,7 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 		items = append(items, item)
 	}
 
-	warnings := []Warning(nil)
+	warnings := scanWarnings
 	if scope.unresolved && leadMatches == 0 {
 		warnings = append(warnings, Warning(fmt.Sprintf("lead %q did not match any team member; check dossier_team for the roster.", strings.TrimSpace(req.Lead))))
 	}
