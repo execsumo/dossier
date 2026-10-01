@@ -1,6 +1,6 @@
 # Dossier / chainlink — Handoff
 
-> Updated: 2026-09-18
+> Updated: 2026-10-01
 > Purpose: the entry point for the dev agent picking up implementation. Read this first.
 
 ## Start here (reading order)

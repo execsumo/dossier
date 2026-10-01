@@ -45,7 +45,7 @@ func (s *Service) Changes(ctx context.Context, since time.Time) ([]ChangeItem, e
 					actor = "unknown"
 				}
 			}
-			summary := strings.TrimSpace(event.Message)
+			summary := strings.Join(strings.Fields(strings.TrimSpace(event.Message)), " ")
 			if summary == "" {
 				summary = strings.ReplaceAll(event.Event, "_", " ")
 			}
