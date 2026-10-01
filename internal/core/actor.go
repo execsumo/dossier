@@ -58,7 +58,7 @@ func Authorize(actor, action string) error {
 		return err
 	}
 	switch action {
-	case "set_done", "accept_delegation", "accept_agent_proposal", "change_standing_orders", "rename", "merge":
+	case "set_done", "accept_delegation", "accept_agent_proposal", "change_standing_orders", "rename", "merge", "team_admin":
 		if !ActorIsHuman(actor) {
 			return fmt.Errorf("%s requires a human actor", action)
 		}

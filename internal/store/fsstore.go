@@ -126,6 +126,20 @@ func (s *FSStore) lockNamespace() (*FileLock, error) {
 	return Lock(filepath.Join(s.dossierHome, ".lock"))
 }
 
+// AppendTeamAudit writes synced root-level team administration provenance into
+// an author-sharded append-only log, separate from any individual Dossier.
+func (s *FSStore) AppendTeamAudit(event core.AuditEvent) error {
+	author := event.Author
+	if author == "" {
+		author = "unknown"
+	}
+	dir := filepath.Join(s.dossierHome, "team-audit")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return AppendAuditLine(filepath.Join(dir, SanitizeAuthorString(author)+".log"), event)
+}
+
 // ReadRoster reads the synced team roster. An absent file is an empty roster.
 func (s *FSStore) ReadRoster() (*core.Roster, error) {
 	path := filepath.Join(s.dossierHome, "team.yaml")

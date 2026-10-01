@@ -11,8 +11,9 @@ import (
 
 // defaultGitignoreEntries is the machine-local exclusion set from the Team Sync
 // plan (BUILD-DECISIONS B12): these must never be committed/synced. Per-author
-// <slug>/audit/<author>.log is intentionally NOT matched here — it syncs, because
-// attribution of recorded events is provenance the team wants.
+// <slug>/audit/<author>.log and root team-audit/<author>.log are intentionally
+// NOT matched here — they sync, because attribution of recorded events is
+// provenance the team wants.
 //
 // The raw session stash (<slug>/sessions/<author>/) does NOT sync. It is a
 // byte-for-byte copy of the harness trace with no reader anywhere in the

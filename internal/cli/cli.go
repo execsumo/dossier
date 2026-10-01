@@ -1902,7 +1902,7 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
-			preview, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{RemoteURL: args[0], Branch: "main"})
+			preview, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{Actor: actorForCLI(svc), RemoteURL: args[0], Branch: "main"})
 			if err != nil {
 				errStr := err.Error()
 				if dErr, ok := err.(*core.DomainError); ok {
@@ -1942,7 +1942,7 @@ func NewRootCmd() *cobra.Command {
 					os.Exit(1)
 				}
 			}
-			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{RemoteURL: args[0], Branch: "main", Confirmed: true, ManagerDisplayName: managerName})
+			res, err := svc.TeamCreate(context.Background(), core.TeamCreateReq{Actor: actorForCLI(svc), RemoteURL: args[0], Branch: "main", Confirmed: true, ManagerDisplayName: managerName})
 			if err != nil {
 				fmt.Printf("Team create failed: %v\n", err)
 				os.Exit(1)
@@ -1988,7 +1988,7 @@ func NewRootCmd() *cobra.Command {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
-			res, err := svc.TeamJoin(context.Background(), core.TeamJoinReq{RemoteURL: args[0], Branch: "main"})
+			res, err := svc.TeamJoin(context.Background(), core.TeamJoinReq{Actor: actorForCLI(svc), RemoteURL: args[0], Branch: "main"})
 			if err != nil {
 				errStr := err.Error()
 				if dErr, ok := err.(*core.DomainError); ok {
@@ -2027,7 +2027,7 @@ func NewRootCmd() *cobra.Command {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
-			res, err := svc.TeamAddKind(context.Background(), args[0], args[1], teamAddKind)
+			res, err := svc.TeamAddKindAs(context.Background(), actorForCLI(svc), args[0], args[1], teamAddKind)
 			if err != nil {
 				fmt.Printf("Team add failed: %v\n", err)
 				os.Exit(1)
@@ -2056,7 +2056,7 @@ func NewRootCmd() *cobra.Command {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
-			res, err := svc.TeamRemove(context.Background(), args[0])
+			res, err := svc.TeamRemoveAs(context.Background(), actorForCLI(svc), args[0])
 			if err != nil {
 				fmt.Printf("Team remove failed: %v\n", err)
 				os.Exit(1)
@@ -2125,6 +2125,14 @@ func Execute() {
 	if err := NewRootCmd().Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func actorForCLI(svc *core.Service) string {
+	if agent := strings.TrimSpace(os.Getenv("DOSSIER_AGENT")); agent != "" {
+		return "agent:" + agent
+	}
+	username, _ := svc.CurrentUser()
+	return core.NormalizeActor("", username)
 }
 
 func resolveHomeDir() string {

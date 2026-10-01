@@ -14,6 +14,12 @@ type rosterTestStore struct {
 	roster        Roster
 	rosterWritten bool
 	restoreErr    error
+	teamAudits    []AuditEvent
+}
+
+func (s *rosterTestStore) AppendTeamAudit(event AuditEvent) error {
+	s.teamAudits = append(s.teamAudits, event)
+	return nil
 }
 
 func (s *rosterTestStore) ReadRoster() (*Roster, error) { return &s.roster, nil }
@@ -115,8 +121,14 @@ func TestServiceTeamAddRemoveAndFormerResolution(t *testing.T) {
 	if _, ok := store.roster.Members["psmith"]; !ok {
 		t.Fatalf("normalized member missing: %+v", store.roster)
 	}
+	if len(store.teamAudits) != 1 || store.teamAudits[0].Actor != "human:colleague" || store.teamAudits[0].Author != "colleague" {
+		t.Fatalf("team add audit = %+v", store.teamAudits)
+	}
 	if _, err := svc.TeamRemove(context.Background(), "PSMITH"); err != nil {
 		t.Fatalf("TeamRemove: %v", err)
+	}
+	if len(store.teamAudits) != 2 || store.teamAudits[1].Event != "team_member_removed" {
+		t.Fatalf("team remove audit = %+v", store.teamAudits)
 	}
 	if _, ok := store.roster.Former["psmith"]; !ok || store.roster.Former["psmith"] != "Priya Shah" {
 		t.Fatalf("former member missing: %+v", store.roster)
@@ -167,6 +179,9 @@ func TestServiceTeamCreateWritesManagerRoster(t *testing.T) {
 	}
 	if store.roster.Manager != "psmith" || store.roster.Members["psmith"] != "Priya Shah" {
 		t.Fatalf("manager roster = %+v", store.roster)
+	}
+	if len(store.teamAudits) != 1 || store.teamAudits[0].Actor != "human:psmith" || store.teamAudits[0].Author != `ACME\PSmith` {
+		t.Fatalf("team create audit = %+v", store.teamAudits)
 	}
 }
 

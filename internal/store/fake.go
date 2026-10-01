@@ -21,6 +21,7 @@ type FakeStore struct {
 	ResolvedConflicts map[string]*core.Conflict
 	History           map[core.Revision]*core.Dossier
 	Roster            *core.Roster
+	TeamAudits        []core.AuditEvent
 }
 
 // NewFakeStore instantiates an in-memory FakeStore.
@@ -51,6 +52,11 @@ func (f *FakeStore) ReadRoster() (*core.Roster, error) {
 
 func (f *FakeStore) WriteRoster(roster *core.Roster) error {
 	f.Roster = roster
+	return nil
+}
+
+func (f *FakeStore) AppendTeamAudit(event core.AuditEvent) error {
+	f.TeamAudits = append(f.TeamAudits, event)
 	return nil
 }
 

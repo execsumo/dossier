@@ -87,7 +87,11 @@ func (s *Service) ResolveConflict(ctx context.Context, req ResolveConflictReq) (
 			"invalid conflict choice: must be keep_shared, restore_mine, or keep_both")
 	}
 
-	actor := NormalizeActor(req.Actor, req.Author)
+	actorIdentity := req.Author
+	if actorIdentity == "" {
+		actorIdentity = s.cfg.Author
+	}
+	actor := NormalizeActor(req.Actor, actorIdentity)
 	if err := ValidateActor(actor); err != nil {
 		return Result{OK: false}, NewError(ErrInvalidFrontmatter, err.Error())
 	}
@@ -101,6 +105,10 @@ func (s *Service) ResolveConflict(ctx context.Context, req ResolveConflictReq) (
 		}
 	}
 	if conflict.Kind == "sync_concurrent_roster_edit" || conflict.DossierID == RosterConflictDossierID {
+		if err := Authorize(actor, "team_admin"); err != nil {
+			return Result{OK: false}, NewError(ErrInvalidFrontmatter, err.Error())
+		}
+		req.Actor = actor
 		return s.resolveRosterConflict(conflict, req)
 	}
 
@@ -188,6 +196,7 @@ func (s *Service) resolveRosterConflict(conflict *Conflict, req ResolveConflictR
 
 	var resolved Roster
 	var warnings []Warning
+	rosterChanged := req.Choice != ConflictChoiceKeepShared
 	switch req.Choice {
 	case ConflictChoiceKeepShared:
 		resolved = *shared
@@ -221,6 +230,15 @@ func (s *Service) resolveRosterConflict(conflict *Conflict, req ResolveConflictR
 	conflict.Choice = req.Choice
 	// There is no dossier to receive an audit shard for a root team.yaml
 	// conflict; the archived conflict frontmatter is the resolution audit.
+	actor := NormalizeActor(req.Actor, author)
+	if err := s.appendTeamAudit(actor, "team_roster_conflict_resolved", fmt.Sprintf("Resolved team roster conflict %s with %s.", conflict.ID, req.Choice)); err != nil {
+		if rosterChanged {
+			if rollbackErr := rosterStore.WriteRoster(shared); rollbackErr != nil {
+				return Result{OK: false}, fmt.Errorf("roster conflict audit failed (%v) and roster rollback failed: %w", err, rollbackErr)
+			}
+		}
+		return Result{OK: false}, err
+	}
 	if err := s.store.ResolveConflict(conflict.ID, conflict); err != nil {
 		return Result{OK: false}, err
 	}
