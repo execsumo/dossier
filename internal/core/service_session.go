@@ -445,7 +445,11 @@ func (s *Service) SessionEndAs(ctx context.Context, sessionID, actor, distilledS
 		if err != nil {
 			return warnings, err
 		}
-		finalRevision = saveRes.Data.(Revision)
+		if revision, ok := saveRes.Data.(Revision); ok {
+			finalRevision = revision
+		} else {
+			warnings = append(warnings, Warning("Session-end state proposal was preserved for human review and was not applied."))
+		}
 	}
 
 	if transcript != "" {

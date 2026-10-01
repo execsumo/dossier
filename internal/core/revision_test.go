@@ -38,6 +38,11 @@ func TestCalculateRevision(t *testing.T) {
 	if rev1 == rev3 {
 		t.Errorf("Expected revision to change when fields change")
 	}
+	fmAttention := fm1
+	fmAttention.Attention = &Attention{Level: "decide", Summary: "Review", By: "agent:case-officer", Since: now}
+	if rev1 == CalculateRevision(fmAttention, body1, nil) {
+		t.Error("Expected revision to change when attention changes")
+	}
 
 	// Test change in artifacts changes revision
 	art1 := Artifact{
