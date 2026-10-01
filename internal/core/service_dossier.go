@@ -924,6 +924,16 @@ func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
 	warnings = append(warnings, indexWarnings...)
 	externalLinks := ParseExternalLinks(d.DistilledState.Body)
 
+	var files []WorkingFile
+	if fileStore, ok := s.store.(FileStore); ok {
+		listed, err := fileStore.ListWorkingFiles(d.Frontmatter.ID)
+		if err != nil {
+			warnings = append(warnings, Warning(fmt.Sprintf("files/ could not be listed: %v", err)))
+		} else {
+			files = listed
+		}
+	}
+
 	dossierPath := filepath.Join(s.cfg.DossierHome, d.Frontmatter.Slug)
 	roster, hasRoster := s.currentRoster()
 	leadView := s.displayLead(roster, hasRoster, d.Frontmatter.Lead)
@@ -931,7 +941,7 @@ func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
 	frontmatter.Lead = leadView.DisplayName
 	return Result{
 		OK:       true,
-		Data:     RecallResult{DistilledState: d.DistilledState.Body, Frontmatter: frontmatter, LeadFormer: leadView.Former, Revision: rev, TokenEstimate: tokens, Path: dossierPath, Artifacts: index, References: externalLinks.References, ActiveMonitors: externalLinks.ActiveMonitors},
+		Data:     RecallResult{DistilledState: d.DistilledState.Body, Frontmatter: frontmatter, LeadFormer: leadView.Former, Revision: rev, TokenEstimate: tokens, Path: dossierPath, Artifacts: index, Files: files, References: externalLinks.References, ActiveMonitors: externalLinks.ActiveMonitors},
 		Warnings: warnings,
 	}, nil
 }

@@ -58,6 +58,10 @@ type RecallResult struct {
 	// alone, which left the Archive invisible to the caller that has to decide
 	// what to cite.
 	Artifacts []ArtifactSummary `json:"artifacts,omitempty"`
+	// Files lists what is physically in the Dossier's files/ directory, so the
+	// caller sees loose deliverables even when the Distilled State's ## Files
+	// index is missing or stale.
+	Files []WorkingFile `json:"files,omitempty"`
 }
 
 // ArtifactSummary is one entry in the evidence index.
@@ -475,6 +479,21 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 
 		for _, issue := range s.store.ValidateArtifactFiles(fm.ID) {
 			addIssue("%s", issue)
+		}
+
+		if fileStore, ok := s.store.(FileStore); ok {
+			files, err := fileStore.ListWorkingFiles(fm.ID)
+			if err != nil {
+				addIssue("Dossier %s files/ could not be listed: %v", fm.ID, err)
+			} else {
+				missing, unindexed := filesIndexIssues(d.DistilledState.Body, files)
+				for _, path := range missing {
+					addIssue("Dossier %s lists %s under ## Files but it does not exist", fm.ID, path)
+				}
+				if len(unindexed) > 0 {
+					addAdvisory(unindexedFilesAdvisory(fm.ID, unindexed))
+				}
+			}
 		}
 
 		if inboxStore, ok := s.store.(InboxStore); ok {

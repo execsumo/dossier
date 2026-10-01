@@ -85,6 +85,10 @@ Validated insights, metrics, constraints, or test results. Include abandoned pat
 Index of the Archive: what is stored, what is in it, and where the citable spans are. One line per artifact. Keep it current—an artifact absent from this index is one nobody will think to fetch.
 - `art_<id>` (<type>, <n> lines): <what it contains>. Key spans: L<a>-L<b> <what is there>.
 
+## Files
+*Conditional*—omit when no working files exist. Index of loose deliverables and attachments in `files/` (decks, HTML, spreadsheets, binaries) that are not citable Archive evidence. One line per file, path relative to the Dossier directory, so the next session can find the work without browsing the folder.
+- `files/<name>` (<kind>): <what it is and its status: draft, final, superseded>.
+
 ## Open Questions
 Unresolved questions that materially affect the topic or next move.
 - <Question that needs an answer or decision>

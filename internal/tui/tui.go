@@ -3031,6 +3031,9 @@ func (m Model) renderDetailMetadata() string {
 	sb.WriteString(renderRow("Interfaces:", strings.Join(fm.Interfaces, ", ")))
 	sb.WriteString(renderRow("Tokens:", fmt.Sprintf("%d estimated", m.recallResult.TokenEstimate)))
 	sb.WriteString(renderRow("Next:", fm.NextAction))
+	if files := summarizeWorkingFiles(m.recallResult.Files); files != "" {
+		sb.WriteString(renderRow("Files:", files))
+	}
 
 	w := m.width
 	if w <= 0 {
@@ -3446,4 +3449,25 @@ func Run(ctx context.Context, svc *core.Service, openWith ...string) error {
 	)
 	_, err := p.Run()
 	return err
+}
+
+// summarizeWorkingFiles renders the files/ listing as one metadata value: a count
+// and the first few names, so loose deliverables are findable from the detail view.
+func summarizeWorkingFiles(files []core.WorkingFile) string {
+	if len(files) == 0 {
+		return ""
+	}
+	const shown = 3
+	names := make([]string, 0, shown)
+	for i, f := range files {
+		if i == shown {
+			break
+		}
+		names = append(names, strings.TrimPrefix(f.Path, "files/"))
+	}
+	summary := fmt.Sprintf("%d in files/ — %s", len(files), strings.Join(names, ", "))
+	if len(files) > shown {
+		summary += fmt.Sprintf(" (+%d more)", len(files)-shown)
+	}
+	return summary
 }

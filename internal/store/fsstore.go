@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1819,4 +1820,49 @@ func (s *FSStore) WriteLibraryContext(data core.LibraryData) error {
 	}
 
 	return nil
+}
+
+// ListWorkingFiles enumerates a Dossier's files/ directory recursively. Paths are
+// relative to the Dossier directory with forward slashes, matching the form the
+// Distilled State's ## Files index uses. Dotfiles and dot-directories are skipped,
+// and a missing files/ directory is an empty listing, not an error.
+func (s *FSStore) ListWorkingFiles(dossierID string) ([]core.WorkingFile, error) {
+	dossierDir, err := s.findDossierDir(dossierID)
+	if err != nil {
+		return nil, err
+	}
+	root := filepath.Join(dossierDir, "files")
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return nil, nil
+	}
+	var out []core.WorkingFile
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path != root && strings.HasPrefix(d.Name(), ".") {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(dossierDir, path)
+		if err != nil {
+			return err
+		}
+		out = append(out, core.WorkingFile{Path: filepath.ToSlash(rel), Size: info.Size(), Modified: info.ModTime()})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list files for dossier %s: %w", dossierID, err)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out, nil
 }
