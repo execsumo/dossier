@@ -74,6 +74,8 @@ Store layout:
   archive/
     <slug>/               # done Dossiers; same layout as a live <slug>/
   <slug>/
+    inbox/
+      inbox_<id>.md       # routed intake, machine-local and outside revisions
     dossier.md
     artifacts/
       <artifact-id>.md
@@ -93,7 +95,7 @@ Store layout:
 
 **Done Dossiers live under `archive/`.** While a Dossier's status is anything other than `done`, its folder is `<slug>/` at the store root. Setting the status to `done` (by any path: `dossier done`, `dossier status`, `dossier_save`/`dossier_update`) moves the complete folder to `archive/<slug>/` in one same-store rename; moving the status back out of `done` moves it back. `archive` is a reserved slug (like `context` and `sessions`). The move is not a rename: slug, ID, revision history, and audit are unchanged, and every lookup by slug or ID, list, search, conflict listing, and `doctor` scan covers both locations. There is no migration: a done Dossier still at the store root keeps resolving and is moved into `archive/` on its next write.
 
-`<slug>/artifacts/` is a **frontmatter-only namespace**: it is parsed, not scanned. A file without valid artifact frontmatter is skipped by the evidence index, carries no `art_` id to cite, and never enters the revision hash — while still surfacing in `dossier search`, so it reads as captured evidence while being none. `dossier doctor` reports such a file as an issue. `<slug>/files/` is the namespace for loose deliverables, scratch, and user attachments; promote one to evidence with `dossier link --from-file`.
+`<slug>/artifacts/` is a **frontmatter-only namespace**: it is parsed, not scanned. A file without valid artifact frontmatter is skipped by the evidence index, carries no `art_` id to cite, and never enters the revision hash — while still surfacing in `dossier search`, so it reads as captured evidence while being none. `dossier doctor` reports such a file as an issue. `<slug>/files/` is the namespace for loose deliverables, scratch, and user attachments; promote one to evidence with `dossier link --from-file`. `<slug>/inbox/` holds routed, unverified excerpts separately from Archive evidence. Each Markdown file has strict YAML frontmatter: `id`, `dossier_id`, `source` (`kind`, optional `url`), `excerpt`, `routed_by`, `confidence` in `[0,1]`, `received_at`, `state` (`pending|absorbed|dismissed`), and optional `artifact_id`. Inbox items are outside the Dossier revision hash. They are machine-local and excluded from Team Sync before the first publish (`*/inbox/`, `archive/*/inbox/`). `doctor` validates item frontmatter and identity.
 
 `config.yaml` records install settings, the machine-local default launch profile (`open_with`, defaulting to `claude-code`), user-configurable interface and lead vocabularies, global token warning ceiling (`token_limit`, defaulting to 100,000), detected harness capabilities, and optional team-sync settings. The launch profile accepts `claude-code`, `cursor`, `codex`, `pi`, or `antigravity` (`agy`); each profile owns its executable, session handoff, and generated resume prompt, so the prompt is not stored in configuration. In the TUI, when `HERDR_ENV=1` the handoff opens in a new focused right-hand split via `herdr pane split --current --direction right --cwd <dossier dir> --focus` followed by `herdr pane run <pane_id> "<command>"` (the pane id comes from `result.pane.pane_id`); any herdr failure surfaces a warning and falls back to the normal in-terminal launch. `dossier open` is unchanged. New installs include the legacy seven interface defaults; older configs that omit `interfaces` inherit those defaults. An empty `leads` list preserves free-form lead assignment. Readers also accept the retired `token_target` key from pre-simplification configs (mapping it to `token_limit`) and `schema_version` (ignoring its value), omitting them on the next normal config write. All other unknown config keys remain errors.
 
@@ -679,6 +681,8 @@ Required tools:
 - `dossier_conflicts`
 - `dossier_resolve_conflict`
 - `dossier_team` (read-only roster)
+- `dossier_inbox` (list/read/capture routed intake)
+- `dossier_inbox_resolve` (absorb or dismiss without deleting)
 
 > **Note on `dossier_conflicts` / `dossier_resolve_conflict` (P0-5):** `dossier_conflicts` without arguments returns the unresolved conflicts; with `conflict_id` it returns the same comparison as `dossier conflicts <id>` (shared, mine, diff). `dossier_resolve_conflict` takes `conflict_id` and `choice` (`keep_shared`, `restore_mine`, `keep_both`) and behaves exactly as `dossier resolve`; it returns the resulting revision. Error codes: `not_found`, `invalid_frontmatter`, `concurrent_edit`.
 
@@ -728,6 +732,10 @@ Required error codes:
 - `over_token_target`
 - `concurrent_edit`
 - `harness_capability_unavailable`
+
+### Routed inbox
+
+`dossier_inbox` lists items when given `id`, reads one when `inbox_id` is supplied, and captures a new item when `source_kind` and `excerpt` are supplied. `dossier_inbox_resolve` takes `id`, `inbox_id`, and `action` (`absorb|dismiss`). Dismissing changes state only and retains the file. Absorbing saves the excerpt as a normal Archive artifact (with its source provenance), marks the inbox item absorbed, returns the minted artifact id, and prompts the caller to cite it in the Distilled State; only an agent can distil its meaning. Repeating resolution of a non-pending item is rejected.
 
 ### 8.3 `dossier_list`
 

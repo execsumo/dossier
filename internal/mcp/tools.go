@@ -6,6 +6,7 @@ import (
 	"dossier/internal/harness"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -36,6 +37,8 @@ var mcpMutatingTools = map[string]bool{
 	"dossier_rename":           true,
 	"dossier_resolve_conflict": true,
 	"dossier_monitor_polled":   true,
+	"dossier_inbox":            true,
+	"dossier_inbox_resolve":    true,
 }
 
 type mcpErrorObject struct {
@@ -301,6 +304,25 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 			},
 		},
 		{
+			Name:        "dossier_inbox",
+			Description: "List or read routed inbox items, or capture a new routed intake item",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+				"id":          map[string]any{"type": "string", "description": "Dossier slug or id"},
+				"inbox_id":    map[string]any{"type": "string", "description": "Optional inbox item id to read"},
+				"source_kind": map[string]any{"type": "string", "description": "Required when creating an item; source category"},
+				"url":         map[string]any{"type": "string", "description": "Optional external source URL"},
+				"excerpt":     map[string]any{"type": "string", "description": "Routed excerpt; required when creating an item"},
+				"confidence":  map[string]any{"type": "number", "description": "Routing confidence from 0 to 1"},
+			}, "required": []string{"id"}},
+		},
+		{
+			Name:        "dossier_inbox_resolve",
+			Description: "Absorb an inbox excerpt into the Archive or dismiss it while retaining the inbox record",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+				"id": map[string]any{"type": "string"}, "inbox_id": map[string]any{"type": "string"}, "action": map[string]any{"type": "string", "enum": []string{"absorb", "dismiss"}},
+			}, "required": []string{"id", "inbox_id", "action"}},
+		},
+		{
 			Name:        "dossier_team",
 			Description: "Read the current team roster, including manager, members, and former members",
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
@@ -376,6 +398,39 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 	var res core.Result
 
 	switch name {
+	case "dossier_inbox":
+		var params struct {
+			ID         string  `json:"id"`
+			InboxID    string  `json:"inbox_id"`
+			SourceKind string  `json:"source_kind"`
+			URL        string  `json:"url"`
+			Excerpt    string  `json:"excerpt"`
+			Confidence float64 `json:"confidence"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil {
+			s.sendError(id, -32602, "Invalid inbox arguments", nil)
+			return
+		}
+		switch {
+		case params.InboxID != "":
+			res, err = s.svc.ReadInbox(ctx, core.InboxReadReq{ID: params.ID, InboxID: params.InboxID})
+		case params.Excerpt != "":
+			res, err = s.svc.CreateInbox(ctx, core.InboxCreateReq{ID: params.ID, Source: core.InboxSource{Kind: params.SourceKind, URL: params.URL}, Excerpt: params.Excerpt, RoutedBy: "agent:" + strings.TrimSpace(os.Getenv("DOSSIER_AGENT")), Confidence: params.Confidence})
+		default:
+			res, err = s.svc.Inbox(ctx, core.InboxListReq{ID: params.ID})
+		}
+	case "dossier_inbox_resolve":
+		var params struct {
+			ID      string `json:"id"`
+			InboxID string `json:"inbox_id"`
+			Action  string `json:"action"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil {
+			s.sendError(id, -32602, "Invalid inbox resolution arguments", nil)
+			return
+		}
+		res, err = s.svc.ResolveInbox(ctx, core.InboxResolveReq{ID: params.ID, InboxID: params.InboxID, Action: params.Action, Actor: "agent:" + strings.TrimSpace(os.Getenv("DOSSIER_AGENT"))})
+
 	case "dossier_monitor_polled":
 		var params struct {
 			ID   string `json:"id"`

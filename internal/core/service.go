@@ -476,6 +476,12 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 			addIssue("%s", issue)
 		}
 
+		if inboxStore, ok := s.store.(InboxStore); ok {
+			for _, issue := range inboxStore.ValidateInbox(fm.ID) {
+				addIssue("%s", issue)
+			}
+		}
+
 		for _, issue := range s.store.ValidateAuditShards(fm.ID) {
 			addIssue("%s", issue)
 		}
