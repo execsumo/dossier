@@ -1189,10 +1189,45 @@ func TestSessionBoundarySyncs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SessionStart error should be ignored: %v", err)
 	}
-	_, err = svc.SessionEnd(context.Background(), "test", "", "")
+	warnings, err := svc.SessionEnd(context.Background(), "test", "", "")
 	if err != nil {
 		t.Fatalf("SessionEnd error should be ignored: %v", err)
 	}
+	loud := false
+	for _, w := range warnings {
+		if strings.Contains(string(w), "Team sync failed at session end") && strings.Contains(string(w), "mock network error") {
+			loud = true
+		}
+	}
+	if !loud {
+		t.Fatalf("failed session-end sync must be returned as a warning, got %v", warnings)
+	}
+
+	// A report-level failure (unreachable remote) is just as loud.
+	reportSyncer := &reportErrSyncer{mockSyncer: &mockSyncer{}, reportErr: "dial timeout"}
+	svc = NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{}, reportSyncer)
+	warnings, err = svc.SessionEnd(context.Background(), "test", "", "")
+	if err != nil {
+		t.Fatalf("SessionEnd error: %v", err)
+	}
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(string(w), "dial timeout") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("report-level sync error must be returned as a warning, got %v", warnings)
+	}
+}
+
+type reportErrSyncer struct {
+	*mockSyncer
+	reportErr string
+}
+
+func (r *reportErrSyncer) Sync(ctx context.Context) (SyncReport, error) {
+	return SyncReport{Error: r.reportErr}, nil
 }
 
 func TestServiceDoctorSync(t *testing.T) {

@@ -491,6 +491,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 				"items":        res.Data,
 				"current_user": map[string]string{"username": username, "display_name": displayName},
 			}
+			s.addSyncAttentionWarning(ctx, &res, "")
 		}
 
 	case "dossier_recall":

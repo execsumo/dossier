@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -110,6 +111,15 @@ func conflictDetails(warnings []core.Warning) []string {
 	return details
 }
 
+// reportShutdownWarning prints a failed final flush to stderr. There is no
+// later response to carry it, so this is the only chance to say it; the failure
+// is also persisted and shown at the next SessionStart.
+func (s *Server) reportShutdownWarning() {
+	if w := s.takeBgWarning(); w != "" {
+		fmt.Fprintln(os.Stderr, "dossier: "+w)
+	}
+}
+
 func (s *Server) takeBgWarning() string {
 	s.bgMu.Lock()
 	defer s.bgMu.Unlock()
@@ -155,6 +165,7 @@ func (s *Server) syncDebouncer(ctx context.Context) {
 					syncCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					res, err := s.svc.Sync(syncCtx)
 					s.setBgWarning(err, res)
+					s.reportShutdownWarning()
 					cancel()
 				}
 				return
@@ -175,6 +186,7 @@ func (s *Server) syncDebouncer(ctx context.Context) {
 					syncCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					res, err := s.svc.Sync(syncCtx)
 					s.setBgWarning(err, res)
+					s.reportShutdownWarning()
 					cancel()
 					return
 				}

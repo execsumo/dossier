@@ -13,6 +13,8 @@
 > - Phase 3 §4: TUI footer and `dossier_list` sync-warning slot. Not built; `doctor` is the only surface.
 > - Non-negotiable "Degrade visibly: … auth-expired … surfaced warnings". Not met on background paths.
 >
+> **Update 2026-10-01:** most of the "not built" list above has since landed (auth/health summary, TUI footer, bind-time health line, background-failure warnings, CLI/TUI sync after mutation, `dossier_list` sync warning); see HANDOFF D8 and `team-adoption-plan-review.md` §6. `team create` also now refuses a non-empty remote (P0-1). Still open: live-GitHub validation.
+>
 > Current defects and the fix order: [`team-adoption-plan-review.md`](team-adoption-plan-review.md) §6.
 
 ## Goal
