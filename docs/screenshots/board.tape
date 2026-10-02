@@ -1,4 +1,4 @@
-Output /tmp/dossier-board.gif
+Output "/tmp/dossier-board.gif"
 Set Shell "bash"
 Set FontSize 18
 Set Width 1600
