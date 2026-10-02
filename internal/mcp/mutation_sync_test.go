@@ -134,6 +134,49 @@ func TestMCPFailedMutationsDoNotEnqueueBackgroundSync(t *testing.T) {
 	}
 }
 
+func TestMCPInboxSyncAndAttributionAreOperationScoped(t *testing.T) {
+	t.Setenv("DOSSIER_AGENT", "case-officer")
+	svc, fs := mutationService(t, &blockingSyncer{})
+	captured, queued := mutationCall(t, svc, "dossier_inbox", `{"id":"dos_1","source_kind":"email","excerpt":"Routed excerpt","confidence":0.8}`)
+	if !captured.OK || queued != 0 {
+		t.Fatalf("machine-local inbox capture = %+v, queued=%d", captured, queued)
+	}
+
+	item := core.InboxItem{
+		ID: "inbox_for_dismiss", DossierID: "dos_1", Source: core.InboxSource{Kind: "email"},
+		Excerpt: "Dismiss this", RoutedBy: "agent:case-officer", State: core.InboxPending, ReceivedAt: time.Now(),
+	}
+	if err := fs.CreateInbox(&item); err != nil {
+		t.Fatal(err)
+	}
+	read, queued := mutationCall(t, svc, "dossier_inbox", `{"id":"dos_1","inbox_id":"inbox_for_dismiss"}`)
+	if !read.OK || queued != 0 {
+		t.Fatalf("machine-local inbox read = %+v, queued=%d", read, queued)
+	}
+	dismissed, queued := mutationCall(t, svc, "dossier_inbox_resolve", `{"id":"dos_1","inbox_id":"inbox_for_dismiss","action":"dismiss"}`)
+	if !dismissed.OK || queued != 0 {
+		t.Fatalf("local inbox dismissal = %+v, queued=%d", dismissed, queued)
+	}
+
+	item.ID = "inbox_for_absorb"
+	item.Excerpt = "Absorb this"
+	item.State = core.InboxPending
+	if err := fs.CreateInbox(&item); err != nil {
+		t.Fatal(err)
+	}
+	absorbed, queued := mutationCall(t, svc, "dossier_inbox_resolve", `{"id":"dos_1","inbox_id":"inbox_for_absorb","action":"absorb"}`)
+	if !absorbed.OK || queued != 1 {
+		t.Fatalf("shared inbox absorption = %+v, queued=%d", absorbed, queued)
+	}
+	if len(fs.Audits["dos_1"]) != 1 || fs.Audits["dos_1"][0].Actor != "agent:case-officer" {
+		t.Fatalf("absorption audit lost agent actor: %+v", fs.Audits["dos_1"])
+	}
+	artifacts := fs.Artifacts["dos_1"]
+	if len(artifacts) != 1 || artifacts[0].Provenance.CapturedBy != "agent:case-officer" {
+		t.Fatalf("absorbed artifact attribution = %+v", artifacts)
+	}
+}
+
 func TestMCPReadsDoNotEnqueueMutationSync(t *testing.T) {
 	reads := []struct {
 		name string
@@ -146,6 +189,8 @@ func TestMCPReadsDoNotEnqueueMutationSync(t *testing.T) {
 		{"dossier_team", `{}`},
 		{"dossier_conflicts", `{}`},
 		{"dossier_session", `{}`},
+		{"dossier_inbox", `{"id":"dos_1"}`},
+		{"dossier_inbox_resolve", `{"id":"dos_1","inbox_id":"in_1","action":"dismiss"}`},
 	}
 	for _, tt := range reads {
 		t.Run(tt.name, func(t *testing.T) {
@@ -233,6 +278,7 @@ var mcpNonMutatingTools = map[string]bool{
 	"dossier_session":   true,
 	"dossier_team":      true,
 	"dossier_conflicts": true,
+	"dossier_inbox":     true,
 }
 
 func TestMCPEveryToolIsClassifiedForSync(t *testing.T) {
@@ -240,8 +286,9 @@ func TestMCPEveryToolIsClassifiedForSync(t *testing.T) {
 	for _, def := range getToolDefinitions() {
 		defined[def.Name] = true
 		mutating, nonMutating := mcpMutatingTools[def.Name], mcpNonMutatingTools[def.Name]
-		if mutating == nonMutating {
-			t.Errorf("tool %s is classified as mutating=%t and non-mutating=%t; it must be exactly one (add it to mcpMutatingTools if a successful call writes shared state)", def.Name, mutating, nonMutating)
+		conditional := mcpConditionalMutationTools[def.Name]
+		if btoi(mutating)+btoi(nonMutating)+btoi(conditional) != 1 {
+			t.Errorf("tool %s must be classified as exactly one of mutating, non-mutating, or operation-scoped", def.Name)
 		}
 	}
 	for name := range mcpMutatingTools {
@@ -254,4 +301,16 @@ func TestMCPEveryToolIsClassifiedForSync(t *testing.T) {
 			t.Errorf("mcpNonMutatingTools lists %s, which getToolDefinitions no longer defines", name)
 		}
 	}
+	for name := range mcpConditionalMutationTools {
+		if !defined[name] {
+			t.Errorf("mcpConditionalMutationTools lists %s, which getToolDefinitions no longer defines", name)
+		}
+	}
+}
+
+func btoi(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }

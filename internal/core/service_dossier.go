@@ -634,9 +634,13 @@ func (s *Service) Rename(ctx context.Context, req RenameReq) (Result, error) {
 		newName = old.Name
 	}
 	if newSlug == old.Slug && newName == old.Name {
+		path, pathErr := s.resolveDossierPath(old.ID, old)
+		if pathErr != nil {
+			return Result{}, pathErr
+		}
 		return Result{OK: true, Data: RenameResult{
 			ID: old.ID, Name: old.Name, Slug: old.Slug,
-			Revision: currentRev, Path: filepath.Join(s.cfg.DossierHome, old.Slug),
+			Revision: currentRev, Path: path,
 		}}, nil
 	}
 
@@ -666,10 +670,14 @@ func (s *Service) Rename(ctx context.Context, req RenameReq) (Result, error) {
 		return Result{}, err
 	}
 
+	path, pathErr := s.resolveDossierPath(updated.Frontmatter.ID, updated.Frontmatter)
+	if pathErr != nil {
+		return Result{}, pathErr
+	}
 	result := RenameResult{
 		ID: updated.Frontmatter.ID, OldName: old.Name, Name: updated.Frontmatter.Name,
 		OldSlug: old.Slug, Slug: updated.Frontmatter.Slug,
-		Revision: newRev, Path: filepath.Join(s.cfg.DossierHome, updated.Frontmatter.Slug),
+		Revision: newRev, Path: path,
 	}
 	var warnings []Warning
 	event := AuditEventSlugRenamed
@@ -937,7 +945,10 @@ func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
 		}
 	}
 
-	dossierPath := filepath.Join(s.cfg.DossierHome, d.Frontmatter.Slug)
+	dossierPath, err := s.resolveDossierPath(d.Frontmatter.ID, d.Frontmatter)
+	if err != nil {
+		return Result{}, err
+	}
 	roster, hasRoster := s.currentRoster()
 	leadView := s.displayLead(roster, hasRoster, d.Frontmatter.Lead)
 	frontmatter := d.Frontmatter
@@ -1252,12 +1263,32 @@ func sortListedFrontmatters(items []ListedFrontmatter) {
 // contractOwnerUsername resolves a contract header's owner to a roster
 // username when the roster can name them, else the normalized literal.
 func contractOwnerUsername(roster *Roster, hasRoster bool, owner string) string {
+	_, identity := delegationOwner(strings.TrimSpace(owner))
 	if hasRoster && roster != nil {
-		if username, ok, _ := roster.ResolvePerson(owner); ok {
+		if username, ok, _ := roster.ResolvePerson(identity); ok {
 			return username
 		}
 	}
-	return NormalizeUsername(owner)
+	return NormalizeUsername(identity)
+}
+
+func (s *Service) resolveDossierPath(id string, fm Frontmatter) (string, error) {
+	if resolver, ok := s.store.(DossierPathResolver); ok {
+		return resolver.DossierPath(id)
+	}
+	path := filepath.Join(s.cfg.DossierHome, fm.Slug)
+	if NormalizeStatus(fm.Status) == StatusDone {
+		path = filepath.Join(s.cfg.DossierHome, "archive", fm.Slug)
+	}
+	return path, nil
+}
+
+func (s *Service) pathForDossier(id string, fm Frontmatter, listedPath string) string {
+	if listedPath != "" {
+		return listedPath
+	}
+	path, _ := s.resolveDossierPath(id, fm)
+	return path
 }
 
 // contractOwnerNames returns the display names of a dossier's contract owners,
@@ -1267,10 +1298,16 @@ func (s *Service) contractOwnerNames(roster *Roster, hasRoster bool, refs []Cont
 	seen := map[string]bool{}
 	for _, ref := range refs {
 		name := strings.TrimSpace(ref.Owner)
+		kind, identity := delegationOwner(name)
 		if hasRoster && roster != nil {
-			if username, ok, _ := roster.ResolvePerson(ref.Owner); ok {
+			if username, ok, _ := roster.ResolvePerson(identity); ok {
 				name = roster.DisplayName(username)
+				if kind == "agent" || roster.Kind(username) == "agent" {
+					name += " (agent)"
+				}
 			}
+		} else if kind == "agent" {
+			name = "agent:" + NormalizeUsername(identity)
 		}
 		if name != "" && !seen[name] {
 			seen[name] = true
@@ -1278,6 +1315,28 @@ func (s *Service) contractOwnerNames(roster *Roster, hasRoster bool, refs []Cont
 		}
 	}
 	return names
+}
+
+func (s *Service) contractAssignments(roster *Roster, hasRoster bool, refs []ContractRef) []ContractAssignment {
+	assignments := make([]ContractAssignment, 0, len(refs))
+	seen := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		owner := s.contractOwnerNames(roster, hasRoster, []ContractRef{ref})
+		if len(owner) == 0 {
+			continue
+		}
+		state := "accepted"
+		if ref.Open {
+			state = "open"
+		}
+		key := owner[0] + "\x00" + state
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		assignments = append(assignments, ContractAssignment{Owner: owner[0], State: state})
+	}
+	return assignments
 }
 
 // leadScopeRoles reports why a dossier matches the active lead filter: as
@@ -1416,7 +1475,7 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 	var items []ListItem
 	for _, listed := range filtered {
 		fm := listed.Frontmatter
-		dossierPath := filepath.Join(s.cfg.DossierHome, fm.Slug)
+		dossierPath := s.pathForDossier(fm.ID, fm, listed.Path)
 		leadView := s.displayLead(roster, hasRoster, fm.Lead)
 		item := ListItem{
 			ID:                        fm.ID,
@@ -1436,6 +1495,7 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 			Revision:                  listed.Revision,
 			HasOpenDelegationContract: listed.HasOpenDelegationContract,
 			ContractOwners:            s.contractOwnerNames(roster, hasRoster, listed.ContractRefs),
+			ContractAssignments:       s.contractAssignments(roster, hasRoster, listed.ContractRefs),
 			MatchedAs:                 matchedByID[fm.ID],
 		}
 		if links, ok := linksByID[fm.ID]; ok {

@@ -15,6 +15,9 @@ type Revision string
 // implementation already had to read and parse to extract Frontmatter.
 type ListedFrontmatter struct {
 	Frontmatter
+	// Path is the actual containing directory for stores that can report it.
+	// It is adapter metadata, not part of the public serialized list contract.
+	Path string `json:"-"`
 	// Revision is the current content revision when the store can derive it
 	// during its frontmatter scan. List surfaces use it as the optimistic
 	// concurrency base when opening an editor without a second read.
@@ -25,6 +28,12 @@ type ListedFrontmatter struct {
 	// ContractRefs lists the owner and open state of each Delegation Contract,
 	// so the lead filter can also match contract owners.
 	ContractRefs []ContractRef
+}
+
+// DossierPathResolver is an optional store capability for resolving the
+// actual on-disk directory, including archived Dossiers and legacy placement.
+type DossierPathResolver interface {
+	DossierPath(slugOrID string) (string, error)
 }
 
 // Store defines the CRUD contract for persistence.

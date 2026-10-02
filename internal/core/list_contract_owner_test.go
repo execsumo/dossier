@@ -115,3 +115,41 @@ func TestListLeadFilterAlsoMatchesContractOwners(t *testing.T) {
 		}
 	})
 }
+
+func TestListLeadFilterResolvesRegisteredAgentContractOwners(t *testing.T) {
+	body := "## Delegation Contracts\n" +
+		"### Intake — owner: agent:case-officer\n" +
+		"- Scope: [decided] Triage the intake.\n" +
+		"- Acceptance: [proposed] Awaiting human review.\n"
+	store := &rosterTestStore{
+		localFakeStore: newLocalFakeStore(),
+		roster: Roster{
+			Manager: "hgill",
+			Members: map[string]string{"hgill": "Herwin Gill", "case-officer": "Case Officer"},
+			Kinds:   map[string]string{"case-officer": "agent"},
+			Former:  map[string]string{},
+		},
+	}
+	store.dossiers["dos_agent_contract"] = &Dossier{
+		Frontmatter:    Frontmatter{ID: "dos_agent_contract", Slug: "agent-contract", Name: "Agent contract", Status: StatusExecute},
+		DistilledState: DistilledState{Body: body},
+	}
+
+	for _, query := range []string{"case-officer", "Case Officer", "Case"} {
+		svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{Author: "hgill"}, nil)
+		res, err := svc.List(context.Background(), ListReq{Lead: query})
+		if err != nil {
+			t.Fatalf("List(%q): %v", query, err)
+		}
+		items := res.Data.([]ListItem)
+		if len(items) != 1 || !reflect.DeepEqual(items[0].MatchedAs, []string{"contract (open)"}) {
+			t.Fatalf("List(%q) = %+v, want one open contract match", query, items)
+		}
+		if !reflect.DeepEqual(items[0].ContractOwners, []string{"Case Officer (agent)"}) {
+			t.Fatalf("ContractOwners = %v, want agent-kind display name", items[0].ContractOwners)
+		}
+		if !reflect.DeepEqual(items[0].ContractAssignments, []ContractAssignment{{Owner: "Case Officer (agent)", State: "open"}}) {
+			t.Fatalf("ContractAssignments = %+v, want agent owner and open state", items[0].ContractAssignments)
+		}
+	}
+}

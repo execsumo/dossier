@@ -100,16 +100,16 @@ func TestActiveFiltersRenderAsSeparateRows(t *testing.T) {
 	if strings.Contains(lines[1], "Lead:") || strings.Contains(lines[1], "Interface:") || strings.Contains(lines[1], "Search:") {
 		t.Fatalf("subtitle should not contain active filters: %q", lines[1])
 	}
-	for i, want := range []string{" Lead: Alice", " Interface: Pricing WBR"} {
+	for i, want := range []string{" Lead: Alice", " Matched as: lead", " Interface: Pricing WBR"} {
 		if got := lines[3+i]; got != want {
 			t.Fatalf("header row %d = %q, want %q", i, got, want)
 		}
 	}
-	if got := lines[5]; !strings.HasPrefix(got, " Search:") || !strings.Contains(got, "one") || strings.Contains(got, "Search: >") {
+	if got := lines[6]; !strings.HasPrefix(got, " Search:") || !strings.Contains(got, "one") || strings.Contains(got, "Search: >") {
 		t.Fatalf("search row = %q, want Search: one without a prompt", got)
 	}
-	if lines[6] != "" {
-		t.Fatalf("expected a blank row between scope rows and table, got %q", lines[6])
+	if lines[7] != "" {
+		t.Fatalf("expected a blank row between scope rows and table, got %q", lines[7])
 	}
 	if strings.Count(stripANSI(m.View()), "Search:") != 1 {
 		t.Fatal("search term should be shown on exactly one row")
@@ -1544,6 +1544,29 @@ func TestLeadFilterMatches(t *testing.T) {
 		if got := tc.filter.matches(tc.item); got != tc.want {
 			t.Errorf("%s: matches = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestTUIExplainsContractOwnerLeadFilterMatch(t *testing.T) {
+	store := newTestStore()
+	svc := setupTestService(store)
+	m := NewModel(svc)
+	m.width = 100
+	m.height = 32
+	m.setItems([]core.ListItem{{
+		ID: "dos_contract", Name: "Contract work", Status: "execute",
+		Lead: "Herwin", ContractOwners: []string{"Case Officer (agent)"},
+		ContractAssignments: []core.ContractAssignment{{Owner: "Case Officer (agent)", State: "open"}},
+	}})
+	m.leadFilter = leadFilter{kind: filterByName, name: "Case Officer (agent)"}
+	m.applyFilters()
+	m.populateTableRows()
+	m.recalculateTableLayout()
+
+	rows := m.activeFilterRows()
+	joined := stripANSI(strings.Join(rows, "\n"))
+	if !strings.Contains(joined, "Matched as") || !strings.Contains(joined, "contract (open): Case Officer (agent)") {
+		t.Fatalf("active filter rows omitted contract match explanation: %s", joined)
 	}
 }
 

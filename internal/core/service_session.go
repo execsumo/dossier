@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -212,7 +211,10 @@ func (s *Service) Path(ctx context.Context, req PathReq) (Result, error) {
 		return Result{}, err
 	}
 
-	dossierPath := filepath.Join(s.cfg.DossierHome, d.Frontmatter.Slug)
+	dossierPath, err := s.resolveDossierPath(d.Frontmatter.ID, d.Frontmatter)
+	if err != nil {
+		return Result{}, err
+	}
 	return Result{
 		OK:   true,
 		Data: dossierPath,

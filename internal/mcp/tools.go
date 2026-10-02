@@ -38,8 +38,12 @@ var mcpMutatingTools = map[string]bool{
 	"dossier_rename":           true,
 	"dossier_resolve_conflict": true,
 	"dossier_monitor_polled":   true,
-	"dossier_inbox":            true,
-	"dossier_inbox_resolve":    true,
+}
+
+// dossier_inbox_resolve is operation-scoped: dismiss only changes excluded
+// machine-local inbox state, while absorb also writes a shared Archive artifact.
+var mcpConditionalMutationTools = map[string]bool{
+	"dossier_inbox_resolve": true,
 }
 
 func (s *Server) actor() string {
@@ -882,7 +886,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 	}
 
 	// Failed mutations do not enqueue: no successful shared write needs pushing.
-	if err == nil && res.OK && mcpMutatingTools[name] {
+	if err == nil && res.OK && shouldEnqueueSharedSync(name, args) {
 		s.triggerSync()
 	}
 
@@ -941,4 +945,17 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 	}
 
 	s.sendResult(id, result)
+}
+
+func shouldEnqueueSharedSync(name string, args json.RawMessage) bool {
+	if mcpMutatingTools[name] {
+		return true
+	}
+	if !mcpConditionalMutationTools[name] {
+		return false
+	}
+	var params struct {
+		Action string `json:"action"`
+	}
+	return json.Unmarshal(args, &params) == nil && strings.EqualFold(strings.TrimSpace(params.Action), "absorb")
 }

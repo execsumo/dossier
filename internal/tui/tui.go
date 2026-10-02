@@ -3231,14 +3231,37 @@ func (m Model) renderFilterRow(label, value string) string {
 // separate from the subtitle makes the current scope visible without leaving
 // an always-present "All" label on every screen.
 func (m Model) activeFilterRows() []string {
-	rows := make([]string, 0, 2)
+	rows := make([]string, 0, 3)
 	if m.leadFilter.kind != filterAll {
 		rows = append(rows, m.renderFilterRow("Lead", m.leadFilter.label()))
+		if m.leadFilter.kind == filterByName {
+			rows = append(rows, m.renderFilterRow("Matched as", m.selectedLeadMatchLabel()))
+		}
 	}
 	if m.interfaceFilter != "" {
 		rows = append(rows, m.renderFilterRow("Interface", m.interfaceFilter.label()))
 	}
 	return rows
+}
+
+func (m Model) selectedLeadMatchLabel() string {
+	item, ok := m.selectedListItem()
+	if !ok {
+		return "Select a dossier"
+	}
+	parts := make([]string, 0, 2)
+	if item.Lead == m.leadFilter.name {
+		parts = append(parts, "lead")
+	}
+	for _, assignment := range item.ContractAssignments {
+		if assignment.Owner == m.leadFilter.name {
+			parts = append(parts, "contract ("+assignment.State+"): "+assignment.Owner)
+		}
+	}
+	if len(parts) == 0 {
+		return "No match details"
+	}
+	return strings.Join(parts, " + ")
 }
 
 // activeListRows contains the visible scope rows in their display order. The

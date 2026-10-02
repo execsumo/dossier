@@ -332,6 +332,7 @@ func (s *FSStore) List(statusFilter string) ([]core.ListedFrontmatter, error) {
 		artifacts, _ := s.listArtifactsInternal(fm.ID, dirPath)
 		list = append(list, core.ListedFrontmatter{
 			Frontmatter:               *fm,
+			Path:                      dirPath,
 			Revision:                  core.CalculateRevision(*fm, body, artifacts),
 			HasOpenDelegationContract: core.HasOpenDelegationContract(body),
 			ContractRefs:              core.ContractRefs(body),
@@ -339,6 +340,13 @@ func (s *FSStore) List(statusFilter string) ([]core.ListedFrontmatter, error) {
 		return nil
 	})
 	return list, err
+}
+
+// DossierPath returns the actual directory for a Dossier by slug or immutable
+// ID. Unlike deriving the path from status, this also handles legacy done
+// Dossiers that have not yet moved under archive/.
+func (s *FSStore) DossierPath(slugOrID string) (string, error) {
+	return s.findDossierDir(slugOrID)
 }
 
 // walkDossiers owns the root traversal, parsing, and status policy shared by

@@ -103,9 +103,19 @@ type ListItem struct {
 	// ContractOwners are the display names of everyone who owns a Delegation
 	// Contract on this dossier (deduplicated, in document order).
 	ContractOwners []string `json:"contract_owners,omitempty"`
+	// ContractAssignments preserves the state of each contract for interactive
+	// surfaces that need to explain why an owner filter matched.
+	ContractAssignments []ContractAssignment `json:"contract_assignments,omitempty"`
 	// MatchedAs says why the dossier matched an active lead filter: "lead",
 	// "contract (open)" and/or "contract (accepted)". Empty without a filter.
 	MatchedAs []string `json:"matched_as,omitempty"`
+}
+
+// ContractAssignment is the list-level owner and resolution state of one
+// Delegation Contract.
+type ContractAssignment struct {
+	Owner string `json:"owner"`
+	State string `json:"state"` // open | accepted
 }
 
 // SyncStatusData summarizes the team sync snapshot.

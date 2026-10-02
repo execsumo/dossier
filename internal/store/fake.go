@@ -22,6 +22,7 @@ type FakeStore struct {
 	History           map[core.Revision]*core.Dossier
 	Roster            *core.Roster
 	TeamAudits        []core.AuditEvent
+	InboxItems        map[string]map[string]core.InboxItem
 }
 
 // NewFakeStore instantiates an in-memory FakeStore.
@@ -36,6 +37,7 @@ func NewFakeStore() *FakeStore {
 		ResolvedConflicts: make(map[string]*core.Conflict),
 		History:           make(map[core.Revision]*core.Dossier),
 		Roster:            &core.Roster{Members: map[string]string{}, Former: map[string]string{}},
+		InboxItems:        make(map[string]map[string]core.InboxItem),
 	}
 }
 
@@ -282,6 +284,47 @@ func (f *FakeStore) EnsureAuditDir(dossierID string) error {
 func (f *FakeStore) WriteSessionStash(dossierID string, author string, sessionID string, content string) error {
 	return nil
 }
+
+func (f *FakeStore) CreateInbox(item *core.InboxItem) error {
+	if item.ID == "" {
+		id, err := GenerateID("inbox_")
+		if err != nil {
+			return err
+		}
+		item.ID = id
+	}
+	if f.InboxItems[item.DossierID] == nil {
+		f.InboxItems[item.DossierID] = make(map[string]core.InboxItem)
+	}
+	f.InboxItems[item.DossierID][item.ID] = *item
+	return nil
+}
+
+func (f *FakeStore) ListInbox(dossierID string) ([]core.InboxItem, error) {
+	items := make([]core.InboxItem, 0, len(f.InboxItems[dossierID]))
+	for _, item := range f.InboxItems[dossierID] {
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (f *FakeStore) ReadInbox(dossierID, inboxID string) (*core.InboxItem, error) {
+	item, ok := f.InboxItems[dossierID][inboxID]
+	if !ok {
+		return nil, core.NewError(core.ErrNotFound, "inbox item not found")
+	}
+	return &item, nil
+}
+
+func (f *FakeStore) WriteInbox(item *core.InboxItem) error {
+	if f.InboxItems[item.DossierID] == nil {
+		f.InboxItems[item.DossierID] = make(map[string]core.InboxItem)
+	}
+	f.InboxItems[item.DossierID][item.ID] = *item
+	return nil
+}
+
+func (f *FakeStore) ValidateInbox(string) []string { return nil }
 
 func (f *FakeStore) SaveSessionBinding(binding *core.SessionBinding) error {
 	f.Sessions[binding.SessionBindingID] = binding

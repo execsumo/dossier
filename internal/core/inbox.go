@@ -141,7 +141,7 @@ func (s *Service) ResolveInbox(ctx context.Context, req InboxResolveReq) (Result
 		}
 		title := fmt.Sprintf("Routed inbox item %s", item.ID)
 		artifact := Artifact{Type: ArtifactTypeLink, Title: title, ContentFormat: ContentFormatMarkdown, Content: item.Excerpt, CapturedAt: item.ReceivedAt, RefreshedAt: item.ReceivedAt, Provenance: Provenance{Origin: item.Source.Kind, URL: item.Source.URL, CapturedBy: actor}}
-		saved, err := s.Save(ctx, SaveReq{ID: dossier.Frontmatter.ID, BaseRevision: revision, DistilledStateMarkdown: dossier.DistilledState.Body, Artifacts: []Artifact{artifact}})
+		saved, err := s.Save(ctx, SaveReq{ID: dossier.Frontmatter.ID, BaseRevision: revision, Actor: req.Actor, DistilledStateMarkdown: dossier.DistilledState.Body, Artifacts: []Artifact{artifact}})
 		if err != nil {
 			return Result{OK: false}, err
 		}

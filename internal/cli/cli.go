@@ -76,7 +76,7 @@ func NewRootCmd() *cobra.Command {
 	// adapter does it: bounded, and a failure is loud but never fails the command
 	// (the change is already saved locally).
 	rootCmd.PersistentPostRun = func(cmd *cobra.Command, args []string) {
-		if !isSyncedMutation(cmd) {
+		if !isSyncedMutation(cmd, args...) {
 			return
 		}
 		svc, cfg, err := wireWithConfig(resolveHomeDir())
@@ -419,21 +419,16 @@ func NewRootCmd() *cobra.Command {
 				if nameOrSlug == "" {
 					nameOrSlug = item.Slug
 				}
-				if len(nameOrSlug) > 28 {
-					nameOrSlug = nameOrSlug[:25] + "..."
-				}
+				nameOrSlug = truncateRunes(nameOrSlug, 28)
 
 				lead := item.Lead
 				if lead == "" {
 					lead = "Unassigned"
-				} else if len(lead) > 13 {
-					lead = lead[:10] + "..."
+				} else {
+					lead = truncateRunes(lead, 13)
 				}
 
-				nextAction := item.NextAction
-				if len(nextAction) > 28 {
-					nextAction = nextAction[:25] + "..."
-				}
+				nextAction := truncateRunes(item.NextAction, 28)
 
 				if showRole {
 					fmt.Printf("%-30s %-15s %-11s %-8s %-5s %-28s %s\n", nameOrSlug, lead, item.Status, item.Priority, item.DueDate, nextAction, strings.Join(item.MatchedAs, ", "))
@@ -768,6 +763,147 @@ func NewRootCmd() *cobra.Command {
 	}
 	artifactCmd.Flags().StringVarP(&artifactLinesFlag, "lines", "L", "", "Line range to fetch, e.g. 10-20 or L10-L20")
 	artifactCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
+
+	inboxCmd := &cobra.Command{Use: "inbox", Short: "Manage machine-local routed intake"}
+	var inboxListJSON bool
+	inboxListCmd := &cobra.Command{
+		Use:   "list <slug-or-id>",
+		Short: "List routed inbox items for a dossier",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				return err
+			}
+			res, err := svc.Inbox(cmd.Context(), core.InboxListReq{ID: args[0]})
+			if err != nil {
+				return err
+			}
+			items := res.Data.([]core.InboxItem)
+			if inboxListJSON {
+				printJSON(items)
+				return nil
+			}
+			if len(items) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No routed inbox items.")
+				return nil
+			}
+			for _, item := range items {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s  %-10s  %-12s  %s\n", item.ID, item.State, item.Source.Kind, truncateRunes(strings.ReplaceAll(item.Excerpt, "\n", " "), 80))
+			}
+			return nil
+		},
+	}
+	inboxListCmd.Flags().BoolVar(&inboxListJSON, "json", false, "Output results in JSON format")
+	var inboxReadJSON bool
+	inboxReadCmd := &cobra.Command{
+		Use:   "read <slug-or-id> <inbox-id>",
+		Short: "Read one routed inbox item",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				return err
+			}
+			res, err := svc.ReadInbox(cmd.Context(), core.InboxReadReq{ID: args[0], InboxID: args[1]})
+			if err != nil {
+				return err
+			}
+			item := res.Data.(*core.InboxItem)
+			if inboxReadJSON {
+				printJSON(item)
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Inbox item: %s\nState: %s\nSource: %s\nRouted by: %s\nConfidence: %.2f\nReceived: %s\n", item.ID, item.State, item.Source.Kind, item.RoutedBy, item.Confidence, item.ReceivedAt.Format(time.RFC3339))
+			if item.Source.URL != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "URL: %s\n", item.Source.URL)
+			}
+			if item.ArtifactID != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "Artifact: %s\n", item.ArtifactID)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "\n%s\n", item.Excerpt)
+			return nil
+		},
+	}
+	inboxReadCmd.Flags().BoolVar(&inboxReadJSON, "json", false, "Output results in JSON format")
+	var inboxCaptureSource, inboxCaptureURL, inboxCaptureExcerpt, inboxCaptureExcerptFile string
+	var inboxCaptureConfidence float64
+	var inboxCaptureJSON bool
+	inboxCaptureCmd := &cobra.Command{
+		Use:   "capture <slug-or-id>",
+		Short: "Capture an excerpt in a dossier's routed inbox",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			excerpt := inboxCaptureExcerpt
+			if inboxCaptureExcerptFile != "" {
+				if inboxCaptureExcerpt != "" {
+					return fmt.Errorf("use only one of --excerpt and --excerpt-file")
+				}
+				content, err := os.ReadFile(inboxCaptureExcerptFile)
+				if err != nil {
+					return fmt.Errorf("read excerpt file: %w", err)
+				}
+				excerpt = string(content)
+			}
+			if strings.TrimSpace(excerpt) == "" {
+				return fmt.Errorf("provide non-empty --excerpt or --excerpt-file")
+			}
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				return err
+			}
+			res, err := svc.CreateInbox(cmd.Context(), core.InboxCreateReq{
+				ID: args[0], Source: core.InboxSource{Kind: inboxCaptureSource, URL: inboxCaptureURL},
+				Excerpt: excerpt, RoutedBy: actorForCLI(svc), Confidence: inboxCaptureConfidence,
+			})
+			if err != nil {
+				return err
+			}
+			if inboxCaptureJSON {
+				printJSON(res.Data)
+			} else {
+				item := res.Data.(*core.InboxItem)
+				fmt.Fprintf(cmd.OutOrStdout(), "Captured routed inbox item %s.\n", item.ID)
+			}
+			return nil
+		},
+	}
+	inboxCaptureCmd.Flags().StringVar(&inboxCaptureSource, "source-kind", "", "Source category (required)")
+	inboxCaptureCmd.Flags().StringVar(&inboxCaptureURL, "url", "", "Optional source URL")
+	inboxCaptureCmd.Flags().StringVar(&inboxCaptureExcerpt, "excerpt", "", "Routed excerpt text")
+	inboxCaptureCmd.Flags().StringVar(&inboxCaptureExcerptFile, "excerpt-file", "", "Read the routed excerpt from a file")
+	inboxCaptureCmd.Flags().Float64Var(&inboxCaptureConfidence, "confidence", 0.5, "Routing confidence from 0 to 1")
+	inboxCaptureCmd.Flags().BoolVar(&inboxCaptureJSON, "json", false, "Output results in JSON format")
+	_ = inboxCaptureCmd.MarkFlagRequired("source-kind")
+	var inboxResolveJSON bool
+	inboxResolveCmd := &cobra.Command{
+		Use:   "resolve <slug-or-id> <inbox-id> <absorb|dismiss>",
+		Short: "Absorb or dismiss a routed inbox item",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				return err
+			}
+			res, err := svc.ResolveInbox(cmd.Context(), core.InboxResolveReq{
+				ID: args[0], InboxID: args[1], Action: args[2], Actor: actorForCLI(svc),
+			})
+			if err != nil {
+				return err
+			}
+			if inboxResolveJSON {
+				printJSON(res.Data)
+			} else if strings.EqualFold(strings.TrimSpace(args[2]), "absorb") {
+				data, _ := res.Data.(map[string]any)
+				fmt.Fprintf(cmd.OutOrStdout(), "Inbox item absorbed as Archive artifact %v.\n", data["artifact_id"])
+			} else {
+				fmt.Fprintln(cmd.OutOrStdout(), "Inbox item dismissed and retained.")
+			}
+			return nil
+		},
+	}
+	inboxResolveCmd.Flags().BoolVar(&inboxResolveJSON, "json", false, "Output results in JSON format")
+	inboxCmd.AddCommand(inboxListCmd, inboxReadCmd, inboxCaptureCmd, inboxResolveCmd)
 
 	contextCmd := &cobra.Command{
 		Use:   "context",
@@ -1734,6 +1870,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(doneCmd)
 	rootCmd.AddCommand(searchCmd)
 	rootCmd.AddCommand(artifactCmd)
+	rootCmd.AddCommand(inboxCmd)
 	rootCmd.AddCommand(contextCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(promoteCmd)
@@ -2752,9 +2889,12 @@ var syncedMutations = map[string]bool{
 	"priority": true, "update": true,
 }
 
-func isSyncedMutation(cmd *cobra.Command) bool {
+func isSyncedMutation(cmd *cobra.Command, args ...string) bool {
 	if cmd.Parent() == nil {
 		return false
+	}
+	if cmd.Parent().Name() == "inbox" && cmd.Name() == "resolve" {
+		return len(args) == 3 && strings.EqualFold(strings.TrimSpace(args[2]), "absorb")
 	}
 	if cmd.Parent().Parent() == nil {
 		return syncedMutations[cmd.Name()]
@@ -2784,4 +2924,21 @@ func reportSyncFailure(w io.Writer, what string, res core.Result, err error) {
 		return
 	}
 	fmt.Fprintf(w, "Warning: %s failed: %s. Your change is saved locally; run `dossier sync` to retry and `dossier doctor` for details.\n", what, reason)
+}
+
+// truncateRunes keeps human-readable CLI columns valid UTF-8. Formatting
+// widths are approximate for wide glyphs, but truncation never splits an
+// encoded character.
+func truncateRunes(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	if limit <= 3 {
+		return strings.Repeat(".", limit)
+	}
+	return string(runes[:limit-3]) + "..."
 }

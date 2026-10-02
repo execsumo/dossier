@@ -477,6 +477,10 @@ dossier rename <slug-or-id> [<new-value>] [--title <title>|--slug <slug>] [--bas
 dossier recall <slug-or-id> [--json]
 dossier search <query> [--dossier <slug-or-id>] [--json]
 dossier artifact <slug-or-id> [<artifact-id>] [-L <a-b>] [--json]
+dossier inbox list <slug-or-id> [--json]
+dossier inbox read <slug-or-id> <inbox-id> [--json]
+dossier inbox capture <slug-or-id> --source-kind <kind> (--excerpt <text>|--excerpt-file <path>) [--url <url>] [--confidence <0..1>] [--json]
+dossier inbox resolve <slug-or-id> <inbox-id> <absorb|dismiss> [--json]
 dossier sync [--status] [--json]
 dossier team create <url> [--yes] [--name "<Display Name>"] [--json]
 dossier team join <url> [--json]
@@ -561,6 +565,14 @@ dossier doctor
 - Estimates tokens.
 - Warns if above the configured token limit (`token_limit` in `config.yaml`, default 100,000).
 - Does not load Archive artifacts by default.
+
+`dossier inbox`
+
+- `list` lists routed intake records for one Dossier; `read` displays one record's full excerpt and provenance.
+- `capture` stores an excerpt with source kind, optional URL, confidence, and the current actor. The excerpt may be supplied inline or read from a file.
+- `resolve` dismisses an item without deleting it or absorbs it into the Archive as a normal cited artifact. Absorption uses the normal Save/audit path and reports the artifact id.
+- Inbox records remain machine-local and excluded from Team Sync. Listing, reading, capture, and dismissal never enqueue sync; absorption does because it creates shared Archive state. The CLI provides the same workflow on Pi, where MCP is intentionally unavailable.
+- `--json` is available for each subcommand.
 
 `dossier done` / `dossier archive`
 
