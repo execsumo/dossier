@@ -2472,6 +2472,17 @@ func TestTUI_FooterSequenceConsistency(t *testing.T) {
 	dashView := stripANSI(m.View())
 	assertOrdered("dashboard", dashView, []string{"/ search", "f filters", "v view", "q quit", "? more help"})
 	assertAbsent("dashboard", dashView, []string{"s stage", "p priority", "l lead", "n next action", "↑/↓", "enter:", "esc:"})
+	// The health report is occasional: extended help only, never the footer.
+	assertAbsent("dashboard", dashView, []string{"H health"})
+	var fullHelp strings.Builder
+	for _, column := range m.helpKeyMap(ViewDashboard).FullHelp() {
+		for _, b := range column {
+			fullHelp.WriteString(b.Help().Key + " " + b.Help().Desc + "\n")
+		}
+	}
+	if !strings.Contains(fullHelp.String(), "H health") {
+		t.Errorf("extended help should list the health report, got:\n%s", fullHelp.String())
+	}
 
 	m.currentView = ViewKanban
 	m.listView = ViewKanban

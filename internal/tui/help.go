@@ -73,7 +73,13 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 	common := []bubbleskey.Binding{
 		tuiHelpKey("q", "quit"),
 		tuiHelpKey("ctrl+r", "refresh"),
-		tuiHelpKey("H", "health report"),
+		tuiHelpKey("?", "more help"),
+	}
+	// The health report is occasional, so it appears only in the extended help.
+	fullCommon := []bubbleskey.Binding{
+		tuiHelpKey("q", "quit"),
+		tuiHelpKey("ctrl+r", "refresh"),
+		tuiHelpKey("H", "health"),
 		tuiHelpKey("?", "more help"),
 	}
 
@@ -116,5 +122,5 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 	}
 
 	short := append(append([]bubbleskey.Binding{}, shortContextual...), common...)
-	return tuiKeyMap{short: short, full: [][]bubbleskey.Binding{contextual, common}}
+	return tuiKeyMap{short: short, full: [][]bubbleskey.Binding{contextual, fullCommon}}
 }
