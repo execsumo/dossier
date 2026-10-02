@@ -1,225 +1,120 @@
 # Dossier
 
-**A local-first durable memory layer for long-running work in Claude Code and Pi.**
+**Durable memory for long-running work in Claude Code.**
 
-Dossier keeps a topic of work alive across agent sessions. You *promote* a session into a **Dossier** — the critical state of the topic (situation, decisions and who made them, open questions, next action) with the noise stripped out — backed by an **Archive** of the raw material it came from. Every claim cites its source. Next session you resume with exactly the distilled context you need, and the full archive is one search away.
+Agent sessions forget. Dossier doesn't. Promote a session into a **Dossier** and it keeps the state of that topic — situation, decisions and who made them, open questions, next action — with the noise stripped out. Every claim cites its source, and the raw material is archived and one search away. Next session, you pick up exactly where you left off.
 
-No database, no cloud, no account. Your data is plain Markdown under `~/.dossier/` that you can open in any editor (e.g. Obsidian).
+- **Resume instantly.** Open Dossiers are surfaced at session start, sorted by priority.
+- **Nothing is lost.** Transcripts are archived automatically; nothing is ever deleted.
+- **Share with your team.** Optional Team Sync gives everyone one shared brain.
+- **Yours.** Plain Markdown in `~/.dossier/` — no database, no cloud, no account. Open it in any editor, including Obsidian.
 
-## Quickstart
+## Install
 
-Requires **Claude Code or Pi** on macOS or Linux. Both are fully integrated — under Pi, Dossier works through its CLI rather than MCP (see [Using it with Pi](#using-it-with-pi)).
-
-**Option A — Homebrew (recommended)**
+Requires Claude Code on macOS or Linux.
 
 ```bash
 brew tap execsumo/tap
 brew install dossier
-dossier init        # wires up Claude Code and Pi
+dossier init
 ```
 
-To update later, on any device: `brew upgrade dossier` (or just `brew upgrade`). The tap's formula is republished automatically on every release, so this always tracks latest.
+No Homebrew? Grab a binary from the [Releases page](https://github.com/execsumo/dossier/releases), make it executable, and run `./dossier init`.
 
-**Option B — prebuilt binary**
+`init` sets everything up: your workspace at `~/.dossier`, plus Dossier's MCP server and session hooks in Claude Code. It asks before changing anything, backs up every file it touches, and never overwrites your existing setup. Re-run it anytime; check on things with `dossier doctor`.
 
-Download the latest release for your platform from the [Releases page](https://github.com/execsumo/dossier/releases), make it executable, and run `init`:
+Update with `brew upgrade dossier`.
 
-```bash
-# example for macOS Apple Silicon
-curl -L https://github.com/execsumo/dossier/releases/latest/download/dossier-darwin-arm64 -o dossier
-chmod +x dossier
-./dossier init        # installs to a stable PATH, then wires up Claude Code and Pi
-```
+## Use it
 
-To update later, repeat the download step, then re-run `./dossier install && ./dossier init` to re-bind the stable path.
+### In Claude Code
 
-**Option C — build from source** (requires Go 1.26+)
+Once installed, it just works:
 
-```bash
-git clone https://github.com/execsumo/dossier.git
-cd dossier
-go build ./cmd/dossier
-./dossier init
-```
+- **Session start:** your open Dossiers appear in the conversation. Pick one up or start a new one.
+- **During the session:** the agent recalls, saves, searches, and switches Dossiers for you. Each session follows its own Dossier, so parallel sessions never collide.
+- **Session end:** the transcript is archived into the Dossier automatically.
 
-That single `init` does everything:
-
-- copies the binary to a stable location on your `PATH` (`~/.local/bin/dossier`) so its path never changes,
-- creates your workspace at `~/.dossier`,
-- registers Dossier's **MCP server** and **session hooks** in Claude Code (after a confirmation prompt — pass `-y` to skip it), and
-- installs the **Dossier Pi extension** if Pi is on the machine.
-
-It's idempotent and non-clobbering: your existing MCP servers, hooks, and extensions are preserved, and every file is backed up before editing. Re-run it anytime, and check things with `dossier doctor` or `dossier harness list`.
-
-Discussion interfaces, lead choices, and global token limits are configured in `~/.dossier/config.yaml`:
-
-```yaml
-open_with: claude-code  # claude-code, cursor, codex, pi, or antigravity
-interfaces:
-  - Pricing WBR
-  - "1:1"
-  - Steerco
-leads:
-  - Alice
-  - Bob
-token_limit: 100000
-```
-
-Interface and lead selectors follow the configured order after restarting Dossier. Existing configs that omit `interfaces` retain the original seven defaults. An empty `leads` list keeps lead entry free-form; once leads are listed, new assignments must use one of them. The `token_limit` sets the warning ceiling for Distilled State tokens (defaults to 100000). `open_with` controls which terminal agent the TUI's `c` key and `dossier open` launch; it accepts `claude-code`, `cursor`, `codex`, `pi`, or `antigravity` (`agy`). The launch prompt is built into Dossier and is not stored in this file. When the TUI runs inside [herdr](https://herdr.dev) (`HERDR_ENV=1`), `c` opens the agent in a new, focused split pane to the right and the TUI keeps running; if herdr can't be driven, it warns and launches in the current terminal as before. The file remains machine-local and is never team-synced.
-
-## Using it
-
-### Inside your agent (the main way)
-
-Once `init` has run, Dossier works on its own:
-
-- **At session start**, your open Dossiers are surfaced into the conversation, sorted by priority — so you and the agent can pick up where you left off.
-- **During the session**, the agent recalls, saves, searches, promotes, and switches Dossiers — through MCP tools in Claude Code, and through the `dossier` CLI in Pi. Either way, switching binds *this* session (the session id is resolved for you), so concurrent sessions can each follow a different Dossier without stepping on each other.
-- **At session end and before compaction**, hooks archive the session transcript into the Archive, so the raw material is never lost. They cannot distill it — a hook runs the binary, not the agent — so the curated Distilled State is written by the agent's saves *during* the session. If a session ends without any such save, Dossier says so rather than leaving you to discover it next time.
-
-A shipped **Distillation Guide** tells the agent *what* to keep; the hooks decide *when* to save. To save tokens on your generic coding tasks, the guide isn't injected globally. Instead, Dossier uses **programmatic context injection**: the moment the agent binds a dossier via the MCP server, the server dynamically wraps its response payload with the full guide. The same bind response carries the **Operating Instructions**, which tell the agent to poll **Active Monitors** (live external links like Slack threads) whose `Last polled` date has gone stale — so resuming a Dossier refreshes its live context rather than trusting a snapshot. `init` also adds a single line to Claude Code's custom instructions: use `dossier_session` when starting work, so the agent reaches for the binding that delivers all of the above. Pi has no MCP client to intercept, so there the same payloads ride the session-start hook instead: a Pi session that is already bound gets the Guide and the full Distilled State injected as it starts. There's no confirmation gate — trust comes from the fact that nothing is ever deleted (superseded content moves to the Archive and audit log) and every claim carries a source link.
-
-### Using it with Pi
-
-Install Pi after running `init`? Wire it up with one command:
-
-```bash
-dossier harness install pi     # installs the Dossier Pi extension
-dossier harness uninstall pi  # removes Dossier's Pi integration
-dossier harness list           # what each harness gives Dossier
-```
-
-To remove the integration later, run `dossier harness uninstall pi` (or `dossier harness uninstall claude-code`). It removes only Dossier-owned config and byte-identical managed files; unrelated config and hand-edited files are preserved for manual review. Remove the stable binary separately with `dossier uninstall`; Homebrew installs use `brew uninstall dossier`.
-
-This writes `~/.pi/agent/extensions/dossier/index.ts` and the shared
-`~/.pi/agent/skills/spark/SKILL.md` (backing up anything they replace, and
-asking first unless you pass `-y`). Restart Pi to load them.
-
-The extension exists because Pi hands `PI_SESSION_ID` only to processes its bash
-tool spawns — so without it, Dossier running any other way under Pi cannot tell
-which session it belongs to, and refuses to bind a Dossier rather than risk two
-sessions sharing one binding. The extension publishes the live session id for
-every Dossier process the Pi session owns; `/dossier-session` inside Pi shows
-what Dossier will resolve. It also provides `/spark`, which captures a raw
-thought as a new medium-priority Dossier in the spark stage.
-
-The same extension bridges Pi's lifecycle, so Pi sessions get the full loop:
-session-start surfacing, end-of-session capture, and a save before compaction.
-Because Pi exposes in-process events rather than out-of-process hooks, the
-extension is what calls Dossier at each boundary — which is why a Pi session
-that reports no lifecycle hooks means the extension is missing or out of date,
-and `dossier harness install pi` is the fix.
-
-**On MCP under Pi:** `dossier harness list` reports MCP as *not applicable*, not
-missing. Pi ships no MCP client, so Dossier drives Pi through its CLI instead —
-the same operations over a different transport. Nothing is lost and there is
-nothing to install. (If you run a third-party MCP adapter extension you can
-register `dossier mcp serve` with it yourself, but Dossier neither requires nor
-detects one.)
-
-### Quick capture
-
-In either Claude Code or Pi:
+Capture a new idea in one line:
 
 ```text
 /spark The vendor changed the API contract and I need to work out migration,
 backward compatibility, and who needs to review it.
 ```
 
-Dossier derives a short name, preserves the raw capture, checks for likely
-duplicates, and creates the new Dossier in `spark` with `medium` priority.
-
-### From the command line
-
-Everything is scriptable too. The CLI, MCP, and hooks are thin layers over one core, so they behave identically.
-
-```bash
-# Promote a topic into a Dossier (optionally seed its distilled state, lead, and meeting interfaces)
-dossier promote "payments-migration" --lead "Alice" --interface "1:1" --interface "Steerco" --distilled "## Situation
-Migrating billing off the legacy gateway.
-## Next action
-Confirm webhook signing keys with the vendor."
-
-dossier ls                        # open Dossiers, by priority
-dossier show payments-migration   # full distilled state + metadata
-dossier search "webhook"          # search distilled state + archives
-dossier artifact payments-migration art_a1b2c3 -L 10-20   # resolve a [src:] citation to its source
-dossier status payments-migration execute
-dossier lead payments-migration "Bob"
-dossier interface payments-migration "1:1" "Pricing WBR"
-dossier ls --interface "1:1" --json   # topics to discuss in a 1:1
-dossier ls -q "billing"           # find a Dossier without recalling its exact name
-dossier next payments-migration "Write the cutover runbook"
-dossier priority payments-migration --priority high
-dossier rename payments-migration payments-platform-migration  # rename the slug (default)
-dossier rename payments-migration --title "Payments platform"
-dossier link payments-migration --from-file ./notes.md   # attach a source to the archive
-dossier merge another-topic payments-platform-migration      # fold one Dossier into another
-dossier archive payments-migration                       # archive (never deletes)
-```
-
-`dossier rename` can change either the canonical slug (the default) or the
-human-readable title with `--title`. Slug changes preserve the immutable Dossier
-ID and move the complete directory atomically.
-
-Full reference: `dossier --help`.
+Dossier names it, checks for duplicates, and creates it at medium priority.
 
 ### In the terminal UI
 
-For interactive browsing and editing, launch the full-screen TUI — run `dossier` with no arguments, or `dossier tui`:
+Run `dossier` with no arguments for a full-screen dashboard of your Dossiers, sorted by priority.
+
+- **Table or board:** press `v` to switch between a table and stage columns (spark → define → execute → review → blocked → done).
+- **Filter** by Lead or discussion interface with `f` — handy for meeting prep.
+- **Edit inline:** Lead, stage, priority, due date, next action.
+- **Link** sources and **merge** Dossiers, with conflicts shown side by side.
+- **Launch an agent** with `c`: a fresh session, already bound to the selected Dossier with its state loaded. Inside [herdr](https://herdr.dev), it opens in a new split pane.
+
+Press `?` for all shortcuts.
+
+### From the command line
 
 ```bash
-dossier        # or: dossier tui
+dossier promote "payments-migration" --lead "Alice"
+dossier ls                              # open Dossiers, by priority
+dossier show payments-migration         # distilled state + metadata
+dossier search "webhook"                # search state and archives
+dossier next payments-migration "Write the cutover runbook"
+dossier status payments-migration execute
+dossier open payments-migration         # launch an agent on it
 ```
 
-It opens a priority-sorted dashboard of your Dossiers, with Lead and discussion-interface filters for meeting prep. From there you can:
+Run `dossier --help` for the full list.
 
-- **search** with `/` (or `ctrl+f`) and just start typing — the dashboard or board narrows on every keystroke, matching against name, description, Lead, discussion interface, and slug. Space-separated words all have to match, so `alice billing` finds Alice's billing topic. `↑`/`↓` moves through the results, `enter` opens one, `tab` keeps the filter and hands your shortcuts back, and `esc` clears it. Resolved and archived Dossiers are included while you search even though they're normally collapsed — the Dossier you can't name is often one you already finished.
+## Team Sync
 
-- **open** a Dossier to read its distilled state (with a live token estimate and over-target warning). The distilled state is rendered natively as rich, syntax-highlighted Markdown. The view automatically live-refreshes when an agent updates the dossier in the background.
-- **filter** by Lead and discussion interface with `f`, then cycle through `All`, `Unassigned`, and configured values,
-- **switch views** with `v` — the same filtered Dossiers are available as either the table or stage columns (spark → define → execute → review → blocked → done), each card showing the Dossier's name and description. Arrows move between cards, enter opens one, and `v` returns you to the table. Done cards show the title only, so finished work costs the space it deserves. Every dashboard key works on the board, filters included.
-- **edit** the Lead, stage, priority (`low`/`medium`/`high`/`max`), due date, and next action (up to 140 characters) inline without leaving the dashboard,
-- **link** a source, resolving ambiguous matches by picking from ranked candidates, and
-- **merge** one Dossier into another, resolving any conflicts in a syntax-highlighted side-by-side view (sources are archived, never deleted), and
-- **open in the configured agent** with `c` — launches a fresh session already bound to the selected Dossier, with its distilled state loaded. The TUI suspends until you exit the session, then refreshes. (`dossier open <slug-or-id>` does the same from the shell. For a headless Claude Code run, use `dossier open <slug-or-id> --headless`: it starts `claude --print --session-id <uuid>`, writes the binding before launch, and sets `DOSSIER_LEAN_SESSION_START=1` so the hook omits the full library listing while explicitly disclosing that omission. This option currently supports only `open_with: claude-code`. Set the profile-specific binary override when needed, such as `DOSSIER_CLAUDE_BIN` or `DOSSIER_CURSOR_BIN`.)
+Share a store with your colleagues through a private GitHub repo — Dossier handles the plumbing.
 
-Both views — the table and the board — are thin layers over the same core as the CLI and MCP, so they behave identically — `q` quits, `?` toggles help. Search runs on the same shared filter as `dossier ls -q` and the `dossier_list` MCP tool, so all three agree on what matches.
+- **Local-first.** Saves never wait on the network. Your work lands on your machine first, then syncs.
+- **Conflict-honest.** If two people edit the same Dossier at once, nothing is overwritten. The clash becomes a conflict file for you to resolve.
+- **Easy to join.** One command and a GitHub sign-in — no developer tools needed.
+- **Agents welcome.** Headless agents can join as their own team members.
+
+```bash
+dossier team create    # turn your store into a team store
+dossier team join <url>  # join one
+```
+
+Setup and onboarding: [`docs/team-sync-onboarding.md`](docs/team-sync-onboarding.md).
 
 ## How it works
 
-Each Dossier is a directory under `~/.dossier/<slug>/`. When it is marked `done` the whole directory moves to `~/.dossier/archive/<slug>/` (and moves back if reopened):
+Each Dossier is a folder under `~/.dossier/<slug>/`, moved to `~/.dossier/archive/` when done:
 
-- **Distilled State** — one canonical operational brief: Objective, Done When, Validation, Constraints, and the context needed to act, with conversational noise removed. It is not optimized for terseness.
-- **Archive** — the captured source artifacts that the distilled claims cite. `artifacts/` holds registered evidence only; use `dossier link --from-file` to add to it.
-- **files/** — loose deliverables, scratch, and attachments that aren't (yet) evidence.
-- **audit.log** — an append-only record of every change.
+- **Distilled State** — the operational brief: Objective, Done When, Validation, Constraints, and the context needed to act.
+- **Archive** — the source material the brief cites.
+- **Audit log** — an append-only record of every change.
 
-One Go binary serves the CLI, the MCP-over-stdio server, and the session hooks. There's no daemon — it runs on demand, invoked by you, by the hooks, or by the MCP server. **Nothing is ever deleted:** superseded content moves to the Archive and audit log.
+One Go binary runs the CLI, the MCP server, the hooks, and the TUI. They all share one core, so they behave identically.
 
-A Dossier may begin as a loose `spark`. During `define`, it becomes executable:
-the person doing the work should be able to proceed and know when they are
-finished. A single-deliverable Dossier uses its top-level Objective / Done When /
-Validation directly. When several contributions combine into one outcome,
-`## Deliverables` gives each one an owner and local completion check while
-shared context and Constraints remain in one place.
+## Configuration
 
-The installed `/dossier-delegate` skill uses delegation as that health
-checkpoint. Work gaps improve the canonical Dossier; `## Delegation Contracts`
-stores only Scope, Acceptance, Decision Rights, Escalation, and Return
-Expectations. Press `d` from a Dossier's detail view to inspect those terms.
-The TUI says `ready` or names the open terms—it never gives a completeness
-score. Existing seven-field contracts remain readable and are surfaced for
-explicit migration rather than silently rewritten.
+Settings live in `~/.dossier/config.yaml` (machine-local, never synced):
 
-## Good to know
+```yaml
+open_with: claude-code   # claude-code, cursor, codex, or antigravity
+interfaces: [Pricing WBR, "1:1", Steerco]
+leads: [Alice, Bob]
+token_limit: 100000
+```
 
-- **Team Sync (pilot).** Dossier includes an experimental, optionally team-synced mode so you can share a store with colleagues. It keeps your work local-first, pulling and pushing changes to a shared GitHub repo. For setup and how to join a team, see [`docs/team-sync-onboarding.md`](docs/team-sync-onboarding.md).
-- **Harness integrations and launch profiles.** Claude Code and Pi are integrated harnesses. Cursor, Codex, and Antigravity (`agy`) are available as launch profiles through `open_with`; their Dossier lifecycle capabilities depend on the agent's own MCP/session support and are not claimed by `dossier harness list` unless a native integration is added. Missing launch binaries fail visibly.
-- **Config lives in two files.** Hooks go in `~/.claude/settings.json`; the MCP server goes in `~/.claude.json` (the only place Claude Code reads user-scope MCP servers). Both store the absolute path of the stable binary — if you rebuild, rename, or move it, re-run `dossier install` then `dossier init` to re-bind, idempotently.
-- **Token counts are estimates.** Dossier uses a BPE tokenizer benchmarked against Opus 4.8; it won't match every model exactly. The token target is a configurable warning threshold (`token_limit` in `config.yaml`, default 100,000), not a hard cap — Dossier warns, it never silently truncates.
-- **Wiring it up by hand.** If you'd rather not let `init` edit your config: register the MCP server with `claude mcp add dossier -- dossier mcp serve`, and run `dossier hook session-start` to see what the start hook emits.
-- **Switching install methods.** `dossier install` (Option B) puts the binary at `~/.local/bin/dossier`; Homebrew (Option A) puts it under its own prefix (e.g. `/opt/homebrew/bin/dossier`). If both are present, whichever comes first on your `PATH` wins — `brew` will warn you ("shadowed by...") if that happens. Pick one method per machine to avoid confusion about which binary is actually running.
+## Uninstall
+
+```bash
+dossier harness uninstall claude-code   # remove the Claude Code integration
+brew uninstall dossier
+```
+
+Your data in `~/.dossier/` is left untouched.
 
 ## License
 
