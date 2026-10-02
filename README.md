@@ -60,11 +60,15 @@ Dossier names it, checks for duplicates, and creates it at medium priority.
 
 Run `dossier` with no arguments for a full-screen dashboard of your Dossiers, sorted by priority.
 
+![Dossier TUI table view](docs/screenshots/tui-table.png)
+
 - **Table or board:** press `v` to switch between a table and stage columns (spark → define → execute → review → blocked → done).
 - **Filter** by Lead or discussion interface with `f` — handy for meeting prep.
 - **Edit inline:** Lead, stage, priority, due date, next action.
 - **Link** sources and **merge** Dossiers, with conflicts shown side by side.
 - **Launch an agent** with `c`: a fresh session, already bound to the selected Dossier with its state loaded. Inside [herdr](https://herdr.dev), it opens in a new split pane.
+
+![Dossier TUI board view](docs/screenshots/tui-board.png)
 
 Press `?` for all shortcuts.
 
