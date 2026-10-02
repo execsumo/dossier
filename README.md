@@ -11,7 +11,9 @@ Agent sessions forget. Dossier doesn't. Promote a session into a **Dossier** and
 
 ## Install
 
-Requires Claude Code on macOS or Linux.
+Requires Claude Code on macOS, Linux, or Windows (Windows is experimental).
+
+**macOS / Linux**
 
 ```bash
 brew tap execsumo/tap
@@ -21,9 +23,19 @@ dossier init
 
 No Homebrew? Grab a binary from the [Releases page](https://github.com/execsumo/dossier/releases), make it executable, and run `./dossier init`.
 
+**Windows (PowerShell)**
+
+```powershell
+# use dossier-windows-arm64.exe on ARM machines
+curl.exe -L https://github.com/execsumo/dossier/releases/latest/download/dossier-windows-amd64.exe -o dossier.exe
+.\dossier.exe init
+```
+
+`init` copies Dossier to `%USERPROFILE%\.local\bin`. If `dossier` isn't found afterward, add that folder to your `PATH` and open a new terminal.
+
 `init` sets everything up: your workspace at `~/.dossier`, plus Dossier's MCP server and session hooks in Claude Code. It asks before changing anything, backs up every file it touches, and never overwrites your existing setup. Re-run it anytime; check on things with `dossier doctor`.
 
-Update with `brew upgrade dossier`.
+Update with `brew upgrade dossier`, or on Windows download the new `.exe` and run `.\dossier.exe init` again.
 
 ## Use it
 

@@ -2627,7 +2627,9 @@ func runInstall(destDir string, yesToAll bool) error {
 
 	if !isDirOnPath(destDir) {
 		fmt.Printf("Warning: Target directory %s is not in your PATH.\n", destDir)
-		if !yesToAll {
+		if runtime.GOOS == "windows" {
+			fmt.Printf("Add %s to your PATH and open a new terminal to run `dossier` directly.\n", destDir)
+		} else if !yesToAll {
 			fmt.Printf("Would you like to install to /usr/local/bin instead? [y/N]: ")
 			var resp string
 			_, _ = fmt.Scanln(&resp)
