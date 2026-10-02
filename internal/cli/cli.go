@@ -72,6 +72,23 @@ func NewRootCmd() *cobra.Command {
 
 	rootCmd.PersistentFlags().StringVar(&dossierHomeFlag, "home", "", "Override default Dossier home directory")
 
+	// A shared-state mutation is pushed in the background-equivalent way the MCP
+	// adapter does it: bounded, and a failure is loud but never fails the command
+	// (the change is already saved locally).
+	rootCmd.PersistentPostRun = func(cmd *cobra.Command, args []string) {
+		if !isSyncedMutation(cmd) {
+			return
+		}
+		svc, cfg, err := wireWithConfig(resolveHomeDir())
+		if err != nil || cfg.Team.Remote == "" || !svc.SyncConfigured() {
+			return
+		}
+		syncCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		res, syncErr := svc.Sync(syncCtx)
+		reportSyncFailure(cmd.ErrOrStderr(), "Team sync after this change", res, syncErr)
+	}
+
 	initCmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize the Dossier workspace and config",
@@ -1623,8 +1640,9 @@ func NewRootCmd() *cobra.Command {
 			ctx := context.Background()
 			if cfg.Team.Remote != "" {
 				syncCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-				_, _ = svc.Sync(syncCtx)
+				syncRes, syncErr := svc.Sync(syncCtx)
 				cancel()
+				reportSyncFailure(cmd.ErrOrStderr(), "Team sync", syncRes, syncErr)
 
 				if summary, herr := svc.LocalHealthSummary(ctx); herr == nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "Health: %s\n", summary.Line(time.Now()))
@@ -2710,4 +2728,48 @@ func normalizeLineFlag(v string) string {
 		parts[i] = p
 	}
 	return strings.Join(parts, "-")
+}
+
+// syncedMutations are the top-level commands that write shared state and so
+// should be pushed once they succeed. Sync, team create/join, bindings and
+// read-only commands are deliberately absent.
+var syncedMutations = map[string]bool{
+	"archive": true, "done": true, "promote": true, "link": true, "merge": true,
+	"resolve": true, "rename": true, "status": true, "lead": true,
+	"description": true, "interface": true, "monitor-polled": true, "next": true,
+	"priority": true, "update": true,
+}
+
+func isSyncedMutation(cmd *cobra.Command) bool {
+	if cmd.Parent() == nil {
+		return false
+	}
+	if cmd.Parent().Parent() == nil {
+		return syncedMutations[cmd.Name()]
+	}
+	// Roster edits are shared state too.
+	return cmd.Parent().Name() == "team" && (cmd.Name() == "add" || cmd.Name() == "remove")
+}
+
+// reportSyncFailure prints a loud, actionable line for a failed or incomplete
+// sync. Local work is never at risk, and the message says so.
+func reportSyncFailure(w io.Writer, what string, res core.Result, err error) {
+	reason := ""
+	switch {
+	case err != nil:
+		reason = err.Error()
+	default:
+		if report, ok := res.Data.(core.SyncReport); ok && report.Error != "" {
+			reason = report.Error
+		}
+	}
+	if reason == "" {
+		for _, warning := range res.Warnings {
+			if strings.Contains(string(warning), "sync conflict") {
+				fmt.Fprintf(w, "Warning: %s\n", warning)
+			}
+		}
+		return
+	}
+	fmt.Fprintf(w, "Warning: %s failed: %s. Your change is saved locally; run `dossier sync` to retry and `dossier doctor` for details.\n", what, reason)
 }

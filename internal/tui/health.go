@@ -22,6 +22,14 @@ func (m Model) healthCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), healthTimeout)
 		defer cancel()
+		// Push/pull any TUI edits made since the last tick; the outcome is
+		// persisted and shown in the footer line below, so the result is not
+		// discarded.
+		if m.svc.SyncConfigured() {
+			syncCtx, syncCancel := context.WithTimeout(ctx, 5*time.Second)
+			_, _ = m.svc.Sync(syncCtx)
+			syncCancel()
+		}
 		res, err := m.svc.Health(ctx)
 		if err != nil {
 			return healthMsg{err: err}

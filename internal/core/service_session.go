@@ -564,9 +564,13 @@ func (s *Service) SessionEndAs(ctx context.Context, sessionID, actor, distilledS
 	if s.syncer != nil {
 		syncCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		// Outcome is persisted via syncState and reported on the next SessionStart;
-		// do not add noise here, as this hook's output is likely invisible.
-		_, _ = s.Sync(syncCtx) // Best-effort bounded push
+		// The hook's output may be invisible, so the outcome is also persisted via
+		// syncState and reported on the next SessionStart; return it here too.
+		if res, serr := s.Sync(syncCtx); serr != nil {
+			warnings = append(warnings, Warning(fmt.Sprintf("Team sync failed at session end: %v. Your work is saved locally and will be sent on the next successful sync.", serr)))
+		} else if report, ok := res.Data.(SyncReport); ok && report.Error != "" {
+			warnings = append(warnings, Warning(fmt.Sprintf("Team sync failed at session end: %s. Your work is saved locally and will be sent on the next successful sync.", report.Error)))
+		}
 	}
 
 	return warnings, nil
