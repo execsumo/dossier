@@ -243,6 +243,28 @@ func HasOpenDelegationContract(body string) bool {
 	return false
 }
 
+// ContractRef is the list-level summary of one Delegation Contract: who owns
+// it and whether any field is still unsettled. It lets a list surface answer
+// "which dossiers hold a contract addressed to me" without a second body read.
+type ContractRef struct {
+	Owner string `json:"owner"`
+	Open  bool   `json:"open"`
+}
+
+// ContractRefs summarizes every Delegation Contract in body that names an
+// owner. Blocks whose header doesn't parse to an owner are skipped: they can't
+// be addressed to anyone.
+func ContractRefs(body string) []ContractRef {
+	var refs []ContractRef
+	for _, c := range ParseDelegationContracts(body) {
+		if strings.TrimSpace(c.Owner) == "" {
+			continue
+		}
+		refs = append(refs, ContractRef{Owner: c.Owner, Open: !c.Complete()})
+	}
+	return refs
+}
+
 // orderContractFields returns fields reordered (and gap-filled) to match
 // contractFieldLabels exactly, so a caller can always render or index the
 // same positions regardless of how the source text was written.

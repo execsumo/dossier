@@ -116,10 +116,19 @@ func (f leadFilter) matches(item core.ListItem) bool {
 	case filterUnassigned:
 		return item.Lead == ""
 	case filterByName:
-		return item.Lead == f.name
+		return item.Lead == f.name || containsString(item.ContractOwners, f.name)
 	default: // filterAll
 		return true
 	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, v := range values {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }
 
 // label is the human-facing name shown in the selector and dashboard.
@@ -1152,9 +1161,16 @@ func deriveLeadOptions(items []core.ListItem, configured ...[]string) []leadOpti
 		all++
 		if item.Lead == "" {
 			unassigned++
-			continue
+		} else {
+			counts[item.Lead]++
 		}
-		counts[item.Lead]++
+		// A contract owner who isn't the lead still finds the dossier under
+		// their own name; count each person once per dossier.
+		for _, owner := range item.ContractOwners {
+			if owner != item.Lead {
+				counts[owner]++
+			}
+		}
 	}
 
 	names := make([]string, 0, len(counts))

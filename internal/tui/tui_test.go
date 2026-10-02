@@ -1536,6 +1536,8 @@ func TestLeadFilterMatches(t *testing.T) {
 		{"unassigned rejects assigned", leadFilter{kind: filterUnassigned}, bob, false},
 		{"byName matches exact", leadFilter{kind: filterByName, name: "Bob"}, bob, true},
 		{"byName rejects other", leadFilter{kind: filterByName, name: "Bob"}, none, false},
+		{"byName matches contract owner", leadFilter{kind: filterByName, name: "Priya"}, core.ListItem{ID: "3", Lead: "Bob", ContractOwners: []string{"Priya"}}, true},
+		{"byName rejects non-owner", leadFilter{kind: filterByName, name: "Marco"}, core.ListItem{ID: "3", Lead: "Bob", ContractOwners: []string{"Priya"}}, false},
 	}
 
 	for _, tc := range cases {
@@ -3212,5 +3214,23 @@ func TestSummarizeWorkingFiles(t *testing.T) {
 	}
 	if got, want := summarizeWorkingFiles(files[:1]), "1 in files/ — a.pptx"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestDeriveLeadOptionsCountsContractOwners(t *testing.T) {
+	items := []core.ListItem{
+		{ID: "1", Name: "Alpha", Lead: "Bob", ContractOwners: []string{"Priya", "Bob"}},
+		{ID: "2", Name: "Beta", Lead: "Priya", ContractOwners: []string{"Priya"}},
+		{ID: "3", Name: "Gamma", Lead: "", ContractOwners: []string{"Priya"}},
+	}
+	counts := map[string]int{}
+	for _, opt := range deriveLeadOptions(items) {
+		if opt.filter.kind == filterByName {
+			counts[opt.filter.name] = opt.count
+		}
+	}
+	// Priya: contract on 1, lead and contract on 2 (once), contract on 3.
+	if counts["Priya"] != 3 || counts["Bob"] != 1 {
+		t.Fatalf("counts = %v, want Priya=3 Bob=1", counts)
 	}
 }

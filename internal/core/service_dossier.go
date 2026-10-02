@@ -1249,6 +1249,69 @@ func sortListedFrontmatters(items []ListedFrontmatter) {
 	})
 }
 
+// contractOwnerUsername resolves a contract header's owner to a roster
+// username when the roster can name them, else the normalized literal.
+func contractOwnerUsername(roster *Roster, hasRoster bool, owner string) string {
+	if hasRoster && roster != nil {
+		if username, ok, _ := roster.ResolvePerson(owner); ok {
+			return username
+		}
+	}
+	return NormalizeUsername(owner)
+}
+
+// contractOwnerNames returns the display names of a dossier's contract owners,
+// deduplicated and in document order.
+func (s *Service) contractOwnerNames(roster *Roster, hasRoster bool, refs []ContractRef) []string {
+	var names []string
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		name := strings.TrimSpace(ref.Owner)
+		if hasRoster && roster != nil {
+			if username, ok, _ := roster.ResolvePerson(ref.Owner); ok {
+				name = roster.DisplayName(username)
+			}
+		}
+		if name != "" && !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// leadScopeRoles reports why a dossier matches the active lead filter: as
+// lead and/or as owner of a Delegation Contract. It is nil when the filter is
+// inactive or nothing matches. "Assigned to me" covers both, so a contract
+// addressed to someone is findable without opening every dossier.
+func (s *Service) leadScopeRoles(roster *Roster, hasRoster bool, scope leadScope, lead string, refs []ContractRef) []string {
+	if !scope.active {
+		return nil
+	}
+	var roles []string
+	if scope.matches(lead) {
+		roles = append(roles, "lead")
+	}
+	var open, accepted bool
+	for _, ref := range refs {
+		if !scope.matches(contractOwnerUsername(roster, hasRoster, ref.Owner)) {
+			continue
+		}
+		if ref.Open {
+			open = true
+		} else {
+			accepted = true
+		}
+	}
+	if open {
+		roles = append(roles, "contract (open)")
+	}
+	if accepted {
+		roles = append(roles, "contract (accepted)")
+	}
+	return roles
+}
+
 func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 	fms, err := s.store.List("all")
 	if err != nil {
@@ -1275,6 +1338,7 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 		}, NewError(ErrAmbiguousTarget, fmt.Sprintf("lead %q is ambiguous; candidates: %s", strings.TrimSpace(req.Lead), strings.Join(candidates, ", ")))
 	}
 	leadMatches := 0
+	matchedByID := map[string][]string{}
 	attentionFilter := strings.ToLower(strings.TrimSpace(req.Attention))
 	if attentionFilter != "" && attentionFilter != "none" && attentionFilter != "fyi" && attentionFilter != "decide" && attentionFilter != "blocked" {
 		return Result{OK: false}, NewError(ErrInvalidFrontmatter, "attention filter must be none, fyi, decide, or blocked")
@@ -1289,7 +1353,8 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 				continue
 			}
 		}
-		if !scope.matches(fm.Lead) {
+		matchedAs := s.leadScopeRoles(roster, hasRoster, scope, fm.Lead, fm.ContractRefs)
+		if scope.active && len(matchedAs) == 0 {
 			continue
 		}
 		if scope.unresolved {
@@ -1311,11 +1376,15 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 			continue
 		}
 		if req.Status == "" {
-			if fm.Status.IsOpen() {
-				filtered = append(filtered, fm)
+			if !fm.Status.IsOpen() {
+				continue
 			}
-		} else if req.Status == "all" || string(fm.Status) == req.Status || fm.Status == NormalizeStatus(Status(req.Status)) {
-			filtered = append(filtered, fm)
+		} else if !(req.Status == "all" || string(fm.Status) == req.Status || fm.Status == NormalizeStatus(Status(req.Status))) {
+			continue
+		}
+		filtered = append(filtered, fm)
+		if scope.active {
+			matchedByID[fm.ID] = matchedAs
 		}
 	}
 
@@ -1366,6 +1435,8 @@ func (s *Service) List(ctx context.Context, req ListReq) (Result, error) {
 			Path:                      dossierPath,
 			Revision:                  listed.Revision,
 			HasOpenDelegationContract: listed.HasOpenDelegationContract,
+			ContractOwners:            s.contractOwnerNames(roster, hasRoster, listed.ContractRefs),
+			MatchedAs:                 matchedByID[fm.ID],
 		}
 		if links, ok := linksByID[fm.ID]; ok {
 			if includesListView(req.Include, "monitors") {

@@ -95,12 +95,22 @@ Share a store with your colleagues through a private GitHub repo — Dossier han
 - **Easy to join.** One command and a GitHub sign-in — no developer tools needed.
 - **Agents welcome.** Headless agents can join as their own team members.
 
+### Turn your local store into a team store
+
+1. Create an **empty, private** GitHub repo (no README or license).
+2. Run `dossier team create <repo-url> --name "Your Name"`.
+3. Sign in to GitHub if asked, review the list of Dossiers it will publish, and type `y`.
+4. Give each teammate repo access, then add them to the roster: `dossier team add <username> "Their Name"` and `dossier sync`. Only the manager (you) can change the roster. Send them the repo URL; they run `dossier team join <repo-url>`.
+5. Assign work with `dossier lead <slug> <username>`, or `dossier promote … --lead <username>`. Teammates find it with `dossier ls --mine`, which lists dossiers they lead **and** ones where they own a Delegation Contract (the `MATCHED AS` column says which).
+
+Your existing Dossiers become the shared ones, and everything in the store syncs, including archived Dossiers. Anyone with repo access can read it all. Machine-local files (`config.yaml`, session bindings, raw session captures) stay on your machine.
+
 ```bash
-dossier team create    # turn your store into a team store
-dossier team join <url>  # join one
+dossier team create <url> --name "Your Name"   # turn your store into a team store
+dossier team join <url>                        # join one
 ```
 
-Setup and onboarding: [`docs/team-sync-onboarding.md`](docs/team-sync-onboarding.md).
+Full setup, joining and day-to-day guide: [`docs/team-sync-onboarding.md`](docs/team-sync-onboarding.md).
 
 ## How it works
 

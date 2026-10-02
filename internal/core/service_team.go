@@ -100,11 +100,20 @@ func (s *Service) appendTeamAudit(actor, event, message string) error {
 	})
 }
 
-func (s *Service) rosterWarning(roster Roster) []Warning {
-	if roster.Manager == "" || NormalizeUsername(s.cfg.Author) == NormalizeUsername(roster.Manager) {
+// requireRosterManager rejects roster changes from anyone but the roster's
+// manager. A roster with no manager (a store that was never team-created) is
+// open so it can be bootstrapped. Like Authorize this guards a shared store
+// against mistakes; the actor identity is provenance, not authentication, and
+// repo access remains the real permission boundary.
+func requireRosterManager(actor string, roster Roster) error {
+	if strings.TrimSpace(roster.Manager) == "" {
 		return nil
 	}
-	return []Warning{Warning(fmt.Sprintf("You are not the roster's manager (%s); roster changes are conventionally manager-owned.", roster.Manager))}
+	_, identity, _ := strings.Cut(strings.TrimSpace(actor), ":")
+	if ActorIsHuman(actor) && NormalizeUsername(identity) == NormalizeUsername(roster.Manager) {
+		return nil
+	}
+	return NewError(ErrInvalidFrontmatter, fmt.Sprintf("only the team manager (%s) can change the team roster", roster.Manager))
 }
 
 // TeamAdd adds or restores a roster member. Usernames are stored normalized.
@@ -146,6 +155,9 @@ func (s *Service) TeamAddKindAs(ctx context.Context, actor, username, displayNam
 	if err != nil {
 		return Result{OK: false}, err
 	}
+	if err := requireRosterManager(actor, roster); err != nil {
+		return Result{OK: false}, err
+	}
 	before := cloneRoster(roster)
 	if roster.Members == nil {
 		roster.Members = map[string]string{}
@@ -165,7 +177,7 @@ func (s *Service) TeamAddKindAs(ctx context.Context, actor, username, displayNam
 		}
 		return Result{OK: false}, fmt.Errorf("team member change rolled back because audit failed: %w", err)
 	}
-	return Result{OK: true, Data: roster, Warnings: s.rosterWarning(roster)}, nil
+	return Result{OK: true, Data: roster}, nil
 }
 
 // TeamRemove moves a member to former rather than deleting their identity.
@@ -193,6 +205,9 @@ func (s *Service) TeamRemoveAs(ctx context.Context, actor, username string) (Res
 	if err != nil {
 		return Result{OK: false}, err
 	}
+	if err := requireRosterManager(actor, roster); err != nil {
+		return Result{OK: false}, err
+	}
 	before := cloneRoster(roster)
 	displayName, exists := roster.Members[username]
 	if !exists {
@@ -213,7 +228,7 @@ func (s *Service) TeamRemoveAs(ctx context.Context, actor, username string) (Res
 		}
 		return Result{OK: false}, fmt.Errorf("team member change rolled back because audit failed: %w", err)
 	}
-	return Result{OK: true, Data: roster, Warnings: s.rosterWarning(roster)}, nil
+	return Result{OK: true, Data: roster}, nil
 }
 
 // TeamCreate initializes the current store as a team store and pushes to the remote.

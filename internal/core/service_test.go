@@ -365,6 +365,7 @@ func (f *localFakeStore) List(filter string) ([]ListedFrontmatter, error) {
 		list = append(list, ListedFrontmatter{
 			Frontmatter:               d.Frontmatter,
 			HasOpenDelegationContract: HasOpenDelegationContract(d.DistilledState.Body),
+			ContractRefs:              ContractRefs(d.DistilledState.Body),
 		})
 	}
 	return list, nil

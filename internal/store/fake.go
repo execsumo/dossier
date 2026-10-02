@@ -155,6 +155,7 @@ func (f *FakeStore) List(statusFilter string) ([]core.ListedFrontmatter, error) 
 				Frontmatter:               d.Frontmatter,
 				Revision:                  f.Revisions[d.Frontmatter.ID],
 				HasOpenDelegationContract: core.HasOpenDelegationContract(d.DistilledState.Body),
+				ContractRefs:              core.ContractRefs(d.DistilledState.Body),
 			})
 		}
 	}

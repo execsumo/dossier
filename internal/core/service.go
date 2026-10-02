@@ -100,6 +100,12 @@ type ListItem struct {
 	// (guide.md §4) has a field that isn't yet [decided] — an attention signal
 	// a list surface can show without opening the dossier.
 	HasOpenDelegationContract bool `json:"has_open_delegation_contract"`
+	// ContractOwners are the display names of everyone who owns a Delegation
+	// Contract on this dossier (deduplicated, in document order).
+	ContractOwners []string `json:"contract_owners,omitempty"`
+	// MatchedAs says why the dossier matched an active lead filter: "lead",
+	// "contract (open)" and/or "contract (accepted)". Empty without a filter.
+	MatchedAs []string `json:"matched_as,omitempty"`
 }
 
 // SyncStatusData summarizes the team sync snapshot.

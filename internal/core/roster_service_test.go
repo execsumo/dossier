@@ -110,18 +110,14 @@ func TestServiceTeamAddRemoveAndFormerResolution(t *testing.T) {
 		localFakeStore: newLocalFakeStore(),
 		roster:         Roster{Manager: "hgill", Members: map[string]string{"hgill": "Herwin Gill"}, Former: map[string]string{}},
 	}
-	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{Author: "colleague"}, nil)
-	res, err := svc.TeamAdd(context.Background(), `ACME\PSmith`, "Priya Shah")
-	if err != nil {
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{Author: "hgill"}, nil)
+	if _, err := svc.TeamAdd(context.Background(), `ACME\PSmith`, "Priya Shah"); err != nil {
 		t.Fatalf("TeamAdd: %v", err)
-	}
-	if len(res.Warnings) != 1 || !strings.Contains(string(res.Warnings[0]), "hgill") {
-		t.Fatalf("non-manager warning = %v", res.Warnings)
 	}
 	if _, ok := store.roster.Members["psmith"]; !ok {
 		t.Fatalf("normalized member missing: %+v", store.roster)
 	}
-	if len(store.teamAudits) != 1 || store.teamAudits[0].Actor != "human:colleague" || store.teamAudits[0].Author != "colleague" {
+	if len(store.teamAudits) != 1 || store.teamAudits[0].Actor != "human:hgill" || store.teamAudits[0].Author != "hgill" {
 		t.Fatalf("team add audit = %+v", store.teamAudits)
 	}
 	if _, err := svc.TeamRemove(context.Background(), "PSMITH"); err != nil {
@@ -284,3 +280,59 @@ func (*teamTestSyncer) Status(context.Context) (SyncStatus, error)       { retur
 func (*teamTestSyncer) CheckRemoteEmpty(context.Context, string) error   { return nil }
 func (*teamTestSyncer) Create(context.Context, string, string) error     { return nil }
 func (*teamTestSyncer) Clone(context.Context, string, string, int) error { return nil }
+
+func TestServiceTeamRosterChangesRequireManager(t *testing.T) {
+	newStore := func() *rosterTestStore {
+		return &rosterTestStore{
+			localFakeStore: newLocalFakeStore(),
+			roster:         Roster{Manager: "hgill", Members: map[string]string{"hgill": "Herwin Gill", "psmith": "Priya Shah"}, Former: map[string]string{}},
+		}
+	}
+	tests := []struct {
+		name   string
+		author string
+		want   string
+		run    func(*Service) error
+	}{
+		{"non-manager add", "colleague", "hgill", func(s *Service) error {
+			_, err := s.TeamAdd(context.Background(), "newbie", "New Person")
+			return err
+		}},
+		{"non-manager remove", "colleague", "hgill", func(s *Service) error {
+			_, err := s.TeamRemove(context.Background(), "psmith")
+			return err
+		}},
+		{"agent actor add", "hgill", "human actor", func(s *Service) error {
+			_, err := s.TeamAddKindAs(context.Background(), "agent:sitroom", "newbie", "New Person", "human")
+			return err
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newStore()
+			svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{Author: tt.author}, nil)
+			err := tt.run(svc)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v, want rejection containing %q", err, tt.want)
+			}
+			if len(store.roster.Members) != 2 || len(store.roster.Former) != 0 || len(store.teamAudits) != 0 {
+				t.Fatalf("rejected change mutated state: roster=%+v audits=%+v", store.roster, store.teamAudits)
+			}
+		})
+	}
+
+	t.Run("manager matches case-insensitively", func(t *testing.T) {
+		store := newStore()
+		svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{Author: `ACME\HGill`}, nil)
+		if _, err := svc.TeamAdd(context.Background(), "newbie", "New Person"); err != nil {
+			t.Fatalf("manager add: %v", err)
+		}
+	})
+	t.Run("roster without a manager stays open", func(t *testing.T) {
+		store := &rosterTestStore{localFakeStore: newLocalFakeStore(), roster: Roster{Members: map[string]string{}, Former: map[string]string{}}}
+		svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{}, Config{Author: "anyone"}, nil)
+		if _, err := svc.TeamAdd(context.Background(), "newbie", "New Person"); err != nil {
+			t.Fatalf("add with no manager: %v", err)
+		}
+	})
+}

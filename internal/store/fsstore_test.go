@@ -243,6 +243,18 @@ func TestFSStoreListReportsOpenDelegationContract(t *testing.T) {
 	if got["dos_closed"] {
 		t.Error("expected dos_closed to report HasOpenDelegationContract = false")
 	}
+	for _, fm := range list {
+		switch fm.ID {
+		case "dos_open":
+			if len(fm.ContractRefs) != 1 || fm.ContractRefs[0] != (core.ContractRef{Owner: "A", Open: true}) {
+				t.Errorf("dos_open ContractRefs = %+v, want one open contract owned by A", fm.ContractRefs)
+			}
+		case "dos_closed":
+			if len(fm.ContractRefs) != 0 {
+				t.Errorf("dos_closed ContractRefs = %+v, want none", fm.ContractRefs)
+			}
+		}
+	}
 }
 
 func TestParseDossierFileRejectsHistoricalAliases(t *testing.T) {

@@ -22,6 +22,9 @@ type ListedFrontmatter struct {
 	// HasOpenDelegationContract reports whether any `## Delegation Contracts`
 	// block in the body has a field that isn't yet [decided] (guide.md §4).
 	HasOpenDelegationContract bool
+	// ContractRefs lists the owner and open state of each Delegation Contract,
+	// so the lead filter can also match contract owners.
+	ContractRefs []ContractRef
 }
 
 // Store defines the CRUD contract for persistence.

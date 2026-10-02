@@ -21,6 +21,36 @@ A **shared team store** is that memory, shared with your colleagues. Everyone's 
 
 Your work is saved on your own machine first, and only then shared. Nothing you do is ever lost.
 
+## Setting up a team store (the person who starts it)
+
+Already have a local Dossier store and want to share it? You turn that store into the team store. Your existing Dossiers become the shared ones. You do this once. Teammates then follow "Joining the team store" below.
+
+**Before you run it:**
+
+- **Everything syncs.** Every live and archived Dossier, plus their history, conflicts, artifacts and audit trail, goes into the repo. There is no per-Dossier private setting. If some Dossiers are personal, keep them out of this store (archive or move them first, or use a separate `DOSSIER_HOME` for them).
+- **Anyone with access to the repo can read all of it.** Repo access is the permission model.
+- **Some things stay on your machine:** `config.yaml`, session bindings, raw per-Dossier session captures and generated context. Artifacts over 100 MB are skipped with a warning.
+- **Optional backup:** `cp -r ~/.dossier ~/.dossier.bak`. Nothing is deleted, but publishing can't be undone.
+
+**Steps:**
+
+1. **Install Dossier and the GitHub CLI (`gh`)**, as in "Before you start" below.
+2. **Create an empty private repository on GitHub.** Don't add a README, `.gitignore` or license. Copy its URL, for example `https://github.com/your-org/team-dossier`.
+3. **Run:**
+
+   ```text
+   dossier team create <repo-url> --name "Your Name"
+   ```
+
+   `--name` is how teammates will see you. If you leave it out, Dossier asks.
+4. **Sign in to GitHub if asked.** Your browser opens once; paste the one-time code and click **Authorize**.
+5. **Check the list and confirm.** Dossier checks that the repo is empty, then lists every Dossier it will publish. Type `y` to continue. Use `-y` to skip the prompt, for example in a script.
+6. **Done.** Your store is pushed, you're the team manager, and the repo address is saved in your local `config.yaml`.
+7. **Invite teammates.** Follow the "Manager checklist for a new teammate" below for each person. Only the manager can add or remove roster members; anyone else running `team add` or `team remove` is refused with a message naming the manager.
+8. **Assign work.** Set a Dossier's lead with `dossier lead <slug> <username>` (or `dossier promote … --lead <username>`). The lead must be a current roster member, and the roster username always works. Delegation Contracts name their owner inside the Dossier (`### <task> — owner: <name>`).
+
+If `create` fails (repo not empty, no access, no network), it says why. Fix the cause and run the same command again.
+
 ## Before you start (once)
 
 1. **Accept the GitHub invitation.** Whoever set up the team store adds you to its private GitHub repository. GitHub emails you an invitation; accept it.
@@ -52,7 +82,7 @@ Replace `<link>` with the link you were given. The command:
 
 1. Add them to the GitHub repository (Settings → Collaborators).
 2. Add them to the roster: `dossier team add <their username> "<Their Name>"`, then `dossier sync`. Their username is their work login name (what `id -un` shows on a Mac, or the part after the `\` in `whoami` on Windows).
-3. Send them the store link and this page.
+3. Send them the store link and this page. (Only you, the manager, can add or remove roster members.)
 4. After they join, have them open Claude in their usual work folder and ask "what's assigned to me?". Check that it finds their first assignment and binds it.
 
 ### Starting work on an assignment (primary path)
@@ -63,7 +93,9 @@ You don't need any Dossier commands or topic IDs.
 2. Ask for your work in plain words, for example "What's assigned to me?" or "Let's continue the pricing review." Claude knows who you are from your computer's login name. Claude finds the Dossier, loads its brief and starts from there. If more than one topic matches, it will ask you which one.
 3. As decisions and results come in, ask Claude to save them to the Dossier. The end of a session does not save anything on its own.
 
-Prefer a list? Run `dossier sync`, then `dossier tui`. Press `f` to show only your topics, and `c` to open one in Claude. The list shows only what has already reached your machine, which is why you sync first.
+Prefer a list? Run `dossier sync`, then `dossier ls --mine`. It lists every topic you lead **and** every topic where you own a Delegation Contract, and the `MATCHED AS` column says which: `lead`, `contract (open)` (a field still needs settling, often your acceptance) or `contract (accepted)`. In the dashboard (`dossier tui`), press `f` and pick your own name for the same view, then `c` to open a topic in Claude. Asking Claude "what's assigned to me?" covers contracts too. The list shows only what has already reached your machine, which is why you sync first.
+
+To read the terms, open the topic and press `d` in the dashboard, or ask Claude to show your Delegation Contract.
 
 ### About sign-in
 

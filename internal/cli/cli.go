@@ -406,8 +406,14 @@ func NewRootCmd() *cobra.Command {
 				return
 			}
 
-			fmt.Printf("%-30s %-15s %-11s %-8s %-5s %s\n", "NAME/SLUG", "LEAD", "STATUS", "PRIORITY", "DUE", "NEXT ACTION")
-			fmt.Println(strings.Repeat("-", 96))
+			showRole := leadFilter != ""
+			if showRole {
+				fmt.Printf("%-30s %-15s %-11s %-8s %-5s %-28s %s\n", "NAME/SLUG", "LEAD", "STATUS", "PRIORITY", "DUE", "NEXT ACTION", "MATCHED AS")
+				fmt.Println(strings.Repeat("-", 140))
+			} else {
+				fmt.Printf("%-30s %-15s %-11s %-8s %-5s %s\n", "NAME/SLUG", "LEAD", "STATUS", "PRIORITY", "DUE", "NEXT ACTION")
+				fmt.Println(strings.Repeat("-", 96))
+			}
 			for _, item := range items {
 				nameOrSlug := item.Name
 				if nameOrSlug == "" {
@@ -429,6 +435,10 @@ func NewRootCmd() *cobra.Command {
 					nextAction = nextAction[:25] + "..."
 				}
 
+				if showRole {
+					fmt.Printf("%-30s %-15s %-11s %-8s %-5s %-28s %s\n", nameOrSlug, lead, item.Status, item.Priority, item.DueDate, nextAction, strings.Join(item.MatchedAs, ", "))
+					continue
+				}
 				fmt.Printf("%-30s %-15s %-11s %-8s %-5s %s\n", nameOrSlug, lead, item.Status, item.Priority, item.DueDate, nextAction)
 			}
 			printListWarnings()
@@ -437,10 +447,10 @@ func NewRootCmd() *cobra.Command {
 	lsCmd.Flags().StringVar(&statusFlag, "status", "", "Filter by status (spark|define|execute|review|blocked|done|all)")
 	lsCmd.Flags().StringSliceVar(&interfacesFlag, "interface", nil, "Filter by interface (repeat or comma-separate)")
 	lsCmd.Flags().StringVarP(&queryFlag, "query", "q", "", "Filter by name, description, lead, interface, or slug")
-	lsCmd.Flags().StringVar(&listLeadFlag, "lead", "", "Filter by lead (username, display name, or \"me\")")
+	lsCmd.Flags().StringVar(&listLeadFlag, "lead", "", "Filter by lead or Delegation Contract owner (username, display name, or \"me\")")
 	lsCmd.Flags().StringSliceVar(&listIncludeFlag, "include", nil, "Include parsed list views: monitors, references (repeat or comma-separate)")
 	lsCmd.Flags().StringVar(&listAttentionFlag, "attention", "", "Filter by attention: none|fyi|decide|blocked")
-	lsCmd.Flags().BoolVar(&mineFlag, "mine", false, "Show dossiers assigned to the current user")
+	lsCmd.Flags().BoolVar(&mineFlag, "mine", false, "Show dossiers assigned to the current user, as lead or as a Delegation Contract owner")
 	lsCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
 	var changesSince string

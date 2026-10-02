@@ -84,7 +84,7 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 	return []ToolDefinition{
 		{
 			Name:        "dossier_list",
-			Description: "List open dossiers sorted by priority (max, high, medium, low). When the user says me, mine, or assigned to me, use lead: me; if several match, ask which one.",
+			Description: "List open dossiers sorted by priority (max, high, medium, low). When the user says me, mine, or assigned to me, use lead: me (it includes dossiers where they own a Delegation Contract); if several match, ask which one.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -94,7 +94,7 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 					},
 					"lead": map[string]any{
 						"type":        "string",
-						"description": "Filter by lead: use me for the current user, or a teammate's username, display name, or unique first name. An ambiguous name returns ambiguous_target with the candidates.",
+						"description": "Filter by lead or Delegation Contract owner: use me for the current user, or a teammate's username, display name, or unique first name. Each item's matched_as says whether the person leads it, owns an open contract, or owns an accepted one. An ambiguous name returns ambiguous_target with the candidates.",
 					},
 					"attention":  map[string]any{"type": "string", "enum": []string{"none", "fyi", "decide", "blocked"}, "description": "Filter by principal attention level"},
 					"interfaces": configuredStringListSchema(interfaces, "Filter by discussion interface; matches dossiers assigned to any supplied interface"),

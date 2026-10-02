@@ -334,6 +334,7 @@ func (s *FSStore) List(statusFilter string) ([]core.ListedFrontmatter, error) {
 			Frontmatter:               *fm,
 			Revision:                  core.CalculateRevision(*fm, body, artifacts),
 			HasOpenDelegationContract: core.HasOpenDelegationContract(body),
+			ContractRefs:              core.ContractRefs(body),
 		})
 		return nil
 	})
