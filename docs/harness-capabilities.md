@@ -301,3 +301,29 @@ Users can install the Dossier binary to a stable PATH location using the `dossie
   }
 }
 ```
+
+## 4. herdr (terminal multiplexer) — verified 2026-10-06, herdr 0.9.3
+
+Checked against the live herdr server on the owner's machine (`HERDR_ENV=1`), using
+throwaway tabs that were closed afterwards. These facts support [ADR 0014](adr/0014-herdr-tab-switcher.md).
+Command syntax comes from the installed binary (`herdr <group>` with no subcommand prints
+usage, and `herdr --skill` prints the agent guide). `herdr <group> <sub> --help` does **not**
+work; it prints the top-level usage.
+
+| Fact | Result |
+|---|---|
+| `herdr agent list` scope | Every live agent on the server, across all workspaces. Each entry has `pane_id`, `tab_id`, `workspace_id`, `agent_status` (`idle\|working\|blocked\|done\|unknown`), `state_change_seq`, `cwd`, `name` (if set), `agent_session {agent, kind, source, value}` |
+| Claude session id | `agent_session = {kind: "id", value: <uuid>}`, which **equals the `--session-id` Dossier passed**. Verified via `herdr agent start … -- --session-id <uuid>` and via `herdr pane run <pane> "exec env CLAUDE_CODE_SESSION_ID= claude --session-id <uuid>"` (the `HandoffPlan.ShellLine()` shape). The id appears within a few seconds; status goes `unknown` → `idle` |
+| Pi session id | `agent_session = {kind: "path", value: "~/.pi/agent/sessions/<cwd-key>/<ts>_<pi-session-id>.jsonl"}`. Dossier's Pi bindings are keyed by `<pi-session-id>` (ADR 0009; e.g. `~/.dossier/sessions/01a0a863-….json`) |
+| Other kinds | Not checked (Cursor, Codex, Antigravity). Their reported id may differ from Dossier's `DOSSIER_SESSION`; ADR 0014's in-memory launched map covers them |
+| `herdr tab create --workspace <ws> --cwd <dir> --label <text> --env K=V --no-focus\|--focus` | Returns `.result.tab.tab_id` and `.result.root_pane.pane_id`. `--env` reaches the shell; `--env K=` sets an empty value (not unset) |
+| `herdr agent focus <pane_id\|name>` | Switches to the agent's **tab** and focuses its pane (verified across tabs). Marks a `done` agent as seen |
+| Exit with `pane run "exec …"` | The process replaces the shell, so the **tab closes** when the agent exits |
+| Exit with `herdr agent start` | The agent is typed into the shell; after exit the **tab stays open with an idle shell** |
+| `herdr agent start` binary | Runs the kind's command name (`argv: ["claude", …]`), so it would bypass `$DOSSIER_CLAUDE_BIN` |
+| Exiting Claude from outside | `herdr agent prompt <target> "/exit"` exits. Two `ctrl+c` key presses through `agent send-keys` did **not** exit Claude Code (2026-10) |
+| `herdr tab close <tab_id>` | `{"type":"ok"}`. Only close tabs Dossier created (herdr's guidance) |
+
+Still unverified: the old split path (`pane split --current --direction right --cwd --focus`)
+that HANDOFF flagged on 2026-09-30. ADR 0014 replaces it with `tab create`, so it only needs
+checking if the split launch is kept as an option.
