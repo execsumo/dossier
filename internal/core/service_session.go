@@ -160,6 +160,24 @@ func (s *Service) Active(ctx context.Context, req ActiveReq) (Result, error) {
 	}, nil
 }
 
+// SessionDossiers maps each session id that has a binding to its Dossier id.
+// Ids with no readable binding are omitted: the caller (the TUI's herdr
+// switcher, ADR 0014) is asking which live agents belong to which Dossier, and
+// an agent without a binding belongs to none. Unreadable binding files are
+// doctor's to report, not this lookup's.
+func (s *Service) SessionDossiers(sessionIDs []string) map[string]string {
+	out := make(map[string]string, len(sessionIDs))
+	for _, id := range sessionIDs {
+		if id == "" {
+			continue
+		}
+		if b, err := s.store.GetSessionBinding(id); err == nil && b != nil && b.DossierID != "" {
+			out[id] = b.DossierID
+		}
+	}
+	return out
+}
+
 type ArchiveReq struct {
 	Actor string
 	ID    string

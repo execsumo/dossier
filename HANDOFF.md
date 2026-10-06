@@ -18,7 +18,7 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 
 ## Current state
 
-> **Next to build: session switcher + repo resolution (decided 2026-10-06, NOT BUILT).** [ADR 0014](docs/adr/0014-herdr-tab-switcher.md) / B26: inside herdr, the TUI's `c` focuses the Dossier's live agent or opens a new one in a new herdr tab, with status badges and `C`/`]`/`[`. [ADR 0015](docs/adr/0015-repo-identity-and-local-resolution.md) / B27: synced `repos` frontmatter plus machine-local path resolution, so agents start in the code repo. The herdr facts these rely on were verified live on 2026-10-06 (`docs/harness-capabilities.md` §4). Build order and checklist: "What remains" → "Roadmap: session switcher and repo resolution" below. SPEC, `docs/tui.md` and ARCHITECTURE are **not** updated yet; update them as each piece ships.
+> **Session switcher built; repo resolution next (2026-10-06, branch `feat/session-switcher`).** [ADR 0014](docs/adr/0014-herdr-tab-switcher.md) / B26 is **implemented**: inside herdr, the TUI's `c` focuses the Dossier's live agent or opens one in a new tab labelled with the slug, `C` always opens another, `]`/`[` cycle, and list/board badges come from a 2 s `herdr agent list` poll. Unit tests cover the join, picking, cycling, badges, poll failure and launched-pane pruning. A manual check in real herdr 0.9.3 passed: tab opened and focused, ▲ badge for a blocked agent, second `c` focused the existing tab with no new binding, exiting closed the tab and cleared the badge. SPEC §3.2, ARCHITECTURE §8 and README are updated. [ADR 0015](docs/adr/0015-repo-identity-and-local-resolution.md) / B27 (repo identity, agents start in the code repo) is **not built yet**; see "What remains" → "Roadmap: session switcher and repo resolution".
 >
 > **Team Sync loudness pass (2026-10-01):** closes the plan's "background results are discarded" and "CLI/TUI don't sync" gaps (see D8 below). Headless `team join` (token file, no TTY/gh) is covered by `internal/cli/team_headless_join_test.go`. `docs/team-sync-plan.md`'s status banner is superseded by this; live-GitHub validation (SPEC §14.11) is still outstanding.
 > **Contract discoverability + manager-only roster (2026-10-01, B25):** the lead filter (`ls --mine`/`--lead`, `dossier_list.lead`, TUI lead selector) now also matches Delegation Contract owners, with `matched_as` and `contract_owners` on each item and a MATCHED AS column in `ls`; `team add`/`remove` are refused unless the actor is the roster manager. Unit tests for both plus a CLI smoke against a throwaway store; not exercised against a live team store. The `!` marker semantics are unchanged (still any open contract).
@@ -265,11 +265,11 @@ Implementation of every shipped milestone is complete. Three features are on the
 
 The explicitly deferred items remain listed in `BUILD-DECISIONS.md`, `PRD.md`, and the delegation design above.
 
-### Roadmap: session switcher and repo resolution (decided 2026-10-06, not started)
+### Roadmap: session switcher and repo resolution (decided 2026-10-06; 0014 done, 0015 not started)
 
 Designs, verified facts and acceptance criteria are in the ADRs; this is the build order.
 
-1. **ADR 0014 — herdr tab switcher (B26).** No schema change, so ship first.
+1. **ADR 0014 — herdr tab switcher (B26). DONE 2026-10-06.** No schema change, so it shipped first.
    - `internal/harness/herdr.go`: parse `agent list`, derive session keys (Claude `kind:id`; Pi uuid from `kind:path`), join against bindings, `TabCreate`, `AgentFocus`. Drop the workspace rename in `labelHerdr`.
    - TUI: `c` focus-or-open, `C` always new, `]`/`[` cycle, ~2 s badge poll, in-memory launched map; herdr failure falls back to the exec launch.
    - Then update SPEC (the `open_with` paragraph in §3.2), `docs/tui.md` (keys, badge legend) and ARCHITECTURE.

@@ -1,7 +1,7 @@
 # ADR 0014: Dossier as a session switcher over herdr tabs
 
 ## Status
-Accepted (2026-10-06). **Not yet implemented.** Amends [ADR 0006](0006-tui-open-in-claude.md)
+Accepted (2026-10-06). **Implemented 2026-10-06** (`internal/harness/herdr.go`, `internal/tui/agents.go`). Amends [ADR 0006](0006-tui-open-in-claude.md)
 and replaces the herdr right-split launch (HANDOFF, 2026-09-30). Behaviour outside herdr is
 unchanged.
 
@@ -98,13 +98,18 @@ different from the one Dossier minted:
 - **Cursor, Codex and Antigravity:** these carry the minted id in `DOSSIER_SESSION`, but herdr
   reports the harness's own id, which may never match.
 
-An entry is valid only while its pane is still in `agent list`. The map is discarded when the
+An entry counts only while its pane is in `agent list`. It is pruned once the pane has been
+absent for longer than a 30 s detection grace period, because a freshly launched agent takes a
+few seconds to appear. It also covers **Claude before its folder-trust prompt is answered**:
+until then herdr reports no `agent_session` (observed 2026-10-06), so the binding join cannot
+match. The map is discarded when the
 TUI exits. That is acceptable: after a restart, a non-Claude session started by the previous
 TUI matches again once it has bound itself, and otherwise the next `c` opens a new one.
 
 ### Status badges
-While the TUI is visible and `HERDR_ENV=1`, it polls `herdr agent list` every ~2 s (one
-process call) and marks each Dossier that has a matched agent:
+While the TUI runs with `HERDR_ENV=1`, it polls `herdr agent list` every ~2 s (one process
+call, 5 s timeout). herdr does not tell a pane whether it is visible, so the TUI polls even
+from a background tab and marks each Dossier that has a matched agent:
 
 - `●` working
 - `▲` needs you (`blocked`)
@@ -113,8 +118,9 @@ process call) and marks each Dossier that has a matched agent:
 - `?` unknown
 
 A Dossier with several agents shows the most urgent status (`blocked` > `done` > `working` >
-`idle`). A failed poll keeps the last known badges, dims them, and shows one footer warning.
-It never blanks them silently.
+`idle`). A failed poll keeps the last known badges and shows one warning that they may be stale.
+It never blanks them silently. Table cells are truncated before styling, so badges are
+plain glyphs and are not dimmed.
 
 ### Cycling
 `]` and `[` focus the next or previous Dossier that has a live agent, in the current list

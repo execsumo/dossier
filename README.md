@@ -66,7 +66,7 @@ Run `dossier` with no arguments for a full-screen dashboard of your Dossiers, so
 - **Filter** by Lead or discussion interface with `f` — handy for meeting prep.
 - **Edit inline:** Lead, stage, priority, due date, next action.
 - **Link** sources and **merge** Dossiers, with conflicts shown side by side.
-- **Launch an agent** with `c`: a fresh session, already bound to the selected Dossier with its state loaded. Inside [herdr](https://herdr.dev), it opens in a new split pane.
+- **Launch an agent** with `c`: a fresh session, already bound to the selected Dossier with its state loaded. Inside [herdr](https://herdr.dev), Dossier becomes a session switcher. Each agent gets its own tab. `c` jumps to a Dossier's running agent (or opens one), `C` always opens another, and `]`/`[` hop between agents. Badges show which agents are working (`●`), need you (`▲`), are done (`✓`) or idle (`○`).
 
 ![Dossier TUI board view](docs/screenshots/tui-board.png)
 

@@ -527,8 +527,19 @@ type Model struct {
 	planOpenWith               func(string, harness.LaunchRequest) (harness.HandoffPlan, error)
 	execProcess                func(*exec.Cmd, tea.ExecCallback) tea.Cmd
 	inHerdr                    func() bool
-	launchInHerdr              func(harness.HandoffPlan) error
+	launchInHerdr              func(harness.HandoffPlan) (string, error)
+	listHerdrAgents            func() ([]harness.HerdrAgent, error)
+	focusHerdrAgent            func(string) error
 	openURL                    func(string) tea.Cmd
+
+	// herdr session switcher (ADR 0014). agentMatches is the last poll's live
+	// agents grouped by Dossier id; it drives the list badges and ]/[ cycling.
+	// herdrLaunched maps pane ids to Dossier ids for agents this process opened,
+	// covering harnesses whose reported session id is not the one Dossier
+	// minted. It is a map, so copies of the Model share it; it is never persisted.
+	agentMatches  map[string][]harness.HerdrAgent
+	agentPollErr  error
+	herdrLaunched map[string]herdrLaunch
 
 	watcher      *fsnotify.Watcher
 	updateChan   chan watcherEvent
@@ -663,10 +674,13 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		persistConfiguredInterface: func(name string) error {
 			return persistInterfaceToConfig(filepath.Join(svc.DossierHome(), "config.yaml"), name)
 		},
-		execProcess:   tea.ExecProcess,
-		inHerdr:       harness.InHerdr,
-		launchInHerdr: harness.LaunchInHerdr,
-		openURL:       launchExternalURL,
+		execProcess:     tea.ExecProcess,
+		inHerdr:         harness.InHerdr,
+		launchInHerdr:   harness.LaunchInHerdrTab,
+		listHerdrAgents: harness.ListHerdrAgents,
+		focusHerdrAgent: harness.FocusHerdrAgent,
+		herdrLaunched:   map[string]herdrLaunch{},
+		openURL:         launchExternalURL,
 	}
 	if err != nil {
 		m.watcherErr = fmt.Errorf("filesystem watcher unavailable: %w", err)
@@ -763,7 +777,11 @@ func (m *Model) ensureWatch(path string) {
 
 // Init initializes the tea program, triggering initial loads.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.listDossiersCmd(), m.healthCmd(), healthTick(), waitForUpdate(m.updateChan))
+	cmds := []tea.Cmd{m.listDossiersCmd(), m.healthCmd(), healthTick(), waitForUpdate(m.updateChan)}
+	if m.inHerdr() {
+		cmds = append(cmds, m.agentPollCmd(), agentPollTick())
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m Model) nextRequestID() uint64 {
@@ -1130,12 +1148,14 @@ func (m Model) openInAgent(t targetDossier) (tea.Model, tea.Cmd) {
 
 	id, fromView := t.id, m.currentView
 	if m.inHerdr() {
-		// Inside herdr the agent gets its own split pane and the TUI keeps running.
-		// If herdr can't do it, fall back to taking over this terminal (see
-		// herdrLaunchMsg) rather than leaving a binding for a session that never starts.
+		// Inside herdr the agent gets its own tab and the TUI keeps running as the
+		// switcher (ADR 0014). If herdr can't do it, fall back to taking over this
+		// terminal (see herdrLaunchMsg) rather than leaving a binding for a
+		// session that never starts.
 		launch := m.launchInHerdr
 		return m, func() tea.Msg {
-			return herdrLaunchMsg{err: launch(plan), plan: plan, id: id, fromView: fromView}
+			paneID, err := launch(plan)
+			return herdrLaunchMsg{err: err, paneID: paneID, plan: plan, id: id, fromView: fromView}
 		}
 	}
 	return m, m.execProcess(plan.Command(), func(err error) tea.Msg {
@@ -1963,8 +1983,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "c":
 			if m.isListView() || m.currentView == ViewDetail {
 				if t, ok := m.getTargetDossier(); ok && t.id != "" {
+					if m.inHerdr() {
+						// Focus the Dossier's live agent if it has one; otherwise
+						// open a new one (herdrPickMsg).
+						return m, m.pickHerdrAgentCmd(t)
+					}
 					return m.openInAgent(t)
 				}
+			}
+		case "C":
+			// Always a new session, even when the Dossier already has one.
+			if m.isListView() || m.currentView == ViewDetail {
+				if t, ok := m.getTargetDossier(); ok && t.id != "" {
+					return m.openInAgent(t)
+				}
+			}
+		case "]", "[":
+			if m.inHerdr() && (m.isListView() || m.currentView == ViewDetail) {
+				return m.cycleAgent(msg.String() == "]")
 			}
 		case "x":
 			if m.isListView() || m.currentView == ViewDetail {
@@ -2383,15 +2419,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case herdrLaunchMsg:
 		if msg.err != nil {
-			m.warnings = []core.Warning{core.Warning("herdr split failed (" + msg.err.Error() + "); opening in this terminal instead")}
+			m.warnings = []core.Warning{core.Warning("herdr tab failed (" + msg.err.Error() + "); opening in this terminal instead")}
 			id, fromView := msg.id, msg.fromView
 			return m, m.execProcess(msg.plan.Command(), func(err error) tea.Msg {
 				return agentFinishedMsg{err: err, id: id, fromView: fromView}
 			})
 		}
+		m.recordHerdrLaunch(msg.paneID, msg.id)
 		m.noticeSeq++
 		m.warnings = []core.Warning{core.Warning(herdrOpenedNotice)}
-		return m, clearNoticeAfter(m.noticeSeq, noticeDuration)
+		return m, tea.Batch(clearNoticeAfter(m.noticeSeq, noticeDuration), m.agentPollCmd())
+
+	case herdrPickMsg:
+		if msg.agent == nil {
+			if msg.err != nil {
+				m.warnings = []core.Warning{core.Warning("could not check herdr for a running agent (" + msg.err.Error() + "); opening a new one")}
+			}
+			return m.openInAgent(msg.target)
+		}
+		focus, pane := m.focusHerdrAgent, msg.agent.PaneID
+		return m, func() tea.Msg { return herdrFocusMsg{err: focus(pane)} }
+
+	case herdrFocusMsg:
+		if msg.err != nil {
+			m.err = fmt.Errorf("herdr could not focus the agent: %w", msg.err)
+		}
+		return m, nil
+
+	case agentPollTickMsg:
+		return m, tea.Batch(m.agentPollCmd(), agentPollTick())
+
+	case agentPollMsg:
+		if msg.err != nil {
+			// Keep the last known badges; say once that they may be stale.
+			if m.agentPollErr == nil {
+				m.warnings = append(m.warnings, core.Warning("herdr agent status unavailable ("+msg.err.Error()+"); badges may be stale"))
+			}
+			m.agentPollErr = msg.err
+			return m, nil
+		}
+		m.agentPollErr = nil
+		m.pruneHerdrLaunched(msg.agents)
+		matches := harness.MatchHerdrAgents(msg.agents, msg.bound, m.launchedSnapshot())
+		if agentBadgeSignature(matches) != agentBadgeSignature(m.agentMatches) {
+			m.agentMatches = matches
+			m.populateTableRows()
+		} else {
+			m.agentMatches = matches
+		}
+		return m, nil
 
 	case clearNoticeMsg:
 		// Only the notice this timer was started for may be cleared: a newer launch
@@ -2478,7 +2554,7 @@ type editorFinishedMsg struct {
 }
 
 // herdrOpenedNotice is informational, not a problem, so it clears itself.
-const herdrOpenedNotice = "opened the agent in a new herdr pane to the right"
+const herdrOpenedNotice = "opened the agent in a new herdr tab"
 
 // noticeDuration is how long a transient notice stays in the status area.
 const noticeDuration = 5 * time.Second
@@ -2490,10 +2566,11 @@ func clearNoticeAfter(seq int, d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return clearNoticeMsg{seq: seq} })
 }
 
-// herdrLaunchMsg reports the outcome of opening the agent in a herdr split. On
+// herdrLaunchMsg reports the outcome of opening the agent in a herdr tab. On
 // failure the plan is carried along so Update can fall back to an in-place exec.
 type herdrLaunchMsg struct {
 	err      error
+	paneID   string
 	plan     harness.HandoffPlan
 	id       string
 	fromView View
@@ -2553,7 +2630,7 @@ func formatLeadLabel(lead string) string {
 // itemTableRow builds a single dossier row. Cells mirror the column order
 // Dossier, [Priority], Stage, Lead, [Due]; the optional cells are included only
 // when the corresponding column is shown.
-func itemTableRow(item core.ListItem, showPriority, showDue bool) table.Row {
+func itemTableRow(item core.ListItem, badge string, showPriority, showDue bool) table.Row {
 	if item.ID == "" {
 		row := table.Row{item.Name}
 		if showPriority {
@@ -2595,6 +2672,9 @@ func itemTableRow(item core.ListItem, showPriority, showDue bool) table.Row {
 	if item.HasOpenDelegationContract {
 		name = "! " + name
 	}
+	if badge != "" {
+		name = badge + " " + name
+	}
 	row := table.Row{name}
 	if showPriority {
 		row = append(row, priorityStr)
@@ -2633,13 +2713,13 @@ func (m *Model) populateTableRows() {
 
 	rows := make([]table.Row, 0, len(m.visibleItems)+1)
 	for _, item := range m.visibleItems[:m.liveCount] {
-		rows = append(rows, itemTableRow(item, showPriority, showDue))
+		rows = append(rows, itemTableRow(item, m.agentBadge(item.ID), showPriority, showDue))
 	}
 	if m.extrasCount > 0 {
 		rows = append(rows, extrasToggleTableRow(m.extrasExpanded || !m.searchQuery.IsEmpty(), showPriority, showDue))
 	}
 	for _, item := range m.visibleItems[m.liveCount:] {
-		rows = append(rows, itemTableRow(item, showPriority, showDue))
+		rows = append(rows, itemTableRow(item, m.agentBadge(item.ID), showPriority, showDue))
 	}
 
 	m.table.SetRows(rows)

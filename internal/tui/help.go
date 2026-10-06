@@ -121,6 +121,15 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 		shortContextual = contextual
 	}
 
+	if v == ViewDashboard || v == ViewKanban || v == ViewDetail {
+		// The herdr session switcher (ADR 0014). Outside herdr, say why ]/[ do nothing.
+		cycle := tuiHelpKey("]/[", "next/prev agent")
+		if m.inHerdr == nil || !m.inHerdr() {
+			cycle = tuiHelpKey("]/[", "switch agents (needs herdr)")
+		}
+		contextual = append(contextual, tuiHelpKey("C", "new agent"), cycle)
+	}
+
 	short := append(append([]bubbleskey.Binding{}, shortContextual...), common...)
 	return tuiKeyMap{short: short, full: [][]bubbleskey.Binding{contextual, fullCommon}}
 }
