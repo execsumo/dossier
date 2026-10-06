@@ -1341,8 +1341,8 @@ func TestHeaderHasNoSession(t *testing.T) {
 	m.recalculateTableLayout()
 
 	view := m.View()
-	if !strings.Contains(view, "DOSSIER TUI") {
-		t.Errorf("expected view to contain the 'DOSSIER TUI' title, got:\n%s", view)
+	if !strings.Contains(view, "Dossier TUI dev") {
+		t.Errorf("expected view to contain the 'Dossier TUI dev' title, got:\n%s", view)
 	}
 	for _, forbidden := range []string{"Session:", "Active:", "No active Claude session"} {
 		if strings.Contains(view, forbidden) {

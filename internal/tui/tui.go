@@ -376,6 +376,7 @@ type targetDossier struct {
 // Model holds the application state.
 type Model struct {
 	svc          *core.Service
+	version      string
 	currentView  View
 	overlayBase  View
 	overlayStack []View
@@ -632,6 +633,7 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 
 	m := Model{
 		svc:                  svc,
+		version:              "dev",
 		currentView:          ViewDashboard,
 		listView:             ViewDashboard,
 		overlayBase:          ViewDashboard,
@@ -3334,7 +3336,7 @@ func (m Model) renderNormalView() string {
 	var sb strings.Builder
 
 	// 1. Header Banner
-	sb.WriteString(titleStyle.Render(" DOSSIER TUI "))
+	sb.WriteString(titleStyle.Render(" Dossier TUI " + m.version + " "))
 	sb.WriteString("\n")
 
 	// Check if there is a primary error message to show
@@ -3504,6 +3506,9 @@ func Run(ctx context.Context, svc *core.Service, openWith ...string) error {
 		configured = openWith[0]
 	}
 	m := NewModelWithOpenWith(svc, configured)
+	if len(openWith) > 1 && strings.TrimSpace(openWith[1]) != "" {
+		m.version = openWith[1]
+	}
 	defer m.Close()
 	p := tea.NewProgram(
 		m,

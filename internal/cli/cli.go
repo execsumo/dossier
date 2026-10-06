@@ -66,7 +66,7 @@ func NewRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return tui.Run(context.Background(), svc, cfg.OpenWith)
+			return tui.Run(context.Background(), svc, cfg.OpenWith, Version)
 		},
 	}
 
@@ -1752,7 +1752,7 @@ func NewRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return tui.Run(context.Background(), svc, cfg.OpenWith)
+			return tui.Run(context.Background(), svc, cfg.OpenWith, Version)
 		},
 	}
 
