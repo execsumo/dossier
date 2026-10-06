@@ -1336,17 +1336,27 @@ func TestHeaderHasNoSession(t *testing.T) {
 	svc := setupTestService(store)
 
 	m := NewModel(svc)
-	m.width = 100
 	m.height = 40
-	m.recalculateTableLayout()
-
-	view := m.View()
-	if !strings.Contains(view, "Dossier TUI dev") {
-		t.Errorf("expected view to contain the 'Dossier TUI dev' title, got:\n%s", view)
-	}
-	for _, forbidden := range []string{"Session:", "Active:", "No active Claude session"} {
-		if strings.Contains(view, forbidden) {
-			t.Errorf("expected view NOT to contain %q, got:\n%s", forbidden, view)
+	for _, width := range []int{60, 100, 140} {
+		m.width = width
+		m.recalculateTableLayout()
+		view := m.View()
+		if !strings.Contains(view, "Dossier TUI dev") {
+			t.Errorf("expected view to contain the 'Dossier TUI dev' title, got:\n%s", view)
+		}
+		row := stripANSI(strings.SplitN(view, "\n", 2)[0])
+		if got := lipgloss.Width(row); got != width {
+			t.Errorf("header width = %d, want terminal width %d", got, width)
+		}
+		left := strings.Index(row, "Dossier TUI dev")
+		right := lipgloss.Width(row) - left - len("Dossier TUI dev")
+		if delta := left - right; delta < -1 || delta > 1 {
+			t.Errorf("header title is not centered: left=%d right=%d", left, right)
+		}
+		for _, forbidden := range []string{"Session:", "Active:", "No active Claude session"} {
+			if strings.Contains(view, forbidden) {
+				t.Errorf("expected view NOT to contain %q, got:\n%s", forbidden, view)
+			}
 		}
 	}
 }

@@ -3336,7 +3336,8 @@ func (m Model) renderNormalView() string {
 	var sb strings.Builder
 
 	// 1. Header Banner
-	sb.WriteString(titleStyle.Render(" Dossier TUI " + m.version + " "))
+	header := titleStyle.Copy().Width(m.width).Align(lipgloss.Center)
+	sb.WriteString(header.Render("Dossier TUI " + m.version))
 	sb.WriteString("\n")
 
 	// Check if there is a primary error message to show
