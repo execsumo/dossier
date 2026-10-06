@@ -245,6 +245,12 @@ exit from `dossier open`) — a visible failure, never a silent no-op. The docum
 is prompt-only (no `--session-id`, no pre-binding), which depends on the model calling
 `dossier_session` itself.
 
+### Repo-aware launches (ADR 0015, 2026-10-06)
+
+- `claude --add-dir <directories...>` is present in the installed CLI. Dossier passes the Dossier folder when the agent starts in a repo, so writing `files/` needs no extra permission prompt. Other profiles get only the prompt text.
+- Claude Code's SessionStart hook payload carries `cwd` (the hook reads it; it falls back to the hook process's working directory when absent). The MCP server's working directory is used on `dossier_session`. It is **assumed**, not verified, that every harness starts its MCP server in the session's working directory. If one doesn't, learning just doesn't happen there, and `repo_roots` or `dossier repo locate` still work.
+- **Unverified:** whether Claude Code reads a bare `AGENTS.md` (no `CLAUDE.md` importing it). A headless check was blocked in the 2026-10-06 session. Run `claude -p` in a temp repo holding only an `AGENTS.md` with a codeword, and record the result here.
+
 #### Observed Quirks
 A single Claude Code session may spawn two concurrent `dossier mcp serve` processes. Both processes carry the identical `CLAUDE_CODE_SESSION_ID` in their environment, so reading the environment variable remains unambiguous and safe.
 

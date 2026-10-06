@@ -3,6 +3,7 @@ package store
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"dossier/internal/core"
 )
@@ -74,5 +75,35 @@ token_target: 100000
 	}
 	if fm.Priority != core.PriorityLow {
 		t.Fatalf("canonical priority did not take precedence: %q", fm.Priority)
+	}
+}
+
+// A Dossier with attention or repos must read back what was written; the
+// strict schema once omitted attention, so any agent that set it made the
+// Dossier unreadable.
+func TestAttentionAndReposRoundTrip(t *testing.T) {
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	fm := core.Frontmatter{
+		ID: "dos_1", Name: "n", Slug: "n", CreatedAt: now, UpdatedAt: now,
+		Status: core.StatusExecute, Priority: core.PriorityHigh,
+		Attention: &core.Attention{Level: "decide", Summary: "pick a vendor", Since: now, By: "agent:x"},
+		Repos:     []string{"github.com/acme/api", "github.com/acme/web"},
+	}
+	text, err := FormatDossierFile(fm, "body\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, body, err := ParseDossierFile(text)
+	if err != nil {
+		t.Fatalf("parse: %v\n%s", err, text)
+	}
+	if got.Attention == nil || got.Attention.Level != "decide" || got.Attention.By != "agent:x" {
+		t.Errorf("attention = %+v", got.Attention)
+	}
+	if strings.Join(got.Repos, ",") != "github.com/acme/api,github.com/acme/web" {
+		t.Errorf("repos = %v", got.Repos)
+	}
+	if body != "body\n" {
+		t.Errorf("body = %q", body)
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"dossier/internal/core"
 )
 
 var uuidV4Re = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
@@ -297,5 +299,95 @@ func TestClaudeBinMissingIsAnActionableError(t *testing.T) {
 	msg := err.Error()
 	if !strings.Contains(msg, "claude") || !strings.Contains(msg, ClaudeBinEnv) {
 		t.Errorf("error must name the binary and the override env var, got: %s", msg)
+	}
+}
+
+func TestResumePromptWithoutRepos(t *testing.T) {
+	dossierDir := filepath.FromSlash("/h/.dossier/x")
+	p := ResumePrompt(LaunchRequest{DossierDir: dossierDir, Name: "X", Slug: "x"})
+	for _, want := range []string{filepath.Join(dossierDir, "dossier.md"), filepath.Join(dossierDir, "files") + string(filepath.Separator)} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt missing %q: %s", want, p)
+		}
+	}
+	if strings.Contains(p, "./dossier.md") || strings.Contains(p, "./files/") {
+		t.Errorf("prompt must use absolute paths: %s", p)
+	}
+}
+
+func TestPlanOpenWithStartsInResolvedRepo(t *testing.T) {
+	bins := t.TempDir()
+	t.Setenv(ClaudeBinEnv, writeFakeExecutable(t, bins, "claude"))
+	writeFakeExecutable(t, bins, "codex")
+	writeFakeExecutable(t, bins, "pi")
+	t.Setenv("PATH", bins)
+	dossierDir, api, web := filepath.FromSlash("/h/.dossier/x"), filepath.FromSlash("/src/api"), filepath.FromSlash("/src/web")
+	req := LaunchRequest{
+		SessionID: "11111111-2222-4333-8444-555555555555", DossierDir: dossierDir, Name: "X", Slug: "x",
+		WorkDir: api,
+		Repos: []core.ResolvedRepo{
+			{Identity: "github.com/acme/api", Path: api},
+			{Identity: "github.com/acme/web", Path: web},
+			{Identity: "github.com/acme/infra"},
+		},
+	}
+	plan, err := PlanOpenWith("claude-code", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Dir != api {
+		t.Errorf("Dir = %q, want the primary repo", plan.Dir)
+	}
+	n := len(plan.Args)
+	if n < 4 || plan.Args[n-3] != "--add-dir" || plan.Args[n-2] != dossierDir {
+		t.Fatalf("expected --add-dir <dossier dir> before the prompt, got %q", plan.Args)
+	}
+	prompt := plan.Args[n-1]
+	for _, want := range []string{
+		filepath.Join(dossierDir, "dossier.md"),
+		"github.com/acme/api at " + api,
+		"CLAUDE.md / AGENTS.md",
+		filepath.Join(dossierDir, "files") + string(filepath.Separator),
+		"github.com/acme/api:docs/plan.md",
+		"github.com/acme/web at " + web,
+		"github.com/acme/infra (not on this machine)",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "./dossier.md") {
+		t.Errorf("prompt must not use ./dossier.md: %s", prompt)
+	}
+
+	// Other profiles re-root and get the prompt, but no Claude flag.
+	for _, name := range []string{"codex", "pi"} {
+		plan, err := PlanOpenWith(name, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if plan.Dir != api || strings.Contains(strings.Join(plan.Args, " "), "--add-dir") {
+			t.Errorf("%s plan = %+v", name, plan)
+		}
+	}
+}
+
+func TestPlanOpenWithUnresolvedPrimaryStaysInDossier(t *testing.T) {
+	t.Setenv(ClaudeBinEnv, writeFakeExecutable(t, t.TempDir(), "claude"))
+	dossierDir := filepath.FromSlash("/h/.dossier/x")
+	req := LaunchRequest{
+		SessionID: "s", DossierDir: dossierDir, Name: "X", Slug: "x",
+		Repos: []core.ResolvedRepo{{Identity: "github.com/acme/api"}},
+	}
+	plan, err := PlanOpenWith("claude-code", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := plan.Args[len(plan.Args)-1]
+	if plan.Dir != dossierDir || strings.Contains(strings.Join(plan.Args, " "), "--add-dir") {
+		t.Errorf("plan = %+v", plan)
+	}
+	if !strings.Contains(prompt, filepath.Join(dossierDir, "files")) || !strings.Contains(prompt, "github.com/acme/api (not on this machine)") {
+		t.Errorf("prompt = %s", prompt)
 	}
 }

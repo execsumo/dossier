@@ -1,7 +1,8 @@
 # ADR 0015: Repo identity in the Dossier, path resolved per machine
 
 ## Status
-Accepted (2026-10-06). **Not yet implemented.** Amends [ADR 0006](0006-tui-open-in-claude.md)'s
+Accepted (2026-10-06). **Implemented 2026-10-06** (`internal/core/repos.go`, `service_repos.go`,
+`internal/repos`, `internal/cli/repo.go`, launch prompt in `internal/harness/launch.go`). Amends [ADR 0006](0006-tui-open-in-claude.md)'s
 "Working directory" consequence. Used by [ADR 0014](0014-herdr-tab-switcher.md) when it
 opens a new tab.
 
@@ -130,8 +131,13 @@ team member has upgraded.
 - SPEC §4.1 gains `repos`. §3.2 and B13 gain `local/`. §7 gains `dossier repo add|remove|locate|status`.
   §8 `dossier_update` gains `repos`. The `open_with` paragraph changes from "the Dossier
   directory" to "the resolved primary repo, else the Dossier directory".
-- `doctor` reports `repos` entries that don't resolve on this machine. This is informational,
-  not an error.
+- *Built differently:* `doctor` does **not** report unresolved repos. The TUI runs `doctor`
+  every minute, and resolving repos would re-scan `repo_roots` each time. `dossier repo
+  status <slug>` reports resolution on demand, and every launch warns for each unresolved repo.
+- *Built differently:* learning on bind happens on `dossier_session` (MCP working directory)
+  and in the SessionStart hook (payload `cwd`, else the hook's working directory), not on
+  `dossier_link`/`dossier_promote`. Those two create or attach content rather than bind a
+  working session.
 - Brief-only Dossiers (no `repos`) behave exactly as today.
 
 ## Acceptance (checkable when built)

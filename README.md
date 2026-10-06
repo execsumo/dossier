@@ -67,6 +67,7 @@ Run `dossier` with no arguments for a full-screen dashboard of your Dossiers, so
 - **Edit inline:** Lead, stage, priority, due date, next action.
 - **Link** sources and **merge** Dossiers, with conflicts shown side by side.
 - **Launch an agent** with `c`: a fresh session, already bound to the selected Dossier with its state loaded. Inside [herdr](https://herdr.dev), Dossier becomes a session switcher. Each agent gets its own tab. `c` jumps to a Dossier's running agent (or opens one), `C` always opens another, and `]`/`[` hop between agents. Badges show which agents are working (`●`), need you (`▲`), are done (`✓`) or idle (`○`).
+- **Start in the repo:** `dossier repo add <slug> .` links the Dossier to the repo you're in (stored as `github.com/owner/name`, so teammates' checkouts can live anywhere). Agents then start in that repo and follow its own `CLAUDE.md`/`AGENTS.md`. Each machine finds its checkout through `repo_roots` in `config.yaml`, from sessions that run in it, or via `dossier repo locate`.
 
 ![Dossier TUI board view](docs/screenshots/tui-board.png)
 

@@ -47,6 +47,11 @@ type Server struct {
 	bgMu        sync.Mutex
 	bgWarning   string
 	bgLastError string
+
+	// getwd reports the session's working directory: the harness starts this
+	// server in it. Used to learn repo locations on bind (ADR 0015); a seam so
+	// tests need not chdir.
+	getwd func() (string, error)
 }
 
 func (s *Server) setBgWarning(err error, res core.Result) {
@@ -136,6 +141,7 @@ func NewServer(svc *core.Service, r io.Reader, w io.Writer) *Server {
 		writer:   w,
 		syncChan: make(chan struct{}, 1),
 		doneChan: make(chan struct{}),
+		getwd:    os.Getwd,
 	}
 }
 

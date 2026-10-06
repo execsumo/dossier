@@ -8,6 +8,7 @@ import (
 	"dossier/internal/core"
 	"dossier/internal/harness"
 	"dossier/internal/mcp"
+	"dossier/internal/repos"
 	"dossier/internal/search"
 	"dossier/internal/store"
 	"dossier/internal/sync"
@@ -1693,6 +1694,9 @@ func NewRootCmd() *cobra.Command {
 				HookEventName  string `json:"hook_event_name"`
 				TranscriptPath string `json:"transcript_path"`
 				DistilledState string `json:"distilled_state"`
+				// Cwd is the session's working directory (Claude Code sends it);
+				// SessionStart learns repo locations from it (ADR 0015).
+				Cwd string `json:"cwd"`
 			}
 
 			stat, _ := os.Stdin.Stat()
@@ -1720,6 +1724,19 @@ func NewRootCmd() *cobra.Command {
 					os.Exit(1)
 				}
 				fmt.Print(resText)
+				if dossierID := svc.SessionDossiers([]string{sessID})[sessID]; dossierID != "" {
+					cwd := payload.Cwd
+					if cwd == "" {
+						cwd, _ = os.Getwd()
+					}
+					observed := svc.ObserveSessionDir(context.Background(), dossierID, cwd)
+					for _, w := range observed.Warnings {
+						fmt.Printf("\nWarning: %s\n", w)
+					}
+					for _, a := range observed.NextActions {
+						fmt.Printf("\nSuggestion: %s\n", a)
+					}
+				}
 
 			case "session-end", "pre-compaction":
 				actor := "system:session-end"
@@ -1795,11 +1812,14 @@ func NewRootCmd() *cobra.Command {
 				}
 			}
 
-			res, err := svc.Path(ctx, core.PathReq{ID: args[0]})
+			res, err := svc.LaunchTarget(ctx, args[0])
 			if err != nil {
 				return err
 			}
-			dir := res.Data.(string)
+			target := res.Data.(core.LaunchTarget)
+			for _, w := range res.Warnings {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", w)
+			}
 			recallRes, err := svc.Recall(ctx, core.RecallReq{ID: args[0]})
 			if err != nil {
 				return err
@@ -1813,10 +1833,12 @@ func NewRootCmd() *cobra.Command {
 
 			plan, err := harness.PlanOpenWith(openWith, harness.LaunchRequest{
 				SessionID:  sessionID,
-				DossierDir: dir,
+				DossierDir: target.DossierDir,
 				Name:       recall.Frontmatter.Name,
 				Slug:       recall.Frontmatter.Slug,
 				Headless:   openHeadless,
+				WorkDir:    target.WorkDir,
+				Repos:      target.Repos,
 			})
 			if err != nil {
 				return err
@@ -1857,6 +1879,7 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(newRepoCmd())
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(uninstallCmd)
@@ -2635,6 +2658,7 @@ func wireWithLoadedConfig(dossierHome string, cfg *config.Config, cfgPath string
 	}
 
 	svc := core.NewService(storeAdapter, searchAdapter, tokAdapter, hregAdapter, clockAdapter, cfg.ToCoreConfig(), syncerAdapter)
+	svc.SetRepoLocator(repos.New(dossierHome, cfg.RepoRoots))
 
 	return svc, cfg, nil
 }

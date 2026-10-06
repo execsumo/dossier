@@ -18,7 +18,7 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 
 ## Current state
 
-> **Session switcher built; repo resolution next (2026-10-06, branch `feat/session-switcher`).** [ADR 0014](docs/adr/0014-herdr-tab-switcher.md) / B26 is **implemented**: inside herdr, the TUI's `c` focuses the Dossier's live agent or opens one in a new tab labelled with the slug, `C` always opens another, `]`/`[` cycle, and list/board badges come from a 2 s `herdr agent list` poll. Unit tests cover the join, picking, cycling, badges, poll failure and launched-pane pruning. A manual check in real herdr 0.9.3 passed: tab opened and focused, ▲ badge for a blocked agent, second `c` focused the existing tab with no new binding, exiting closed the tab and cleared the badge. SPEC §3.2, ARCHITECTURE §8 and README are updated. [ADR 0015](docs/adr/0015-repo-identity-and-local-resolution.md) / B27 (repo identity, agents start in the code repo) is **not built yet**; see "What remains" → "Roadmap: session switcher and repo resolution".
+> **Session switcher + repo resolution built (2026-10-06, branch `feat/session-switcher`, not yet merged).** [ADR 0014](docs/adr/0014-herdr-tab-switcher.md) / B26: inside herdr, the TUI's `c` focuses the Dossier's live agent or opens one in a new tab labelled with the slug, `C` always opens another, `]`/`[` cycle, and list/board badges come from a 2 s `herdr agent list` poll. A manual check in real herdr 0.9.3 passed (tab opened and focused, ▲ badge, second `c` focused the existing tab, exit closed the tab and cleared the badge). [ADR 0015](docs/adr/0015-repo-identity-and-local-resolution.md) / B27: synced `repos` frontmatter (normalized `host/owner/name`), a machine-local `local/repo-paths.json` (gitignored), `repo_roots` config, `dossier repo add|remove|locate|status`, `dossier_update.repos`, and learning on `dossier_session` and SessionStart (`cwd`); an unlisted repo yields a suggestion, never an edit. Launches start in the resolved primary repo with absolute Dossier paths, the deliverables rule (repo files as `identity:path`) and `--add-dir` for Claude. An end-to-end check with the built binary and a fake `claude` passed: scan resolved the checkout, `open` started in the repo with the right argv, the hook learned a moved checkout and suggested an unlisted one. **Bug fixed along the way:** the strict frontmatter reader lacked `attention`, so any Dossier whose attention an agent set became unreadable. No live Dossier had it set; a round-trip test now covers it. Deliberate gaps: `doctor` doesn't report unresolved repos (it runs every minute in the TUI); learning doesn't run on `dossier_link`/`dossier_promote`. Still to check: whether Claude Code reads a bare `AGENTS.md` (`docs/harness-capabilities.md` §3).
 >
 > **Team Sync loudness pass (2026-10-01):** closes the plan's "background results are discarded" and "CLI/TUI don't sync" gaps (see D8 below). Headless `team join` (token file, no TTY/gh) is covered by `internal/cli/team_headless_join_test.go`. `docs/team-sync-plan.md`'s status banner is superseded by this; live-GitHub validation (SPEC §14.11) is still outstanding.
 > **Contract discoverability + manager-only roster (2026-10-01, B25):** the lead filter (`ls --mine`/`--lead`, `dossier_list.lead`, TUI lead selector) now also matches Delegation Contract owners, with `matched_as` and `contract_owners` on each item and a MATCHED AS column in `ls`; `team add`/`remove` are refused unless the actor is the roster manager. Unit tests for both plus a CLI smoke against a throwaway store; not exercised against a live team store. The `!` marker semantics are unchanged (still any open contract).
@@ -255,7 +255,7 @@ Build (from `BUILD-DECISIONS.md`):
 
 ## What remains
 
-Implementation of every shipped milestone is complete. Three features are on the roadmap (below: the session switcher and repo resolution first, then unprocessed-session recovery); the rest is product validation and minor maintenance:
+Implementation of every shipped milestone is complete. One feature is on the roadmap (below: unprocessed-session recovery; the session switcher and repo resolution are built); the rest is product validation and minor maintenance:
 
 1. Keep the quality gate green: `go test ./...`, `go vet ./...`, `test -z "$(gofmt -l .)"`, and `git diff --check`.
 2. Dogfood with 10–20 real topics, including resume, ambiguity, unavailable-transcript, concurrency, and merge-conflict drills.
@@ -265,7 +265,7 @@ Implementation of every shipped milestone is complete. Three features are on the
 
 The explicitly deferred items remain listed in `BUILD-DECISIONS.md`, `PRD.md`, and the delegation design above.
 
-### Roadmap: session switcher and repo resolution (decided 2026-10-06; 0014 done, 0015 not started)
+### Roadmap: session switcher and repo resolution (decided and built 2026-10-06)
 
 Designs, verified facts and acceptance criteria are in the ADRs; this is the build order.
 
@@ -275,7 +275,7 @@ Designs, verified facts and acceptance criteria are in the ADRs; this is the bui
    - Then update SPEC (the `open_with` paragraph in §3.2), `docs/tui.md` (keys, badge legend) and ARCHITECTURE.
    - Fix or re-check the "…" overlay glitch inside herdr in the same pass.
    - Manual check in real herdr (ADR 0014 Acceptance 4).
-2. **ADR 0015 — repo identity (B27), one release:** `repos` frontmatter (reader and writer together; colleagues install only after this ships), normalization, a `RepoLocator` port plus go-git adapter, `<home>/local/repo-paths.json` (added to the sync `.gitignore` and to B13), `repo_roots` config, `dossier repo add|remove|locate|status`, `dossier_update.repos`, learning on bind with the add-repo suggestion, and `doctor` reporting. Prompt changes: absolute `<dossier dir>/dossier.md`; the deliverables rule (project work in the repo under its `CLAUDE.md`/`AGENTS.md`, other deliverables in `files/`, `## Files` entries as `<identity>:<relative path>`); `--add-dir` for Claude. Check once whether Claude Code reads a bare `AGENTS.md`.
+2. **ADR 0015 — repo identity (B27), one release. DONE 2026-10-06.** `repos` frontmatter (reader and writer together; colleagues install only after this ships), normalization, a `RepoLocator` port plus go-git adapter, `<home>/local/repo-paths.json` (added to the sync `.gitignore` and to B13), `repo_roots` config, `dossier repo add|remove|locate|status`, `dossier_update.repos`, learning on bind with the add-repo suggestion, and `doctor` reporting. Prompt changes: absolute `<dossier dir>/dossier.md`; the deliverables rule (project work in the repo under its `CLAUDE.md`/`AGENTS.md`, other deliverables in `files/`, `## Files` entries as `<identity>:<relative path>`); `--add-dir` for Claude. Check once whether Claude Code reads a bare `AGENTS.md`.
 
 Open questions: which session id Cursor, Codex and Antigravity report through herdr (unchecked; the launched map covers it meanwhile). Whether `open_layout: workspace` (TUI and agent side by side per Dossier) is worth adding after a week of using tabs.
 

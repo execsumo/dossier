@@ -1099,13 +1099,14 @@ func (m Model) getTargetDossier() (targetDossier, bool) {
 // sets m.err rather than silently doing nothing.
 func (m Model) openInAgent(t targetDossier) (tea.Model, tea.Cmd) {
 	ctx := context.Background()
-	res, err := m.svc.Path(ctx, core.PathReq{ID: t.id})
+	res, err := m.svc.LaunchTarget(ctx, t.id)
 	if err != nil {
 		m.err = err
 		return m, nil
 	}
 	m.applyResultStatus(res.Warnings, res.NextActions)
-	dir, _ := res.Data.(string)
+	target, _ := res.Data.(core.LaunchTarget)
+	dir := target.DossierDir
 	if dir == "" {
 		// Launching with an empty Dir would silently run the agent in the TUI's own
 		// working directory against the wrong (or no) Dossier. Fail visibly.
@@ -1128,6 +1129,8 @@ func (m Model) openInAgent(t targetDossier) (tea.Model, tea.Cmd) {
 		DossierDir: dir,
 		Name:       t.name,
 		Slug:       slug,
+		WorkDir:    target.WorkDir,
+		Repos:      target.Repos,
 	})
 	if err != nil {
 		m.err = err

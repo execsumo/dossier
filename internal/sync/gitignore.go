@@ -38,6 +38,7 @@ var defaultGitignoreEntries = []string{
 	"archive/*/inbox/",
 	"archive/*/artifacts/*_raw.*",
 	"/context/",
+	"/local/", // machine-local state: learned repo locations (ADR 0015)
 	"/.locks/",
 	".lock",
 	".sync.lock",

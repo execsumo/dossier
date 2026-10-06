@@ -28,6 +28,10 @@ type Config struct {
 	Leads       []string   `yaml:"leads"`
 	Team        TeamConfig `yaml:"team,omitempty"`
 	TokenLimit  int        `yaml:"token_limit,omitempty"`
+	// RepoRoots are folders searched (one level deep) for checkouts of a
+	// Dossier's repos when this machine has not learned their location yet
+	// (ADR 0015). Machine-local, like the rest of this file.
+	RepoRoots []string `yaml:"repo_roots,omitempty"`
 }
 
 // configFile is the strict read schema. TokenTarget and SchemaVersion are
@@ -43,6 +47,7 @@ type configFile struct {
 	TokenLimit    *int       `yaml:"token_limit,omitempty"`
 	TokenTarget   *int       `yaml:"token_target,omitempty"`
 	SchemaVersion int        `yaml:"schema_version,omitempty"`
+	RepoRoots     []string   `yaml:"repo_roots,omitempty"`
 }
 
 // Default returns the default configuration with standard paths.
@@ -109,6 +114,7 @@ func Load(path string) (*Config, error) {
 	cfg.Interfaces = wire.Interfaces
 	cfg.Leads = wire.Leads
 	cfg.Team = wire.Team
+	cfg.RepoRoots = wire.RepoRoots
 	if wire.TokenLimit != nil {
 		cfg.TokenLimit = *wire.TokenLimit
 	} else if wire.TokenTarget != nil {

@@ -40,6 +40,7 @@ type Service struct {
 	cfgMu  sync.RWMutex
 	cfg    Config
 	syncer Syncer
+	repos  RepoLocator
 }
 
 // RecallResult carries the output fields for dossier recall queries.

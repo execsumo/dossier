@@ -305,7 +305,7 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 		},
 		{
 			Name:        "dossier_update",
-			Description: "Update a dossier's metadata fields — name, description, status, lead assignee, next action, priority, due date, and interfaces. All fields except id are optional; only supplied fields are written. Use dossier_rename to change the title or slug.",
+			Description: "Update a dossier's metadata fields — name, description, status, lead assignee, next action, priority, due date, interfaces, and repos. All fields except id are optional; only supplied fields are written. Use dossier_rename to change the title or slug.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -319,6 +319,7 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 					"priority":    map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "max"}, "description": "low|medium|high|max (omit to leave unchanged)"},
 					"due_date":    map[string]any{"type": "string", "description": "ISO 8601 date or empty string to clear (omit to leave unchanged)"},
 					"interfaces":  configuredStringListSchema(interfaces, "Replace the discussion interface list (omit to leave unchanged)"),
+					"repos":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Replace the repos this work lives in, as remotes or host/owner/name (first = primary; agents launched from Dossier start there). Omit to leave unchanged; [] clears. Add a repo only when the user confirms the work lives there."},
 				},
 				"required": []string{"id"},
 			},
@@ -699,6 +700,11 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 
 				if boundDossierID != "" {
 					s.addSyncAttentionWarning(ctx, &res, boundDossierID)
+					if dir, wdErr := s.getwd(); wdErr == nil {
+						observed := s.svc.ObserveSessionDir(ctx, boundDossierID, dir)
+						res.Warnings = append(res.Warnings, observed.Warnings...)
+						res.NextActions = append(res.NextActions, observed.NextActions...)
+					}
 					if _, isBinding := res.Data.(*core.SessionBinding); isBinding {
 						if recalled, recallErr := s.svc.Recall(ctx, core.RecallReq{ID: boundDossierID}); recallErr == nil {
 							res.Data = recalled.Data
@@ -764,6 +770,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			// A pointer distinguishes an omitted due date from an empty string that clears it.
 			DueDate    *string         `json:"due_date"`
 			Interfaces []string        `json:"interfaces"`
+			Repos      []string        `json:"repos"`
 			Attention  json.RawMessage `json:"attention"`
 		}
 		if err := json.Unmarshal(args, &params); err != nil {
@@ -794,6 +801,9 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		}
 		if params.Interfaces != nil {
 			updates["interfaces"] = params.Interfaces
+		}
+		if params.Repos != nil {
+			updates["repos"] = params.Repos
 		}
 		if len(params.Attention) > 0 {
 			if string(params.Attention) == "null" {

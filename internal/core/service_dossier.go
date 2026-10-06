@@ -94,6 +94,8 @@ func getFMField(fm Frontmatter, field string) any {
 		return string(fm.Priority)
 	case "due_date":
 		return fm.DueDate
+	case "repos":
+		return strings.Join(fm.Repos, "|||")
 	case "attention":
 		if fm.Attention == nil {
 			return ""
@@ -141,6 +143,13 @@ func applyFrontmatterUpdates(d *Dossier, updates map[string]any) {
 	if val, ok := updates["due_date"]; ok {
 		if strVal, ok := val.(string); ok {
 			d.Frontmatter.DueDate = strVal
+		}
+	}
+	if val, ok := updates["repos"]; ok {
+		// Normalized and checked in validateConfiguredFrontmatterUpdates.
+		repos, _ := strictStringSlice(val)
+		if normalized, err := NormalizeRepoList(repos); err == nil {
+			d.Frontmatter.Repos = normalized
 		}
 	}
 	if val, ok := updates["attention"]; ok {
@@ -240,6 +249,17 @@ func (s *Service) validateConfiguredFrontmatterUpdates(updates map[string]any) e
 			}
 		}
 	}
+	if value, ok := updates["repos"]; ok {
+		repos, valid := strictStringSlice(value)
+		if !valid {
+			return fmt.Errorf("repos must be a list of strings")
+		}
+		normalized, err := NormalizeRepoList(repos)
+		if err != nil {
+			return err
+		}
+		updates["repos"] = normalized
+	}
 	if value, ok := updates["attention"]; ok {
 		attention, valid := attentionFromValue(value)
 		if !valid {
@@ -291,6 +311,9 @@ func describeFrontmatterChanges(before, after Frontmatter) string {
 	add("next_action", before.NextAction, after.NextAction)
 	add("priority", string(before.Priority), string(after.Priority))
 	add("due_date", before.DueDate, after.DueDate)
+	if strings.Join(before.Repos, "|||") != strings.Join(after.Repos, "|||") {
+		parts = append(parts, fmt.Sprintf("repos %q→%q", strings.Join(before.Repos, ", "), strings.Join(after.Repos, ", ")))
+	}
 	return strings.Join(parts, "; ")
 }
 
