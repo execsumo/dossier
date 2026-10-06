@@ -1,13 +1,17 @@
 # Dossier
 
-**Durable memory for long-running work in Claude Code.**
+**The work should survive the session.**
 
-Agent sessions forget. Dossier doesn't. Promote a session into a **Dossier** and it keeps the state of that topic — situation, decisions and who made them, open questions, next action — with the noise stripped out. Every claim cites its source, and the raw material is archived and one search away. Next session, you pick up exactly where you left off.
+AI agents are very good at doing the work in front of them. They're less good at remembering why the work exists, what was decided three sessions ago, who owns the next move, and which source proves what.
 
-- **Resume instantly.** Open Dossiers are surfaced at session start, sorted by priority.
-- **Nothing is lost.** Transcripts are archived automatically; nothing is ever deleted.
-- **Share with your team.** Optional Team Sync gives everyone one shared brain.
-- **Yours.** Plain Markdown in `~/.dossier/` — no database, no cloud, no account. Open it in any editor, including Obsidian.
+Dossier gives long-running Claude Code work a durable, source-cited memory. Promote a session into a **Dossier** and it distills the operational state — objective, decisions, owners, open questions, next action — while keeping the raw evidence one search away.
+
+Next session, you resume the work instead of reconstructing it.
+
+- **Resume with context, not a transcript dump.** Open Dossiers surface at session start, sorted by priority.
+- **Keep the receipts.** Claims cite their sources and raw session material is archived automatically.
+- **Work across sessions and people.** Optional Team Sync gives a team one shared operational memory without hiding conflicts.
+- **Own the state.** Plain Markdown in `~/.dossier/` — no database, no cloud service, no account.
 
 ## Install
 
