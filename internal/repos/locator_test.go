@@ -23,6 +23,15 @@ func initRepo(t *testing.T, dir, origin string) {
 	}
 }
 
+func resolvedPath(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
+}
+
 func TestIdentify(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "api")
@@ -33,7 +42,7 @@ func TestIdentify(t *testing.T) {
 	}
 	l := New(t.TempDir(), nil)
 	id, top, ok := l.Identify(sub)
-	if !ok || id != "github.com/acme/api" || top != repo {
+	if !ok || id != "github.com/acme/api" || top != resolvedPath(t, repo) {
 		t.Errorf("Identify(sub) = %q %q %v", id, top, ok)
 	}
 
@@ -60,7 +69,7 @@ func TestLocateResolutionOrder(t *testing.T) {
 
 	// Scan hit, then remembered.
 	loc, err := l.Locate("github.com/acme/api")
-	if err != nil || loc.Path != filepath.Join(rootA, "api") || loc.Via != "scan" {
+	if err != nil || loc.Path != resolvedPath(t, filepath.Join(rootA, "api")) || loc.Via != "scan" {
 		t.Fatalf("scan: %+v %v", loc, err)
 	}
 	if _, err := os.Stat(filepath.Join(home, "local", "repo-paths.json")); err != nil {
