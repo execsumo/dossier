@@ -58,14 +58,15 @@ func (e EvalConfig) EvalModel() string {
 
 // Config represents the canonical schema of ~/.dossier/config.yaml.
 type Config struct {
-	DossierHome string     `yaml:"dossier_home"`
-	Author      string     `yaml:"author"`
-	DisplayName string     `yaml:"display_name,omitempty"`
-	OpenWith    string     `yaml:"open_with,omitempty"`
-	Interfaces  []string   `yaml:"interfaces"`
-	Leads       []string   `yaml:"leads"`
-	Team        TeamConfig `yaml:"team,omitempty"`
-	TokenLimit  int        `yaml:"token_limit,omitempty"`
+	SchemaVersion int        `yaml:"schema_version,omitempty"`
+	DossierHome   string     `yaml:"dossier_home"`
+	Author        string     `yaml:"author"`
+	DisplayName   string     `yaml:"display_name,omitempty"`
+	OpenWith      string     `yaml:"open_with,omitempty"`
+	Interfaces    []string   `yaml:"interfaces"`
+	Leads         []string   `yaml:"leads"`
+	Team          TeamConfig `yaml:"team,omitempty"`
+	TokenLimit    int        `yaml:"token_limit,omitempty"`
 	// RepoRoots are folders searched (one level deep) for checkouts of a
 	// Dossier's repos when this machine has not learned their location yet
 	// (ADR 0015). Machine-local, like the rest of this file.
@@ -91,6 +92,9 @@ type configFile struct {
 	Eval          EvalConfig `yaml:"eval,omitempty"`
 }
 
+// CurrentSchemaVersion is the latest on-disk config schema.
+const CurrentSchemaVersion = 3
+
 // Default returns the default configuration with standard paths.
 func Default() *Config {
 	homePath := ""
@@ -115,12 +119,13 @@ func Default() *Config {
 	}
 
 	return &Config{
-		DossierHome: homePath,
-		Author:      core.NormalizeUsername(author),
-		OpenWith:    "claude-code",
-		Interfaces:  core.DefaultDiscussionInterfaces(),
-		Leads:       []string{},
-		TokenLimit:  core.DefaultTokenLimit,
+		SchemaVersion: CurrentSchemaVersion,
+		DossierHome:   homePath,
+		Author:        core.NormalizeUsername(author),
+		OpenWith:      "claude-code",
+		Interfaces:    core.DefaultDiscussionInterfaces(),
+		Leads:         []string{},
+		TokenLimit:    core.DefaultTokenLimit,
 	}
 }
 
@@ -143,11 +148,16 @@ func Load(path string) (*Config, error) {
 		Leads:       cfg.Leads,
 		Team:        cfg.Team,
 	}
+	data, _, err = migrateYAML(data)
+	if err != nil {
+		return nil, err
+	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&wire); err != nil {
 		return nil, err
 	}
+	cfg.SchemaVersion = CurrentSchemaVersion
 	cfg.DossierHome = wire.DossierHome
 	cfg.Author = strings.TrimSpace(wire.Author)
 	cfg.DisplayName = strings.TrimSpace(wire.DisplayName)
@@ -185,6 +195,126 @@ const defaultConfigHelp = `# Dossier configuration. Edit the lists below as need
 #     model: haiku
 #     effort: medium   # low|medium|high|xhigh|max; Haiku ignores effort
 `
+
+// Migrate upgrades an existing config in place, keeping a .bak copy of its
+// original contents. It is safe to rerun after a successful migration.
+func Migrate(path string) error {
+	if _, err := Load(path); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	migrated, changed, err := migrateYAML(data)
+	if err != nil || !changed {
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	backup := path + ".bak"
+	if err := writeBackup(backup, data, info.Mode().Perm()); err != nil {
+		return fmt.Errorf("backup config before migration: %w", err)
+	}
+	return os.WriteFile(path, migrated, info.Mode().Perm())
+}
+
+func writeBackup(path string, data []byte, mode os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if os.IsExist(err) {
+		existing, readErr := os.ReadFile(path)
+		if readErr == nil && bytes.Equal(existing, data) {
+			return nil
+		}
+		return fmt.Errorf("%s already exists", path)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+func migrateYAML(data []byte) ([]byte, bool, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, false, err
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, false, fmt.Errorf("config must be a YAML mapping")
+	}
+	root := doc.Content[0]
+	version := 0
+	versionNode := -1
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "schema_version" {
+			versionNode = i + 1
+			if err := root.Content[versionNode].Decode(&version); err != nil {
+				return nil, false, fmt.Errorf("invalid schema_version: %w", err)
+			}
+			break
+		}
+	}
+	if version < 0 {
+		return nil, false, fmt.Errorf("config schema version must not be negative")
+	}
+	if version > CurrentSchemaVersion {
+		return nil, false, fmt.Errorf("config schema version %d is newer than supported version %d", version, CurrentSchemaVersion)
+	}
+	if version == CurrentSchemaVersion {
+		return data, false, nil
+	}
+	for version < CurrentSchemaVersion {
+		switch version {
+		case 0, 1:
+			// These versions have no field transformations.
+		case 2:
+			migrateTokenTarget(root)
+		default:
+			return nil, false, fmt.Errorf("no migration from config schema version %d", version)
+		}
+		version++
+	}
+	if versionNode < 0 {
+		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "schema_version"}, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprint(CurrentSchemaVersion)})
+	} else {
+		root.Content[versionNode].Tag = "!!int"
+		root.Content[versionNode].Value = fmt.Sprint(CurrentSchemaVersion)
+	}
+	migrated, err := yaml.Marshal(&doc)
+	return migrated, true, err
+}
+
+func migrateTokenTarget(root *yaml.Node) {
+	var tokenLimit *yaml.Node
+	var tokenTarget *yaml.Node
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		switch root.Content[i].Value {
+		case "token_limit":
+			tokenLimit = root.Content[i+1]
+		case "token_target":
+			tokenTarget = root.Content[i+1]
+		}
+	}
+	if tokenTarget == nil {
+		return
+	}
+	if tokenLimit == nil {
+		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "token_limit"}, tokenTarget)
+	}
+	content := root.Content[:0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "token_target" {
+			content = append(content, root.Content[i], root.Content[i+1])
+		}
+	}
+	root.Content = content
+}
 
 // Save marshals and writes the configuration to a YAML file.
 func (c *Config) Save(path string) error {

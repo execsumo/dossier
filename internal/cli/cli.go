@@ -129,6 +129,10 @@ func NewRootCmd() *cobra.Command {
 					os.Exit(1)
 				}
 			}
+			if err := config.Migrate(cfgPath); err != nil {
+				fmt.Printf("Error migrating config: %v\n", err)
+				os.Exit(1)
+			}
 			svc, err := wire(homeDir)
 			if err != nil {
 				fmt.Printf("Error wiring service: %v\n", err)
