@@ -2,6 +2,7 @@
 
 ## Status
 Accepted (2026-09-02). Amends [ADR 0004](0004-tui-no-session.md) — it does not supersede it.
+Amended by [ADR 0014](0014-herdr-tab-switcher.md) (inside herdr, `c` focuses an existing session or opens a new tab) and [ADR 0015](0015-repo-identity-and-local-resolution.md) (launch directory and prompt paths), both accepted 2026-10-06 and not yet built.
 
 ## Context
 [ADR 0004](0004-tui-no-session.md) removed every session affordance from the TUI: the TUI

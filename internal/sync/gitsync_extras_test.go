@@ -84,7 +84,7 @@ func TestEnsureGitignore_PreconfiguresFreshStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read .gitignore: %v", err)
 	}
-	for _, want := range []string{"/config.yaml", "/credentials", "/sessions/", "*/sessions/", "/context/"} {
+	for _, want := range []string{"/config.yaml", "/credentials", "/sessions/", "*/sessions/", "/context/", "/local/"} {
 		if !strings.Contains(string(first), want) {
 			t.Errorf("fresh .gitignore missing %q:\n%s", want, string(first))
 		}
@@ -172,4 +172,18 @@ func TestStatus_ReportsAheadBehind(t *testing.T) {
 	if st.LastSuccessPull.IsZero() {
 		t.Fatalf("expected last sync time populated")
 	}
+}
+
+// TestSync_LocalStateNeverSyncs: <store>/local/ holds this machine's learned
+// repo locations (ADR 0015). Paths differ per machine, so they never sync.
+func TestSync_LocalStateNeverSyncs(t *testing.T) {
+	bare, storeA, _ := setupPair(t)
+	syncA := newSyncer(storeA, bare, "alice")
+
+	writeFile(t, storeA, "pricing/dossier.md", "v1")
+	writeFile(t, storeA, "local/repo-paths.json", `{"github.com/acme/api":{"path":"/home/alice/src/api"}}`)
+	mustSync(t, syncA)
+
+	assertNotInGitHistory(t, storeA, "local/repo-paths.json")
+	assertFileInTree(t, storeA, "pricing/dossier.md")
 }

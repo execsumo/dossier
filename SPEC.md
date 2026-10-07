@@ -71,6 +71,8 @@ Store layout:
     guide.md
   sessions/
     <session-binding-id>.json
+  local/
+    repo-paths.json       # this machine's learned repo locations (ADR 0015); never synced
   archive/
     <slug>/               # done Dossiers; same layout as a live <slug>/
   <slug>/
@@ -97,7 +99,7 @@ Store layout:
 
 `<slug>/artifacts/` is a **frontmatter-only namespace**: it is parsed, not scanned. A file without valid artifact frontmatter is skipped by the evidence index, carries no `art_` id to cite, and never enters the revision hash — while still surfacing in `dossier search`, so it reads as captured evidence while being none. `dossier doctor` reports such a file as an issue. `<slug>/files/` is the namespace for loose deliverables, scratch, and user attachments; promote one to evidence with `dossier link --from-file`. `<slug>/inbox/` holds routed, unverified excerpts separately from Archive evidence. Each Markdown file has strict YAML frontmatter: `id`, `dossier_id`, `source` (`kind`, optional `url`), `excerpt`, `routed_by`, `confidence` in `[0,1]`, `received_at`, `state` (`pending|absorbed|dismissed`), and optional `artifact_id`. Inbox items are outside the Dossier revision hash. They are machine-local and excluded from Team Sync before the first publish (`*/inbox/`, `archive/*/inbox/`). `doctor` validates item frontmatter and identity.
 
-`config.yaml` records install settings, the machine-local default launch profile (`open_with`, defaulting to `claude-code`), user-configurable interface and lead vocabularies, global token warning ceiling (`token_limit`, defaulting to 100,000), detected harness capabilities, and optional team-sync settings. The launch profile accepts `claude-code`, `cursor`, `codex`, `pi`, or `antigravity` (`agy`); each profile owns its executable, session handoff, and generated resume prompt, so the prompt is not stored in configuration. In the TUI, when `HERDR_ENV=1` the handoff opens in a new focused right-hand split via `herdr pane split --current --direction right --cwd <dossier dir> --focus` followed by `herdr pane run <pane_id> "<command>"` (the pane id comes from `result.pane.pane_id`); any herdr failure surfaces a warning and falls back to the normal in-terminal launch. `dossier open` is unchanged. New installs include the legacy seven interface defaults; older configs that omit `interfaces` inherit those defaults. An empty `leads` list preserves free-form lead assignment. Readers also accept the retired `token_target` key from pre-simplification configs (mapping it to `token_limit`) and `schema_version` (ignoring its value), omitting them on the next normal config write. All other unknown config keys remain errors.
+`config.yaml` records install settings, the machine-local default launch profile (`open_with`, defaulting to `claude-code`), user-configurable interface and lead vocabularies, global token warning ceiling (`token_limit`, defaulting to 100,000), detected harness capabilities, and optional team-sync settings. The launch profile accepts `claude-code`, `cursor`, `codex`, `pi`, or `antigravity` (`agy`); each profile owns its executable, session handoff, and generated resume prompt, so the prompt is not stored in configuration. Every launch (TUI `c`/`C` and `dossier open`) starts the agent in its **launch dir**: the Dossier's resolved primary repo (ADR 0015), else the Dossier directory, with a warning for each repo that doesn't resolve. The prompt names the Dossier by absolute path. With a repo, it tells the agent to follow the repo's own CLAUDE.md/AGENTS.md, keep project work in the repo and other deliverables in `<dossier dir>/files/`, and list repo files under `## Files` as `<identity>:<relative path>`. Claude Code also gets `--add-dir <dossier dir>`. The optional `repo_roots` list names folders searched for checkouts. In the TUI, when `HERDR_ENV=1`, Dossier acts as a session switcher (ADR 0014). `c` first runs `herdr agent list` and joins each agent's session key (the `agent_session` value for `kind: id`, the uuid suffix of the session file name for `kind: path`) against the session bindings, plus the panes this TUI process launched. If the Dossier has a live agent, `c` runs `herdr agent focus <pane_id>` on the most recently active one and writes no binding. Otherwise it opens a new tab with `herdr tab create --workspace $HERDR_WORKSPACE_ID --cwd <launch dir> --label <slug> --focus`, followed by `herdr pane run <root_pane> "exec <command>"`, so the tab closes when the agent exits. `C` always opens a new session. `]`/`[` focus the next or previous Dossier in list order that has a live agent. The list shows a badge per Dossier from a ~2 s `agent list` poll: `●` working, `▲` needs you (blocked), `✓` done, `○` idle, `?` unknown. With several agents, the most urgent status wins. A failed poll keeps the last badges and shows one warning. Any herdr failure on `c` surfaces a warning and falls back to the normal in-terminal launch. `dossier open` is unchanged. New installs include the legacy seven interface defaults; older configs that omit `interfaces` inherit those defaults. An empty `leads` list preserves free-form lead assignment. Readers also accept the retired `token_target` key from pre-simplification configs (mapping it to `token_limit`) and `schema_version` (ignoring its value), omitting them on the next normal config write. All other unknown config keys remain errors.
 
 `context/library.md` is the generated open-work context file for harnesses without deterministic hooks.
 
@@ -148,6 +150,9 @@ Optional fields:
 - `interfaces`
 - `due_date`
 - `attention` (optional machine-managed signal: `level` in `none|fyi|decide|blocked`, `summary` ≤140 characters, `since`, and `by`)
+- `repos` (optional list of repo identities, normalized to lowercase `host/owner/name`; the first is the primary repo)
+
+`repos` names the repositories the work lives in by identity, never by path, because a synced Dossier is read on machines that keep checkouts in different places (ADR 0015). Input may be a remote in any common form (`git@host:owner/name.git`, `https://host/owner/name`, `ssh://…`) or an identity. Dossier normalizes it by dropping the user, port, a trailing `.git` and trailing slashes, and lowercasing. Entries that don't parse, and duplicates after normalization, are rejected. Each machine resolves identities to checkouts through a learned map at `local/repo-paths.json` (verified on use; a stale entry is dropped with a warning), then by searching `repo_roots` from `config.yaml` one level deep. When several checkouts match, Dossier lists them and doesn't guess. When nothing matches, a warning names `dossier repo locate`. When a bound session runs inside a checkout of a listed repo (the SessionStart hook's `cwd`, or the MCP server's working directory on `dossier_session`), its location is learned. A session in an unlisted repo yields a suggestion to add it, and the Dossier is never changed automatically.
 
 Attention is set or cleared only by `agent:` or `system:` actors; it is read-only to humans and filterable by level. It is distinct from lifecycle status and `next_action`.
 
@@ -493,6 +498,10 @@ dossier conflicts [<conflict-id>] [--json]
 dossier resolve <conflict-id> (--keep-shared|--restore-mine|--keep-both) [--json]
 dossier status <slug-or-id> <spark|define|execute|review|blocked|done>
 dossier lead <slug-or-id> "<lead-name>"
+dossier repo add <slug-or-id> <remote|identity|path>
+dossier repo remove <slug-or-id> <remote|identity|path>
+dossier repo locate <slug-or-id> <path>
+dossier repo status <slug-or-id>
 dossier description <slug-or-id> "<summary>"
 dossier interface <slug-or-id> "<interface>"...
 dossier next <slug-or-id> "<next action>"
@@ -708,7 +717,7 @@ Required tools:
 
 > **Note on `dossier_artifact`:** it takes `dossier_id` + `artifact_id`, and optionally either a `fragment` (a citation fragment such as `"L42-L68"`) or `start_line`/`end_line`. Content is returned with absolute 1-indexed line numbers, so the span read is the span cited. An unranged fetch returns the whole artifact and warns past 500 lines rather than truncating. `dossier_artifacts` returns the same evidence index that `dossier_recall` now carries in `artifacts[]`: one entry per archived artifact with its type, line count, and whether the Distilled State cites it.
 
-> **Note on `dossier_update`:** it accepts `name`, `description`, `status`, `lead`, `interfaces`, `next_action`, and priority fields, and routes them all through the single `Save` write path (so CLI/MCP/TUI behave identically and edits get optimistic-concurrency handling). Open questions are edited by replacing the Markdown body.
+> **Note on `dossier_update`:** it accepts `name`, `description`, `status`, `lead`, `interfaces`, `repos`, `next_action`, and priority fields, and routes them all through the single `Save` write path (so CLI/MCP/TUI behave identically and edits get optimistic-concurrency handling). Open questions are edited by replacing the Markdown body.
 >
 > **Note on `dossier_rename`:** it requires `id`, `base_revision`, and one of `new_slug`, `new_name`, or `new_title`. It can rename the canonical slug, the display title, or both. Slug changes preserve the immutable ID and atomically relocate the complete directory.
 

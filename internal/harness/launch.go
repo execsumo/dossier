@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+
+	"dossier/internal/core"
 )
 
 // ClaudeBinEnv overrides the Claude Code executable used for a dossier handoff.
@@ -26,6 +29,11 @@ type LaunchRequest struct {
 	Name       string
 	Slug       string
 	Headless   bool
+	// WorkDir is where the agent starts: the Dossier's resolved primary repo,
+	// or empty for the Dossier directory (ADR 0015).
+	WorkDir string
+	// Repos are the Dossier's repos with their local paths where resolved.
+	Repos []core.ResolvedRepo
 }
 
 // ClaudeBin resolves the claude executable: $DOSSIER_CLAUDE_BIN when set,
@@ -145,7 +153,7 @@ func PlanOpenWith(name string, req LaunchRequest) (HandoffPlan, error) {
 		if err != nil {
 			return HandoffPlan{}, err
 		}
-		plan := PlanClaudeHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug)
+		plan := applyRepos(PlanClaudeHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug), req, true)
 		if req.Headless {
 			plan.Args = append([]string{"--print"}, plan.Args...)
 			plan.Env = []string{"DOSSIER_LEAN_SESSION_START=1"}
@@ -156,29 +164,29 @@ func PlanOpenWith(name string, req LaunchRequest) (HandoffPlan, error) {
 		if err != nil {
 			return HandoffPlan{}, err
 		}
-		return PlanCursorHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug), nil
+		return applyRepos(PlanCursorHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug), req, false), nil
 	case "codex":
 		bin, err := pathBin("codex", "Codex")
 		if err != nil {
 			return HandoffPlan{}, err
 		}
-		return PlanPromptHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug, genericLaunchEnv(req.SessionID)), nil
+		return applyRepos(PlanPromptHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug, genericLaunchEnv(req.SessionID)), req, false), nil
 	case "pi":
 		bin, err := pathBin("pi", "Pi")
 		if err != nil {
 			return HandoffPlan{}, err
 		}
-		return PlanPromptHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug, []string{
+		return applyRepos(PlanPromptHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug, []string{
 			"PI_SESSION_ID=",
 			"PI_SESSION_FILE=",
 			"CLAUDE_CODE_SESSION_ID=",
-		}), nil
+		}), req, false), nil
 	case "antigravity":
 		bin, err := pathBin("agy", "Antigravity (agy)")
 		if err != nil {
 			return HandoffPlan{}, err
 		}
-		return PlanPromptHandoffWithPrefix(bin, []string{"--prompt-interactive"}, req.SessionID, req.DossierDir, req.Name, req.Slug, genericLaunchEnv(req.SessionID)), nil
+		return applyRepos(PlanPromptHandoffWithPrefix(bin, []string{"--prompt-interactive"}, req.SessionID, req.DossierDir, req.Name, req.Slug, genericLaunchEnv(req.SessionID)), req, false), nil
 	default:
 		return HandoffPlan{}, fmt.Errorf("open_with profile %q is not implemented", canonical)
 	}
@@ -196,10 +204,7 @@ func PlanClaudeHandoff(bin, sessionID, dossierDir, name, slug string) HandoffPla
 	// id). Naming the parameter matters: dossier_session ignores unknown fields,
 	// so a call with a "slug" key would silently return the *active* Dossier
 	// instead of binding this one.
-	prompt := fmt.Sprintf(
-		"Resume the Dossier %q (slug: %s). Call dossier_session with id %q to bind it and load its distilled state; if the dossier MCP tools are unavailable, read ./dossier.md in this directory instead. Save any files you produce (decks, HTML, documents) to ./files/ and list them under ## Files in the distilled state.",
-		name, slug, slug,
-	)
+	prompt := ResumePrompt(LaunchRequest{DossierDir: dossierDir, Name: name, Slug: slug})
 	return HandoffPlan{
 		SessionID: sessionID,
 		Bin:       bin,
@@ -235,10 +240,7 @@ func PlanPromptHandoff(bin, sessionID, dossierDir, name, slug string, env []stri
 // PlanPromptHandoffWithPrefix builds a prompt handoff for CLIs that require
 // flags before the initial prompt, such as Antigravity's -i mode.
 func PlanPromptHandoffWithPrefix(bin string, prefix []string, sessionID, dossierDir, name, slug string, env []string) HandoffPlan {
-	prompt := fmt.Sprintf(
-		"Resume the Dossier %q (slug: %s). Call dossier_session with id %q to bind it and load its distilled state; if the dossier MCP tools are unavailable, read ./dossier.md in this directory instead. Save any files you produce (decks, HTML, documents) to ./files/ and list them under ## Files in the distilled state.",
-		name, slug, slug,
-	)
+	prompt := ResumePrompt(LaunchRequest{DossierDir: dossierDir, Name: name, Slug: slug})
 	args := append([]string{}, prefix...)
 	args = append(args, prompt)
 	return HandoffPlan{
@@ -248,6 +250,71 @@ func PlanPromptHandoffWithPrefix(bin string, prefix []string, sessionID, dossier
 		Dir:       dossierDir,
 		Env:       env,
 	}
+}
+
+// ResumePrompt is the first message of a launched session. It names the Dossier
+// by absolute path, because with a resolved repo the agent starts in the repo,
+// where "./dossier.md" would be the wrong file (ADR 0015). With a repo, project
+// work goes in the repo under its own CLAUDE.md/AGENTS.md and other deliverables
+// go in the Dossier's files/; ## Files records repo files as identity:path, never
+// as a machine-local absolute path, because the Dossier may be shared.
+func ResumePrompt(req LaunchRequest) string {
+	var b strings.Builder
+	// The MCP tool takes the slug in its "id" parameter (it accepts a slug or an
+	// id). Naming the parameter matters: dossier_session ignores unknown fields,
+	// so a call with a "slug" key would silently return the *active* Dossier
+	// instead of binding this one.
+	fmt.Fprintf(&b, "Resume the Dossier %q (slug: %s). Call dossier_session with id %q to bind it and load its distilled state; if the dossier MCP tools are unavailable, read %s instead.",
+		req.Name, req.Slug, req.Slug, filepath.Join(req.DossierDir, "dossier.md"))
+	files := filepath.Join(req.DossierDir, "files") + string(filepath.Separator)
+	inRepo := req.WorkDir != "" && req.WorkDir != req.DossierDir && len(req.Repos) > 0 && req.Repos[0].Path == req.WorkDir
+	if !inRepo {
+		fmt.Fprintf(&b, " Save any files you produce (decks, HTML, documents) to %s and list them under ## Files in the distilled state.", files)
+	} else {
+		primary := req.Repos[0]
+		fmt.Fprintf(&b, " You are working in the repo %s at %s; follow its own instructions (CLAUDE.md / AGENTS.md).", primary.Identity, primary.Path)
+		fmt.Fprintf(&b, " Save project work (code, docs, assets the repo keeps) in the repo; save other deliverables (decks, analyses, briefs) to %s.", files)
+		b.WriteString(" List both under ## Files in the distilled state: repo files as <repo>:<path relative to the repo> (e.g. " + core.RepoRef(primary.Identity, "docs/plan.md") + "), never as absolute paths; Dossier files relative to the Dossier.")
+	}
+	var others []string
+	for i, r := range req.Repos {
+		if inRepo && i == 0 {
+			continue
+		}
+		if r.Path != "" {
+			others = append(others, fmt.Sprintf("%s at %s", r.Identity, r.Path))
+		} else {
+			others = append(others, fmt.Sprintf("%s (not on this machine)", r.Identity))
+		}
+	}
+	if len(others) > 0 {
+		label := "Other repos"
+		if !inRepo {
+			label = "Repos"
+		}
+		fmt.Fprintf(&b, " %s for this Dossier: %s.", label, strings.Join(others, "; "))
+	}
+	return b.String()
+}
+
+// applyRepos re-roots a plan for a Dossier with repos: the agent starts in the
+// resolved primary repo, the prompt carries the repo guidance, and Claude Code
+// is given --add-dir for the Dossier folder so writing files/ needs no extra
+// permission prompt. Plans for Dossiers without repos are returned unchanged.
+func applyRepos(plan HandoffPlan, req LaunchRequest, claude bool) HandoffPlan {
+	if len(req.Repos) == 0 && (req.WorkDir == "" || req.WorkDir == req.DossierDir) {
+		return plan
+	}
+	if req.WorkDir != "" {
+		plan.Dir = req.WorkDir
+	}
+	args := append([]string{}, plan.Args...)
+	args[len(args)-1] = ResumePrompt(req)
+	if claude && plan.Dir != req.DossierDir {
+		args = append(args[:len(args)-1:len(args)-1], "--add-dir", req.DossierDir, args[len(args)-1])
+	}
+	plan.Args = args
+	return plan
 }
 
 // Command materializes the plan as an *exec.Cmd rooted in the Dossier directory,

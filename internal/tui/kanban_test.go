@@ -475,7 +475,7 @@ func TestKanbanCardsShowAssignedLeadAsLastRow(t *testing.T) {
 		Lead:        "Alice Smith",
 	}
 
-	lines := strings.Split(stripANSI(renderCard(item, 30, false, true)), "\n")
+	lines := strings.Split(stripANSI(renderCard(item, "", 30, false, true)), "\n")
 	leadLine := -1
 	descriptionLine := -1
 	for i, line := range lines {
@@ -502,7 +502,7 @@ func TestKanbanCardsShowAssignedLeadAsLastRow(t *testing.T) {
 
 	unassigned := item
 	unassigned.Lead = ""
-	if got, want := lipgloss.Height(renderCard(unassigned, 30, false, true)), lipgloss.Height(renderCard(item, 30, false, true))-1; got != want {
+	if got, want := lipgloss.Height(renderCard(unassigned, "", 30, false, true)), lipgloss.Height(renderCard(item, "", 30, false, true))-1; got != want {
 		t.Fatalf("unassigned card height = %d, want assigned height minus one (%d)", got, want)
 	}
 }
@@ -514,14 +514,14 @@ func TestKanbanCardsShowAssignedLeadAsLastRow(t *testing.T) {
 func TestRenderCardMarksOpenDelegationAsk(t *testing.T) {
 	item := core.ListItem{ID: "d1", Name: "Pricing Topic"}
 
-	plain := stripANSI(renderCard(item, 30, false, false))
+	plain := stripANSI(renderCard(item, "", 30, false, false))
 	if strings.Contains(plain, "!") {
 		t.Fatalf("unmarked card should not show the open-ask marker, got:\n%s", plain)
 	}
 
 	flagged := item
 	flagged.HasOpenDelegationContract = true
-	marked := stripANSI(renderCard(flagged, 30, false, false))
+	marked := stripANSI(renderCard(flagged, "", 30, false, false))
 	if !strings.Contains(marked, "! Pricing Topic") {
 		t.Fatalf("expected marked card to show '! Pricing Topic', got:\n%s", marked)
 	}

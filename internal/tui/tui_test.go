@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -1336,17 +1337,27 @@ func TestHeaderHasNoSession(t *testing.T) {
 	svc := setupTestService(store)
 
 	m := NewModel(svc)
-	m.width = 100
 	m.height = 40
-	m.recalculateTableLayout()
-
-	view := m.View()
-	if !strings.Contains(view, "DOSSIER TUI") {
-		t.Errorf("expected view to contain the 'DOSSIER TUI' title, got:\n%s", view)
-	}
-	for _, forbidden := range []string{"Session:", "Active:", "No active Claude session"} {
-		if strings.Contains(view, forbidden) {
-			t.Errorf("expected view NOT to contain %q, got:\n%s", forbidden, view)
+	for _, width := range []int{60, 100, 140} {
+		m.width = width
+		m.recalculateTableLayout()
+		view := m.View()
+		if !strings.Contains(view, "Dossier TUI dev") {
+			t.Errorf("expected view to contain the 'Dossier TUI dev' title, got:\n%s", view)
+		}
+		row := stripANSI(strings.SplitN(view, "\n", 2)[0])
+		if got := lipgloss.Width(row); got != width {
+			t.Errorf("header width = %d, want terminal width %d", got, width)
+		}
+		left := strings.Index(row, "Dossier TUI dev")
+		right := lipgloss.Width(row) - left - len("Dossier TUI dev")
+		if delta := left - right; delta < -1 || delta > 1 {
+			t.Errorf("header title is not centered: left=%d right=%d", left, right)
+		}
+		for _, forbidden := range []string{"Session:", "Active:", "No active Claude session"} {
+			if strings.Contains(view, forbidden) {
+				t.Errorf("expected view NOT to contain %q, got:\n%s", forbidden, view)
+			}
 		}
 	}
 }
@@ -2008,30 +2019,78 @@ func (s *claudeSpy) install(m Model) Model {
 	return m
 }
 
-func TestOpenInClaudeInHerdrUsesSplitPane(t *testing.T) {
+// herdrSpy stubs the herdr seams so the switcher can be driven without herdr.
+type herdrSpy struct {
+	agents    []harness.HerdrAgent
+	listErr   error
+	launched  []harness.HandoffPlan
+	launchErr error
+	focused   []string
+}
+
+func (h *herdrSpy) install(m Model) Model {
+	m.inHerdr = func() bool { return true }
+	m.listHerdrAgents = func() ([]harness.HerdrAgent, error) { return h.agents, h.listErr }
+	m.launchInHerdr = func(p harness.HandoffPlan) (string, error) {
+		h.launched = append(h.launched, p)
+		if h.launchErr != nil {
+			return "", h.launchErr
+		}
+		return fmt.Sprintf("w1:p%d", len(h.launched)+10), nil
+	}
+	m.focusHerdrAgent = func(pane string) error {
+		h.focused = append(h.focused, pane)
+		return nil
+	}
+	return m
+}
+
+func herdrAgent(pane, sessionID, status string, seq int64) harness.HerdrAgent {
+	a := harness.HerdrAgent{PaneID: pane, Status: status, StateChangeSeq: seq}
+	a.Session.Kind, a.Session.Value = "id", sessionID
+	return a
+}
+
+// runCmd runs a command and returns its message, failing on a nil command.
+func runCmd(t *testing.T, cmd tea.Cmd) tea.Msg {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("expected a command")
+	}
+	return cmd()
+}
+
+func TestOpenInClaudeInHerdrOpensTab(t *testing.T) {
 	store := newTestStore()
 	m := claudeTestModel(t, store)
 	spy := &claudeSpy{bin: "/usr/bin/claude"}
 	m = spy.install(m)
-	var launched []harness.HandoffPlan
-	var launchErr error
-	m.inHerdr = func() bool { return true }
-	m.launchInHerdr = func(p harness.HandoffPlan) error {
-		launched = append(launched, p)
-		return launchErr
-	}
+	h := &herdrSpy{}
+	m = h.install(m)
 
+	// No live agent for this Dossier: c looks, finds none, and opens a tab.
 	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
 	m = newM.(Model)
-	if cmd == nil {
-		t.Fatal("expected a launch command")
+	pick, ok := runCmd(t, cmd).(herdrPickMsg)
+	if !ok || pick.agent != nil {
+		t.Fatalf("expected a pick with no agent, got %#v", pick)
 	}
-	msg, ok := cmd().(herdrLaunchMsg)
-	if !ok || len(launched) != 1 || spy.calls != 0 {
-		t.Fatalf("msg=%T launched=%d exec calls=%d; want herdr launch only", msg, len(launched), spy.calls)
+	newM, cmd = m.Update(pick)
+	m = newM.(Model)
+	msg, ok := runCmd(t, cmd).(herdrLaunchMsg)
+	if !ok || len(h.launched) != 1 || spy.calls != 0 {
+		t.Fatalf("msg=%T launched=%d exec calls=%d; want herdr launch only", msg, len(h.launched), spy.calls)
+	}
+	if h.launched[0].Slug != "project-alpha" {
+		t.Errorf("tab should be labelled with the slug, got %q", h.launched[0].Slug)
 	}
 	if len(store.bindings) != 1 {
 		t.Errorf("expected one session binding, got %v", store.bindings)
+	}
+	newM, cmd = m.Update(msg)
+	m = newM.(Model)
+	if m.herdrLaunched[msg.paneID].dossierID != "dos1" {
+		t.Errorf("launched pane not recorded: %+v", m.herdrLaunched)
 	}
 	newM, cmd = m.Update(msg)
 	m = newM.(Model)
@@ -2061,14 +2120,178 @@ func TestOpenInClaudeInHerdrUsesSplitPane(t *testing.T) {
 	}
 
 	// A herdr failure falls back to taking over this terminal.
-	launchErr = fmt.Errorf("boom")
+	h.launchErr = fmt.Errorf("boom")
 	m.currentView = ViewDashboard
-	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
-	msg = cmd().(herdrLaunchMsg)
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("C")})
+	msg = runCmd(t, cmd).(herdrLaunchMsg)
 	newM, cmd = m.Update(msg)
 	m = newM.(Model)
 	if cmd == nil || spy.calls != 1 {
 		t.Fatalf("expected a fallback exec, got cmd=%v calls=%d", cmd != nil, spy.calls)
+	}
+}
+
+func TestHerdrSwitcherFocusesExistingAgent(t *testing.T) {
+	store := newTestStore()
+	m := claudeTestModel(t, store)
+	spy := &claudeSpy{bin: "/usr/bin/claude"}
+	m = spy.install(m)
+	h := &herdrSpy{}
+	m = h.install(m)
+	store.bindings["sess-old"] = &core.SessionBinding{SessionBindingID: "sess-old", DossierID: "dos1"}
+	store.bindings["sess-new"] = &core.SessionBinding{SessionBindingID: "sess-new", DossierID: "dos1"}
+	h.agents = []harness.HerdrAgent{
+		herdrAgent("w1:p2", "sess-old", "idle", 10),
+		herdrAgent("w1:p3", "sess-new", "working", 20),
+		herdrAgent("w1:p4", "unbound", "blocked", 30),
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = newM.(Model)
+	pick := runCmd(t, cmd).(herdrPickMsg)
+	if pick.agent == nil || pick.agent.PaneID != "w1:p3" {
+		t.Fatalf("expected the most recently active agent w1:p3, got %+v", pick.agent)
+	}
+	newM, cmd = m.Update(pick)
+	m = newM.(Model)
+	if fm, ok := runCmd(t, cmd).(herdrFocusMsg); !ok || fm.err != nil {
+		t.Fatalf("expected a focus, got %#v", fm)
+	}
+	if !reflect.DeepEqual(h.focused, []string{"w1:p3"}) || len(h.launched) != 0 || len(store.bindings) != 2 {
+		t.Errorf("focused=%v launched=%d bindings=%d; want focus only, no new binding", h.focused, len(h.launched), len(store.bindings))
+	}
+
+	// C ignores the live agent and opens a second session.
+	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("C")})
+	m = newM.(Model)
+	if _, ok := runCmd(t, cmd).(herdrLaunchMsg); !ok || len(h.launched) != 1 || len(store.bindings) != 3 {
+		t.Errorf("C should open a new tab with a new binding: launched=%d bindings=%d", len(h.launched), len(store.bindings))
+	}
+
+	// A herdr list failure warns and opens a new session rather than doing nothing.
+	h.listErr = fmt.Errorf("socket gone")
+	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = newM.(Model)
+	pick = runCmd(t, cmd).(herdrPickMsg)
+	newM, cmd = m.Update(pick)
+	m = newM.(Model)
+	if _, ok := runCmd(t, cmd).(herdrLaunchMsg); !ok || len(m.warnings) == 0 || !strings.Contains(string(m.warnings[0]), "socket gone") {
+		t.Errorf("expected a visible warning and a launch, got warnings=%v", m.warnings)
+	}
+}
+
+func TestHerdrPollBadgesAndCycling(t *testing.T) {
+	store := newTestStore()
+	m := claudeTestModel(t, store)
+	h := &herdrSpy{}
+	m = h.install(m)
+	store.dossiers["dos2"] = &core.Dossier{Frontmatter: core.Frontmatter{ID: "dos2", Name: "Project Beta", Slug: "project-beta", Status: core.StatusActive, Priority: core.PriorityHigh}}
+	store.dossiers["dos3"] = &core.Dossier{Frontmatter: core.Frontmatter{ID: "dos3", Name: "Project Gamma", Slug: "project-gamma", Status: core.StatusActive, Priority: core.PriorityHigh}}
+	reloaded, _ := m.Update(m.listDossiersCmd()())
+	m = reloaded.(Model)
+	store.bindings["s1"] = &core.SessionBinding{SessionBindingID: "s1", DossierID: "dos1"}
+	store.bindings["s3"] = &core.SessionBinding{SessionBindingID: "s3", DossierID: "dos3"}
+	h.agents = []harness.HerdrAgent{
+		herdrAgent("w1:p1", "s1", "working", 1),
+		herdrAgent("w1:p2", "s1", "blocked", 2),
+		herdrAgent("w1:p3", "s3", "idle", 3),
+	}
+
+	newM, _ := m.Update(runCmd(t, m.agentPollCmd()))
+	m = newM.(Model)
+	if got := m.agentBadge("dos1"); got != "▲" {
+		t.Errorf("dos1 badge = %q, want ▲ (blocked wins)", got)
+	}
+	if got := m.agentBadge("dos3"); got != "○" {
+		t.Errorf("dos3 badge = %q, want ○", got)
+	}
+	if got := m.agentBadge("dos2"); got != "" {
+		t.Errorf("dos2 has no agent, badge = %q", got)
+	}
+	found := false
+	for _, row := range m.table.Rows() {
+		if strings.HasPrefix(row[0], "▲ ") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("table rows carry no badge: %v", m.table.Rows())
+	}
+
+	// ] and [ move through Dossiers with agents in list order, wrapping.
+	pane := map[string]string{"dos1": "w1:p2", "dos3": "w1:p3"} // most recent agent per Dossier
+	row := map[string]int{}
+	for i, it := range m.visibleItems {
+		row[it.ID] = i
+	}
+	press := func(cursor int, key string) string {
+		m.table.SetCursor(cursor)
+		before := len(h.focused)
+		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+		runCmd(t, cmd)
+		if len(h.focused) != before+1 {
+			t.Fatalf("%s did not focus anything", key)
+		}
+		return h.focused[len(h.focused)-1]
+	}
+	first, last := "dos1", "dos3"
+	if row["dos3"] < row["dos1"] {
+		first, last = "dos3", "dos1"
+	}
+	if got := press(row[first], "]"); got != pane[last] {
+		t.Errorf("] from %s focused %s, want %s", first, got, pane[last])
+	}
+	if got := press(row[last], "]"); got != pane[first] {
+		t.Errorf("] from %s should wrap to %s, got %s", last, pane[first], got)
+	}
+	if got := press(row[first], "["); got != pane[last] {
+		t.Errorf("[ from %s should wrap to %s, got %s", first, pane[last], got)
+	}
+	if got := press(row["dos2"], "["); row["dos2"] > row[last] && got != pane[last] {
+		t.Errorf("[ from dos2 focused %s, want %s", got, pane[last])
+	}
+
+	// A failed poll keeps the badges and warns once.
+	h.listErr = fmt.Errorf("herdr down")
+	newM, _ = m.Update(runCmd(t, m.agentPollCmd()))
+	m = newM.(Model)
+	newM, _ = m.Update(runCmd(t, m.agentPollCmd()))
+	m = newM.(Model)
+	if m.agentBadge("dos1") != "▲" {
+		t.Error("a failed poll must not blank the badges")
+	}
+	n := 0
+	for _, w := range m.warnings {
+		if strings.Contains(string(w), "herdr down") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("expected exactly one stale-badge warning, got %v", m.warnings)
+	}
+}
+
+func TestHerdrLaunchedPaneMatchesUntilGone(t *testing.T) {
+	m := claudeTestModel(t, newTestStore())
+	m.recordHerdrLaunch("w1:p9", "dos1")
+	// A non-Claude agent reports its own session id, so only the launched map ties it to dos1.
+	agents := []harness.HerdrAgent{herdrAgent("w1:p9", "pi-own-id", "working", 1)}
+	newM, _ := m.Update(agentPollMsg{agents: agents, bound: map[string]string{}})
+	m = newM.(Model)
+	if m.agentBadge("dos1") != "●" {
+		t.Fatalf("launched pane should match dos1, badge = %q", m.agentBadge("dos1"))
+	}
+	// Within the grace period an absent pane is kept; once stale it is forgotten.
+	newM, _ = m.Update(agentPollMsg{bound: map[string]string{}})
+	m = newM.(Model)
+	if _, ok := m.herdrLaunched["w1:p9"]; !ok {
+		t.Fatal("fresh launch pruned before herdr could detect it")
+	}
+	m.herdrLaunched["w1:p9"] = herdrLaunch{dossierID: "dos1", at: time.Now().Add(-time.Hour)}
+	newM, _ = m.Update(agentPollMsg{bound: map[string]string{}})
+	m = newM.(Model)
+	if _, ok := m.herdrLaunched["w1:p9"]; ok || m.agentBadge("dos1") != "" {
+		t.Errorf("stale launched pane should be forgotten: %+v badge=%q", m.herdrLaunched, m.agentBadge("dos1"))
 	}
 }
 
@@ -2730,7 +2953,7 @@ func TestTUI_TableColumnSequence(t *testing.T) {
 		Status:   "active",
 		Lead:     "Alice",
 		DueDate:  "2026-12-01",
-	}, true, true)
+	}, "", true, true)
 
 	expectedCells := []string{"Alpha", "high", "active", "Alice", "12/01"}
 	if len(row) != len(expectedCells) {
@@ -2799,14 +3022,14 @@ func TestTUI_LeadColumnKeepsConfiguredWidthWhenWindowShrinks(t *testing.T) {
 func TestItemTableRowMarksOpenDelegationAsk(t *testing.T) {
 	base := core.ListItem{ID: "dos1", Name: "Alpha", Priority: "high", Status: "active", Lead: "Alice"}
 
-	plain := itemTableRow(base, true, false)
+	plain := itemTableRow(base, "", true, false)
 	if plain[0] != "Alpha" {
 		t.Errorf("expected unmarked name %q, got %q", "Alpha", plain[0])
 	}
 
 	flagged := base
 	flagged.HasOpenDelegationContract = true
-	marked := itemTableRow(flagged, true, false)
+	marked := itemTableRow(flagged, "", true, false)
 	if marked[0] != "! Alpha" {
 		t.Errorf("expected open-ask marker prefix, got %q", marked[0])
 	}

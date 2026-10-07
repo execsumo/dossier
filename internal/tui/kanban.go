@@ -322,7 +322,7 @@ func padCell(s string, w int) string {
 // renderCard draws one dossier as a bordered card exactly colWidth cells wide.
 // The border consumes two cells and the padding two more, so the text has
 // colWidth-4 to work with.
-func renderCard(item core.ListItem, colWidth int, selected, showDescription bool) string {
+func renderCard(item core.ListItem, badge string, colWidth int, selected, showDescription bool) string {
 	inner := colWidth - 4
 	if inner < 1 {
 		inner = 1
@@ -337,10 +337,15 @@ func renderCard(item core.ListItem, colWidth int, selected, showDescription bool
 	marker := ""
 	if item.HasOpenDelegationContract {
 		marker = lipgloss.NewStyle().Foreground(vibrantRed).Bold(true).Render("!") + " "
-		titleWidth = inner - 2
-		if titleWidth < 1 {
-			titleWidth = 1
-		}
+		titleWidth -= 2
+	}
+	// The herdr agent badge (ADR 0014) reserves its cells the same way.
+	if badge != "" {
+		marker = lipgloss.NewStyle().Foreground(purple).Bold(true).Render(badge) + " " + marker
+		titleWidth -= lipgloss.Width(badge) + 1
+	}
+	if titleWidth < 1 {
+		titleWidth = 1
 	}
 	lines := []string{marker + kanbanCardTitleStyle.Render(truncateCell(item.Name, titleWidth))}
 	if showDescription && item.Description != "" {
@@ -409,7 +414,7 @@ func (m Model) renderKanbanColumn(stageIdx, colWidth, bodyHeight int, selected b
 		cards := make([]string, len(items))
 		heights := make([]int, len(items))
 		for i, item := range items {
-			cards[i] = renderCard(item, colWidth, selected && i == cursor, stage != core.StatusDone)
+			cards[i] = renderCard(item, m.agentBadge(item.ID), colWidth, selected && i == cursor, stage != core.StatusDone)
 			heights[i] = lipgloss.Height(cards[i])
 		}
 

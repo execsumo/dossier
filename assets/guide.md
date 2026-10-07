@@ -88,6 +88,7 @@ Index of the Archive: what is stored, what is in it, and where the citable spans
 ## Files
 *Conditional*—omit when no working files exist. Index of loose deliverables and attachments in `files/` (decks, HTML, spreadsheets, binaries) that are not citable Archive evidence. One line per file, path relative to the Dossier directory, so the next session can find the work without browsing the folder.
 - `files/<name>` (<kind>): <what it is and its status: draft, final, superseded>.
+- `<repo identity>:<path in repo>` (<kind>): <same> — for deliverables kept in one of the Dossier's repos, e.g. `github.com/acme/api:docs/plan.md`. Never an absolute path.
 
 ## Open Questions
 Unresolved questions that materially affect the topic or next move.

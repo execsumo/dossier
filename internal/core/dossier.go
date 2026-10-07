@@ -175,6 +175,9 @@ type Frontmatter struct {
 	Priority    Priority   `yaml:"priority" json:"priority"`
 	DueDate     string     `yaml:"due_date,omitempty" json:"due_date,omitempty"`
 	Attention   *Attention `yaml:"attention,omitempty" json:"attention,omitempty"`
+	// Repos names the repositories this work lives in by normalized identity
+	// (host/owner/name), first = primary. Synced; resolved per machine (ADR 0015).
+	Repos []string `yaml:"repos,omitempty" json:"repos,omitempty"`
 }
 
 // Validate ensures that all required fields are present and valid.

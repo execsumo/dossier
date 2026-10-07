@@ -1461,23 +1461,25 @@ func (s *FSStore) findDossierDir(slugOrID string) (string, error) {
 // fields mirror the last pre-simplification release and are intentionally not
 // part of core.Frontmatter, so FormatDossierFile can only emit canonical YAML.
 type dossierFrontmatterFile struct {
-	ID            string         `yaml:"id"`
-	Name          string         `yaml:"name"`
-	Description   string         `yaml:"description,omitempty"`
-	Slug          string         `yaml:"slug"`
-	CreatedAt     time.Time      `yaml:"created_at"`
-	UpdatedAt     time.Time      `yaml:"updated_at"`
-	Status        core.Status    `yaml:"status"`
-	Lead          string         `yaml:"lead,omitempty"`
-	Interfaces    []string       `yaml:"interfaces,omitempty"`
-	NextAction    string         `yaml:"next_action"`
-	Priority      *core.Priority `yaml:"priority"`
-	DueDate       string         `yaml:"due_date,omitempty"`
-	LastTouchedAt time.Time      `yaml:"last_touched_at,omitempty"`
-	OpenQuestions []string       `yaml:"open_questions,omitempty"`
-	Importance    string         `yaml:"importance,omitempty"`
-	Urgency       string         `yaml:"urgency,omitempty"`
-	TokenTarget   int            `yaml:"token_target,omitempty"`
+	ID            string          `yaml:"id"`
+	Name          string          `yaml:"name"`
+	Description   string          `yaml:"description,omitempty"`
+	Slug          string          `yaml:"slug"`
+	CreatedAt     time.Time       `yaml:"created_at"`
+	UpdatedAt     time.Time       `yaml:"updated_at"`
+	Status        core.Status     `yaml:"status"`
+	Lead          string          `yaml:"lead,omitempty"`
+	Interfaces    []string        `yaml:"interfaces,omitempty"`
+	NextAction    string          `yaml:"next_action"`
+	Priority      *core.Priority  `yaml:"priority"`
+	DueDate       string          `yaml:"due_date,omitempty"`
+	Attention     *core.Attention `yaml:"attention,omitempty"`
+	Repos         []string        `yaml:"repos,omitempty"`
+	LastTouchedAt time.Time       `yaml:"last_touched_at,omitempty"`
+	OpenQuestions []string        `yaml:"open_questions,omitempty"`
+	Importance    string          `yaml:"importance,omitempty"`
+	Urgency       string          `yaml:"urgency,omitempty"`
+	TokenTarget   int             `yaml:"token_target,omitempty"`
 }
 
 func ParseDossierFile(content string) (*core.Frontmatter, string, error) {
@@ -1521,6 +1523,8 @@ func ParseDossierFile(content string) (*core.Frontmatter, string, error) {
 		NextAction:  wire.NextAction,
 		Priority:    priority,
 		DueDate:     wire.DueDate,
+		Attention:   wire.Attention,
+		Repos:       wire.Repos,
 	}
 	body = strings.TrimPrefix(body, "\n")
 	body = core.MergeLegacyOpenQuestions(body, wire.OpenQuestions)
