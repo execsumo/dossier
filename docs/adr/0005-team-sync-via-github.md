@@ -7,8 +7,8 @@
 > Consequences' "PAT entered once" are not built: there is no auth prompt. Credentials
 > must pre-exist at `~/.dossier/credentials` (mode 0600) or come from `gh auth token`;
 > since the P0 fixes, a missing or rejected credential is reported explicitly
-> (`sync_auth_failed`). See `docs/team-adoption-plan-review.md`.
-> Companion: `docs/team-sync-plan.md` (the phased development plan), `BUILD-DECISIONS.md` B12.
+> (`sync_auth_failed`). See `docs/history/team-adoption-plan-review.md`.
+> Companion: `docs/history/team-sync-plan.md` (the phased development plan), `BUILD-DECISIONS.md` B12.
 
 ## Context
 

@@ -37,7 +37,7 @@ type Config struct {
 
 // GitSync is the Phase-2 spike git-sync adapter. It is NOT wired into
 // core.Service, the CLI, or MCP; see the package godoc and
-// docs/spikes/gitsync-findings.md.
+// docs/history/gitsync-findings.md.
 type GitSync struct {
 	cfg Config
 }

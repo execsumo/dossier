@@ -1,6 +1,6 @@
 # Team Sync — Validation After the P0 Fixes
 
-> Created 2026-09-18 from [`team-adoption-plan-review.md`](team-adoption-plan-review.md).
+> Created 2026-09-18 from [`team-adoption-plan-review.md`](history/team-adoption-plan-review.md).
 >
 > **When to use this:** after P0-1 to P0-7 and P0-9 (review §6) are implemented, before the
 > pilot starts. It is a procedure to run, not a list of open work. Every check

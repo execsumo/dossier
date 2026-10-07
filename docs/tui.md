@@ -2,7 +2,7 @@
 
 > Reviewed: 2026-09-11
 > Scope: `internal/tui/`, its tests, the CLI launch path, and the documented
-> TUI contract. This is the current remediation plan; `docs/tui-plan.md` is the
+> TUI contract. This is the current remediation plan; `docs/history/tui-plan.md` is the
 > historical implementation plan.
 >
 > **Status: complete.** The remediation below is implemented and validated.
@@ -173,7 +173,7 @@ screen height, cursor visibility, and reachable exit/save actions.
 2. Remove or update dead state and stale comments, including the unused
    `suppressFooter` path and the commented-out legacy help-overlay tests.
 3. Keep `docs/tui.md` as the current plan, clearly mark
-   `docs/tui-plan.md` as historical, and update README/help text only after the
+   `docs/history/tui-plan.md` as historical, and update README/help text only after the
    interaction contract is settled.
 
 ## Definition of done
