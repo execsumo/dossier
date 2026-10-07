@@ -73,6 +73,10 @@ type Config struct {
 	RepoRoots []string `yaml:"repo_roots,omitempty"`
 	// Eval is the automatic session eval knob (ADR 0016).
 	Eval EvalConfig `yaml:"eval,omitempty"`
+	// SaveNudgeTurns is how many user turns of work may pass without a save
+	// before the Stop hook asks the agent to save. Unset uses the default;
+	// 0 turns the nudge off.
+	SaveNudgeTurns *int `yaml:"save_nudge_turns,omitempty"`
 }
 
 // configFile is the strict read schema. TokenTarget and SchemaVersion are
@@ -90,6 +94,8 @@ type configFile struct {
 	SchemaVersion int        `yaml:"schema_version,omitempty"`
 	RepoRoots     []string   `yaml:"repo_roots,omitempty"`
 	Eval          EvalConfig `yaml:"eval,omitempty"`
+	// SaveNudgeTurns: see Config.SaveNudgeTurns.
+	SaveNudgeTurns *int `yaml:"save_nudge_turns,omitempty"`
 }
 
 // CurrentSchemaVersion is the latest on-disk config schema.
@@ -167,6 +173,7 @@ func Load(path string) (*Config, error) {
 	cfg.Team = wire.Team
 	cfg.RepoRoots = wire.RepoRoots
 	cfg.Eval = wire.Eval
+	cfg.SaveNudgeTurns = wire.SaveNudgeTurns
 	if wire.TokenLimit != nil {
 		cfg.TokenLimit = *wire.TokenLimit
 	} else if wire.TokenTarget != nil {
@@ -348,6 +355,9 @@ func (c *Config) validateValues() error {
 	if c.TokenLimit < 0 {
 		return fmt.Errorf("token_limit must not be negative")
 	}
+	if c.SaveNudgeTurns != nil && *c.SaveNudgeTurns < 0 {
+		return fmt.Errorf("save_nudge_turns must not be negative (0 turns the save nudge off)")
+	}
 	if effort := strings.ToLower(strings.TrimSpace(c.Eval.Effort)); effort != "" {
 		valid := false
 		for _, level := range core.EvalEffortLevels {
@@ -408,5 +418,14 @@ func (c *Config) ToCoreConfig() core.Config {
 			Model:   c.Eval.EvalModel(),
 			Effort:  strings.ToLower(strings.TrimSpace(c.Eval.Effort)),
 		},
+		SaveNudgeTurns: c.SaveNudgeTurnsValue(),
 	}
+}
+
+// SaveNudgeTurnsValue resolves save_nudge_turns against its default.
+func (c *Config) SaveNudgeTurnsValue() int {
+	if c.SaveNudgeTurns == nil {
+		return core.DefaultSaveNudgeTurns
+	}
+	return *c.SaveNudgeTurns
 }

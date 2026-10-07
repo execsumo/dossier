@@ -134,6 +134,16 @@ func TestClaudeCodeHarness(t *testing.T) {
 		t.Fatalf("expected PreCompact to have 1 matcher, got %d", len(preCompactVal))
 	}
 
+	// Assert the Stop hook (save checkpoint) was added
+	stopVal, ok := hooks["Stop"].([]any)
+	if !ok || len(stopVal) != 1 {
+		t.Fatalf("expected Stop to have 1 matcher, got %v", hooks["Stop"])
+	}
+	stopHooks, _ := stopVal[0].(map[string]any)["hooks"].([]any)
+	if len(stopHooks) != 1 || !strings.Contains(stopHooks[0].(map[string]any)["command"].(string), "hook stop") {
+		t.Errorf("expected Stop command to run 'hook stop', got %v", stopHooks)
+	}
+
 	// Assert unrelated hook UserPromptSubmit was preserved
 	unrelatedVal, ok := hooks["UserPromptSubmit"].([]any)
 	if !ok {

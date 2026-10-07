@@ -969,7 +969,21 @@ If unsupported:
 - Distillation Guide instructs the agent to self-trigger a save at boundaries.
 - Session-start notices must warn that deterministic save backstops are unavailable.
 
-### 9.3 Context File Fallback
+In practice no supported harness supplies a Distilled State at these boundaries: the hook runs the binary, not the agent, so it archives the transcript and cannot distill (`docs/harness-capabilities.md` §3). Saving therefore happens in-session (B29):
+
+- **`/save-dossier`** (Claude Code skill) is the user's save. Run it before `/clear` or exit.
+- **Unsaved sessions are surfaced, not reconstructed.** When a session ended without saving, the next session start, `dossier_session` and `dossier_recall` say so: the sessions, dates and authors, with no transcript ids. The notice clears with the next save that changes the Distilled State.
+
+### 9.4 Save Checkpoint (Stop Hook)
+
+Claude Code's `Stop` hook fires at the end of every agent turn, while the agent still holds the session's context. `dossier hook stop`:
+
+- Returns at once, with no output, when the session is not bound to a Dossier, when `stop_hook_active` is set, or when no `transcript_path` is given.
+- Otherwise reduces the transcript to user turns, tool calls (Dossier's own tools excluded), and saves (`dossier_save`, `dossier_promote`).
+- Nudges when at least `save_nudge_turns` user turns (config, default 3; `0` disables) with at least one tool call have passed since the later of the last save and the last nudge. The nudge is `hookSpecificOutput.additionalContext` naming the Dossier and what to save, and offering a one-line "nothing material" exit. The agent takes one more turn, and the nudge is recorded on the session binding so it does not repeat until more work accumulates.
+- Never blocks the session on its own failure: errors go to stderr and the turn ends.
+
+### 9.5 Context File Fallback
 
 Generate:
 

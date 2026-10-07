@@ -73,6 +73,18 @@ func TestClaudeCodeHarnessInstallsSkills(t *testing.T) {
 	if string(sparkGot) != string(sparkSkillAssetContent(t)) {
 		t.Errorf("installed spark SKILL.md content does not match embedded asset")
 	}
+
+	saveGot, err := os.ReadFile(filepath.Join(tempHome, ".claude", "skills", "save-dossier", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("expected save-dossier SKILL.md to be written, got error: %v", err)
+	}
+	saveWant, err := assets.FS.ReadFile("save-dossier-skill.md")
+	if err != nil {
+		t.Fatalf("failed to read embedded save-dossier skill asset: %v", err)
+	}
+	if string(saveGot) != string(saveWant) {
+		t.Errorf("installed save-dossier SKILL.md content does not match embedded asset")
+	}
 }
 
 // TestClaudeCodeHarnessDelegateSkillIdempotent covers a second Install, once
@@ -217,11 +229,14 @@ func TestClaudeCodeHarnessUninstallsOwnedFilesAndPreservesOtherConfig(t *testing
 	if _, err := os.Stat(filepath.Join(tempHome, ".claude", "skills", "spark", "SKILL.md")); !os.IsNotExist(err) {
 		t.Error("spark skill should be removed")
 	}
+	if _, err := os.Stat(filepath.Join(tempHome, ".claude", "skills", "save-dossier", "SKILL.md")); !os.IsNotExist(err) {
+		t.Error("save-dossier skill should be removed")
+	}
 	data, err = os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "dossier_session") || strings.Contains(string(data), "hook session-start") || !strings.Contains(string(data), "other") {
+	if strings.Contains(string(data), "dossier_session") || strings.Contains(string(data), "hook session-start") || strings.Contains(string(data), "hook stop") || !strings.Contains(string(data), "other") {
 		t.Errorf("Dossier config was not removed while unrelated config was preserved: %s", data)
 	}
 }

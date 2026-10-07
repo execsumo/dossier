@@ -55,4 +55,8 @@ type SessionBinding struct {
 	// where the previous copy was just evicted from context) and carried across a
 	// Switch (the Guide is dossier-independent, so re-binding earns no re-send).
 	GuideDeliveredAt time.Time `json:"guide_delivered_at,omitzero"`
+
+	// SaveNudgedAt records when the Stop hook last asked this session's agent
+	// to save (see Service.SaveNudge), so turns before it are not counted again.
+	SaveNudgedAt time.Time `json:"save_nudged_at,omitzero"`
 }

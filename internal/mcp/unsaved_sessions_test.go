@@ -37,7 +37,7 @@ func TestDossierSessionCarriesUnsavedSessionsNotice(t *testing.T) {
 		if err := json.Unmarshal(raw, &resp); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
-		for _, want := range []string{"Dossier Test", "1 session(s)", "art_old", "session sess-old", "predates this work"} {
+		for _, want := range []string{"Dossier Test", "1 session(s)", "session sess-old", "predates this work"} {
 			if !strings.Contains(resp.Unsaved, want) {
 				t.Errorf("%s: unsaved_sessions %q missing %q", args, resp.Unsaved, want)
 			}

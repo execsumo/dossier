@@ -25,25 +25,18 @@ type UnsavedSession struct {
 }
 
 // UnsavedSessions derives the sessions that ended without saving the
-// Distilled State and have not been recovered since.
+// Distilled State and that no save has followed since.
 //
 // Nothing is persisted for this: it is computed from the audit log every time,
-// so it clears itself once the work is recovered, and it is identical on every
-// machine that has the (Team Sync'd) audit shards.
+// so it clears itself, and it is identical on every machine that has the
+// (Team Sync'd) audit shards.
 //
-// A boundary is recovered when the current Distilled State mentions the
-// transcript archived at it, either as a [src:] citation or as its line in the
-// Evidence index. Any later body change is not enough: another session saving
-// its own, unrelated work would otherwise silently clear a notice for work
-// nobody distilled. Requiring the mention ties clearing to the act the
-// Operating Instructions ask for (distill the transcript, cite the spans), and
-// an Evidence line ("background only") is the honest way to acknowledge a
-// session that established nothing material.
-//
-// A boundary with no captured transcript has nothing to mention, so it falls
-// back to the weaker signal: a later audit event whose history snapshots
+// A boundary clears once a later audit event's history snapshots
 // (ReadRevision) at BeforeRevision and AfterRevision hold different Distilled
-// State bodies. Bodies are compared rather than trusting the event type or
+// State bodies, or once the current Distilled State mentions the transcript
+// archived at it. Saving is the user's job (B29), so the notice answers only
+// "has the Dossier been saved since?", not "was this session's transcript
+// distilled?". Bodies are compared rather than trusting the event type or
 // revision hash, because artifact-only and frontmatter-only saves also advance
 // the revision. A snapshot that cannot be read never counts as a change, so
 // the notice errs toward staying visible.
@@ -93,10 +86,12 @@ func (s *Service) UnsavedSessions(dossierID string) ([]UnsavedSession, error) {
 			}
 		}
 
-		var cleared bool
-		if len(artifactIDs) > 0 {
-			cleared = haveCurrent && mentionsAnyArtifact(currentBody, artifactIDs)
-		} else {
+		// Any later save that changes the body clears it: saving is the user's
+		// job (B29), so the question is only whether the Dossier has been saved
+		// since, not whether this session's transcript was distilled. Citing
+		// the transcript also clears it.
+		cleared := len(artifactIDs) > 0 && haveCurrent && mentionsAnyArtifact(currentBody, artifactIDs)
+		if !cleared {
 			for _, later := range events[i+1:] {
 				if later.BeforeRevision == "" || later.AfterRevision == "" || later.BeforeRevision == later.AfterRevision {
 					continue
@@ -161,17 +156,16 @@ func isArtifactIDByte(b byte) bool {
 	return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 }
 
-// FormatUnsavedSessionsNotice renders the recovery notice. Every surface
-// (SessionStart, dossier_session, dossier_recall) goes through it so they
-// cannot diverge. It states facts and does not issue instructions: the
-// instruction to act on it lives in the Operating Instructions.
+// FormatUnsavedSessionsNotice renders the notice. Every surface (SessionStart,
+// dossier_session, dossier_recall) goes through it so they cannot diverge.
 //
-// Sessions by currentAuthor (or with no recorded author) are listed with their
-// transcripts for recovery. Other authors' sessions are only counted and
-// attributed: whether one person's agent may distill a colleague's session is
-// a product decision, and the default is no (HANDOFF "unprocessed-session
-// recovery", team stores hazard). They are surfaced so the gap is visible,
-// not so it gets filled.
+// It is a fact, not a work order. Saving is the user's job, before they exit
+// (/save-dossier, prompted by the Stop-hook checkpoint); a missed save is
+// surfaced so the gap is visible, not reconstructed. The notice therefore names
+// sessions but not their transcript artifacts: naming them invited agents to
+// load whole transcripts at the start of a session, which is the context cost
+// the Distilled State exists to avoid. Other authors' sessions are counted and
+// attributed only.
 func FormatUnsavedSessionsNotice(dossierName, currentAuthor string, sessions []UnsavedSession) string {
 	var own []UnsavedSession
 	othersByAuthor := map[string]int{}
@@ -207,17 +201,13 @@ func FormatUnsavedSessionsNotice(dossierName, currentAuthor string, sessions []U
 			if u.Author != "" {
 				detail += ", by " + u.Author
 			}
-			if len(u.TranscriptArtifactIDs) == 0 {
-				parts = append(parts, fmt.Sprintf("no transcript was captured (%s)", detail))
-			} else {
-				parts = append(parts, fmt.Sprintf("transcript %s (%s)", strings.Join(u.TranscriptArtifactIDs, ", "), detail))
-			}
+			parts = append(parts, detail)
 		}
 		tail := ""
 		if more := len(own) - len(shown); more > 0 {
 			tail = fmt.Sprintf(" (+%d more)", more)
 		}
-		fmt.Fprintf(&sb, " %d session(s) ended without saving the Distilled State since its last save. Unsaved work is archived in %s%s. The Distilled State predates this work.",
+		fmt.Fprintf(&sb, " %d session(s) ended without saving the Distilled State since its last save (%s%s). The Distilled State predates this work.",
 			len(own), strings.Join(parts, "; "), tail)
 	}
 	if len(otherAuthors) > 0 {
@@ -231,7 +221,7 @@ func FormatUnsavedSessionsNotice(dossierName, currentAuthor string, sessions []U
 		if len(own) > 0 {
 			also = " also"
 		}
-		fmt.Fprintf(&sb, " %d session(s) by other authors%s ended without saving: %s. Those are theirs to recover.",
+		fmt.Fprintf(&sb, " %d session(s) by other authors%s ended without saving: %s.",
 			total, also, strings.Join(named, ", "))
 	}
 	return sb.String()

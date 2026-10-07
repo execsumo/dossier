@@ -43,7 +43,7 @@ Use a throwaway Dossier home and a throwaway private repository or sandbox:
 | **SessionStart Hook** | Yes (`SessionStart`) |
 | **SessionEnd Hook** | Yes (`SessionEnd`) |
 | **Pre-Compaction Hook** | Yes (`PreCompact`) |
-| **Turn-end Hook** | Yes (`Stop`; verified 2026-10-07, not installed by Dossier, see §3) |
+| **Turn-end Hook** | Yes (`Stop`; verified 2026-10-07; installed by Dossier for the save checkpoint, B29, see §3) |
 | **Raw Transcript Access** | Yes (via session UUID matching) |
 | **Stable Session ID** | Yes (UUID string in payload) |
 | **MCP Session Env Var** | Yes (`CLAUDE_CODE_SESSION_ID`, verified) |
@@ -225,13 +225,14 @@ that hook output as a guaranteed user-visible notice.
 
 ### Stop hook and resume source (verified 2026-10-07, Claude Code 2.1.292)
 
-Spike for turn-level save mechanics. It ran headless (`claude -p --setting-sources "" --settings <file> --strict-mcp-config --model haiku`) with logging hooks. Dossier does not install a `Stop` hook today; this records what one could rely on.
+Spike for turn-level save mechanics. It ran headless (`claude -p --setting-sources "" --settings <file> --strict-mcp-config --model haiku`) with logging hooks. Dossier now installs a `Stop` hook for the save checkpoint (B29; SPEC §9.4), built on what this spike verified.
 
 - **`Stop` fires once per completed turn** (it does not fire on a user interrupt). The payload carries `session_id`, `transcript_path`, `cwd`, `prompt_id`, `permission_mode`, `stop_hook_active`, `last_assistant_message`, `background_tasks`, and `session_crons` (verified).
 - **Non-blocking `additionalContext` continues the turn (verified).** Returning `{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"…"}}` made the model read the text and take one more turn. The follow-up `Stop` arrived with `stop_hook_active: true`. Claude Code's documented loop protections (that flag, plus an 8-consecutive-continuation cap reset by any tool call) are what keep a hook from looping. A hook must still check `stop_hook_active` itself.
 - **The transcript is current for tool calls at `Stop` time (verified).** A copy of `transcript_path` taken inside the hook already held the turn's `Read` and `Edit` `tool_use` blocks, with full inputs (`file_path`, `old_string`, `new_string`). The final assistant text was missing from the first turn's copy, which matches the docs' warning. So: derive "what changed this turn" from `tool_use` blocks, and take the final reply from `last_assistant_message`, never from the file.
 - **Hook cost.** Both spike hooks were shell scripts and added no perceptible latency; a whole one-turn run took about 7s wall time, nearly all of it model time. A Go `dossier hook stop` would need to stay fast: it runs after every turn of every session, bound or not.
 - **`SessionStart.source` (verified):** `startup` on a new session and `resume` on `--resume`. `compact` and `clear` are documented but not exercised here, because compaction can't be forced cheaply in headless mode. Dossier's guide re-delivery already treats every SessionStart as a new context window, so it does not depend on the value.
+- **Save checkpoint end to end (verified 2026-10-07).** `dossier hook stop` was run in a throwaway store, headless, with `save_nudge_turns: 1`, the SessionStart and Stop hooks, and the Dossier MCP server. The prompt stated a decision and asked for one Bash call. The hook nudged exactly once, the agent took one more turn, and the next Stop (with `stop_hook_active`) ended it. **Sonnet** then called `dossier_recall` and `dossier_save`, and the Distilled State gained a dated Current State with the decision. **Haiku** acknowledged the nudge but replied "nothing material" every time, the second time because the decision was "already captured in memory" (Claude Code's auto-memory). That held even after the nudge text said memory files do not replace the Dossier. So the checkpoint is a strong prompt, not a guarantee: on small models `/save-dossier` remains the save.
 - **Not available from any hook (docs, 2026-10-07):** `PreCompact` receives the user's `/compact` instructions but cannot supply its own, so Dossier cannot shape Claude Code's compaction summary. `PostCompact` receives the generated `compact_summary`. Blocking automatic compaction can fail the request when compaction is recovering from a context-limit error, and the payload does not say which case applies, so Dossier should never block it.
 
 ### Isolated `claude -p` for evals (verified 2026-10-07, Claude Code 2.1.292)
