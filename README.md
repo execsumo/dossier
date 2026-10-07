@@ -50,7 +50,7 @@ Once installed, it just works:
 - **Session start:** your open Dossiers appear in the conversation. Pick one up or start a new one.
 - **During the session:** the agent recalls, saves, searches, and switches Dossiers for you. Each session follows its own Dossier, so parallel sessions never collide.
 - **Saving:** type `/save-dossier` before you `/clear` or exit. It brings the Dossier's Distilled State up to date with this session's work, like saving a file. The end-of-session hooks only archive the transcript; they cannot write the summary for you.
-- **Save checkpoint:** after a few turns of work with no save, Dossier asks the agent once, at the end of its reply, to save before handing back to you. Set `save_nudge_turns` in `config.yaml` to change how many turns (default 3), or `0` to turn it off.
+- **Save checkpoint:** after a few turns of work with no save, Dossier asks the agent once, at the end of its reply, to save before handing back to you. Set `save_nudge_turns` in `config.yaml` to change how many turns (default 10), or `0` to turn it off.
 - **Session end:** the transcript is archived into the Dossier automatically. If a session ended without saving, the next one says so; it does not try to rebuild the work from the transcript.
 
 Capture a new idea in one line:
@@ -172,7 +172,7 @@ open_with: claude-code   # claude-code, cursor, codex, or antigravity
 interfaces: [Pricing WBR, "1:1", Steerco]
 leads: [Alice, Bob]
 token_limit: 100000
-save_nudge_turns: 3      # turns of unsaved work before the save checkpoint; 0 = off
+save_nudge_turns: 10     # turns of unsaved work before the save checkpoint; 0 = off
 eval:                    # automatic session evals (3 model calls per saved session)
   enabled: true          # on by default; false keeps stats but stops evals
   model: haiku

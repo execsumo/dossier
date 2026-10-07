@@ -980,7 +980,7 @@ Claude Code's `Stop` hook fires at the end of every agent turn, while the agent 
 
 - Returns at once, with no output, when the session is not bound to a Dossier, when `stop_hook_active` is set, or when no `transcript_path` is given.
 - Otherwise reduces the transcript to user turns, tool calls (Dossier's own tools excluded), and saves (`dossier_save`, `dossier_promote`).
-- Nudges when at least `save_nudge_turns` user turns (config, default 3; `0` disables) with at least one tool call have passed since the later of the last save and the last nudge. The nudge is `hookSpecificOutput.additionalContext` naming the Dossier and what to save, and offering a one-line "nothing material" exit. The agent takes one more turn, and the nudge is recorded on the session binding so it does not repeat until more work accumulates.
+- Nudges when at least `save_nudge_turns` user turns (config, default 10; `0` disables) with at least one tool call have passed since the later of the last save and the last nudge. The nudge is `hookSpecificOutput.additionalContext` naming the Dossier and what to save, and offering a one-line "nothing material" exit. The agent takes one more turn, and the nudge is recorded on the session binding so it does not repeat until more work accumulates.
 - Never blocks the session on its own failure: errors go to stderr and the turn ends.
 
 ### 9.5 Context File Fallback
