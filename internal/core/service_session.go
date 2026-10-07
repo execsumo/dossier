@@ -360,6 +360,9 @@ func (s *Service) SessionStartMode(ctx context.Context, sessionID string, lean b
 			sb.WriteString("Distilled State:\n")
 			sb.WriteString(recData.DistilledState)
 			sb.WriteString("\n")
+			if notice := s.UnsavedSessionsNotice(activeDossierID, recData.Frontmatter.Name); notice != "" {
+				sb.WriteString("\n" + notice + "\n")
+			}
 		}
 	}
 

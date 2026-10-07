@@ -956,6 +956,11 @@ func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
 
 	index, indexWarnings := s.evidenceIndex(d.Frontmatter.ID, d.DistilledState.Body, !req.HumanView)
 	warnings = append(warnings, indexWarnings...)
+	if !req.HumanView {
+		if msg := s.UnsavedSessionsNotice(d.Frontmatter.ID, d.Frontmatter.Name); msg != "" {
+			warnings = append(warnings, Warning(msg))
+		}
+	}
 	externalLinks := ParseExternalLinks(d.DistilledState.Body)
 
 	var files []WorkingFile

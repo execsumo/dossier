@@ -712,9 +712,27 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 					}
 				}
 
+				// Sessions that ended without saving the Distilled State. Carried
+				// in a dedicated field (the Active path drops Recall's warnings),
+				// and removed from warnings so the two never both say it.
+				var unsavedNotice string
+				if recData, ok := res.Data.(core.RecallResult); ok {
+					unsavedNotice = s.svc.UnsavedSessionsNotice(recData.Frontmatter.ID, recData.Frontmatter.Name)
+				}
+				if unsavedNotice != "" {
+					kept := res.Warnings[:0]
+					for _, w := range res.Warnings {
+						if string(w) != unsavedNotice {
+							kept = append(kept, w)
+						}
+					}
+					res.Warnings = kept
+				}
+
 				username, displayName := s.svc.CurrentUser()
 				type SessionResponse struct {
 					State                 interface{}       `json:"state"`
+					UnsavedSessions       string            `json:"unsaved_sessions,omitempty"`
 					CurrentUser           map[string]string `json:"current_user"`
 					Guide                 string            `json:"distillation_guide,omitempty"`
 					GuideRef              string            `json:"distillation_guide_ref,omitempty"`
@@ -738,6 +756,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 				}
 				resp := SessionResponse{
 					State:                 res.Data,
+					UnsavedSessions:       unsavedNotice,
 					CurrentUser:           map[string]string{"username": username, "display_name": displayName},
 					Guide:                 guide,
 					OperatingInstructions: s.svc.GetInstructions(),
