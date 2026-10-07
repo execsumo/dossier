@@ -173,8 +173,61 @@ team:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(written), "token_target:") || strings.Contains(string(written), "schema_version:") {
-		t.Fatalf("canonical save re-emitted compatibility fields:\n%s", written)
+	if strings.Contains(string(written), "token_target:") || !strings.Contains(string(written), "schema_version: 3") {
+		t.Fatalf("canonical save did not emit the current schema:\n%s", written)
+	}
+}
+
+func TestMigrateConfigBacksUpAndIsIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	original := "# keep this comment\nschema_version: 2\nauthor: test\ndossier_home: /tmp/dossiers\ntoken_target: 75000\n"
+	if err := os.WriteFile(path, []byte(original), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(path); err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup, err := os.ReadFile(path + ".bak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(backup) != original {
+		t.Fatalf("backup = %q, want original config", backup)
+	}
+	if !strings.Contains(string(migrated), "schema_version: 3") || !strings.Contains(string(migrated), "# keep this comment") || !strings.Contains(string(migrated), "token_limit: 75000") || strings.Contains(string(migrated), "token_target:") {
+		t.Fatalf("migration did not canonicalize config and preserve comment:\n%s", migrated)
+	}
+	if err := Migrate(path); err != nil {
+		t.Fatalf("second migration: %v", err)
+	}
+	again, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != string(migrated) {
+		t.Fatal("second migration changed the config")
+	}
+}
+
+func TestMigrateRejectsInvalidConfigWithoutWriting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	original := "author: test\nunknown_setting: true\n"
+	if err := os.WriteFile(path, []byte(original), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(path); err == nil || !strings.Contains(err.Error(), "unknown_setting") {
+		t.Fatalf("Migrate() error = %v, want strict unknown-field error", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != original {
+		t.Fatalf("invalid config was modified: %q", got)
 	}
 }
 
