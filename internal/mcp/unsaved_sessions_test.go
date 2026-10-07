@@ -17,9 +17,12 @@ func TestDossierSessionCarriesUnsavedSessionsNotice(t *testing.T) {
 
 	svc, fake := newSessionTestStoreAndService(t)
 	ts := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
+	// The test service has no configured author, so SessionEnd would record an
+	// empty Author: these are the current author's own sessions. Another
+	// author's are counted, not listed (see core TestUnsavedNoticeSeparatesOtherAuthors).
 	fake.Audits["dos_1"] = []core.AuditEvent{
-		{TS: ts, Event: core.AuditEventSave, DossierID: "dos_1", SessionID: "sess-old", Author: "Alice", BeforeRevision: "rev_1", AfterRevision: "rev_2", ArtifactsAdded: []string{"art_old"}},
-		{TS: ts, Event: core.AuditEventDistilledStateNotCaptured, DossierID: "dos_1", SessionID: "sess-old", Author: "Alice"},
+		{TS: ts, Event: core.AuditEventSave, DossierID: "dos_1", SessionID: "sess-old", Author: "", BeforeRevision: "rev_1", AfterRevision: "rev_2", ArtifactsAdded: []string{"art_old"}},
+		{TS: ts, Event: core.AuditEventDistilledStateNotCaptured, DossierID: "dos_1", SessionID: "sess-old", Author: ""},
 	}
 
 	for _, args := range []string{`{"id":"dos_1"}`, `{}`} {

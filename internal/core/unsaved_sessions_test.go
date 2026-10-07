@@ -296,14 +296,14 @@ func TestFormatUnsavedSessionsNoticeCapsWithMoreTail(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		sessions = append(sessions, UnsavedSession{SessionID: fmt.Sprintf("s%d", i), TS: time.Now(), TranscriptArtifactIDs: []string{fmt.Sprintf("art_%d", i)}})
 	}
-	notice := FormatUnsavedSessionsNotice("X", sessions)
+	notice := FormatUnsavedSessionsNotice("X", "", sessions)
 	if !strings.Contains(notice, "8 session(s)") || !strings.Contains(notice, "(+3 more)") {
 		t.Fatalf("expected total count and +3 more tail: %s", notice)
 	}
 	if strings.Contains(notice, "s5") || !strings.Contains(notice, "s4") {
 		t.Fatalf("expected exactly the first five listed: %s", notice)
 	}
-	if FormatUnsavedSessionsNotice("X", nil) != "" {
+	if FormatUnsavedSessionsNotice("X", "", nil) != "" {
 		t.Fatal("empty list must render nothing")
 	}
 }
@@ -379,5 +379,45 @@ func TestMentionsAnyArtifactMatchesWholeIDs(t *testing.T) {
 		if got := mentionsAnyArtifact(tt.body, []string{"art_01ab"}); got != tt.want {
 			t.Errorf("mentionsAnyArtifact(%q) = %v, want %v", tt.body, got, tt.want)
 		}
+	}
+}
+
+// TestUnsavedNoticeSeparatesOtherAuthors guards the team-store default: a
+// colleague's unsaved session is surfaced as theirs, never offered to this
+// author's agent for recovery (no transcript ids, no "predates" claim).
+func TestUnsavedNoticeSeparatesOtherAuthors(t *testing.T) {
+	h := newUnsavedHarness(t)
+	bob := NewService(h.store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, h.clock, Config{Author: "Bob"}, nil)
+
+	h.bind("sess_bob")
+	h.tick()
+	if _, err := bob.SessionEnd(h.ctx, "sess_bob", "", "bob transcript"); err != nil {
+		t.Fatalf("bob SessionEnd: %v", err)
+	}
+	bobOnly := h.svc.UnsavedSessionsNotice("dos_fake_id", "Recovery")
+	for _, want := range []string{"1 session(s) by other authors ended without saving", "Bob (1)", "theirs to recover"} {
+		if !strings.Contains(bobOnly, want) {
+			t.Errorf("notice %q lacks %q", bobOnly, want)
+		}
+	}
+	if strings.Contains(bobOnly, "art_") || strings.Contains(bobOnly, "predates") {
+		t.Errorf("another author's session must not be offered for recovery: %q", bobOnly)
+	}
+
+	h.bind("sess_alice")
+	h.boundary("sess_alice")
+	both := h.svc.UnsavedSessionsNotice("dos_fake_id", "Recovery")
+	for _, want := range []string{"1 session(s) ended without saving", "session sess_alice", "by Alice", "predates this work", "by other authors also ended without saving: Bob (1)"} {
+		if !strings.Contains(both, want) {
+			t.Errorf("notice %q lacks %q", both, want)
+		}
+	}
+	if strings.Contains(both, "sess_bob") {
+		t.Errorf("Bob's session must be counted, not listed: %q", both)
+	}
+
+	// From Bob's side the roles swap.
+	if got := bob.UnsavedSessionsNotice("dos_fake_id", "Recovery"); !strings.Contains(got, "session sess_bob") || !strings.Contains(got, "Alice (1)") {
+		t.Errorf("Bob's view should list his own session and count Alice's: %q", got)
 	}
 }

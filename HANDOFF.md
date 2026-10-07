@@ -18,6 +18,12 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 
 ## Current state
 
+> **Continuity work (2026-10-07, branch `feat/session-switcher`).**
+> - **Guide split (`b2a4f73`).** `assets/guide.md` covers Distilled State content only: conversation-only context (corrections, approval scope) in a dated Current State, `[stated]` for uncitable claims, update-in-place rules, and a pre-save checklist. `assets/instructions.md` covers tool protocol, including a new On Resume check. SessionStart now inlines the Operating Instructions with the Guide for bound sessions.
+> - **Unsaved-session recovery notice (`8db7133`).** See the unprocessed-session recovery roadmap below. The `Stop` hook was spiked and recorded in `docs/harness-capabilities.md`; Dossier does not install it yet.
+> - **Resumption eval harness:** `tools/resumeeval` (see its README). Real cases are to be collected from the primary-use machine.
+> - **Proposed, not started:** a mechanical turn checkpoint, where a `Stop` hook records the files edited and the repo branch@commit per turn as audit events and surfaces "since last save" on resume. Then section-level `dossier_save` with a section-policy table (free / protected / schema-checked / machine-owned), which would also absorb the Deliverables and Delegation Contracts schema.
+
 > **Session switcher + repo resolution built (2026-10-06, branch `feat/session-switcher`, not yet merged).** [ADR 0014](docs/adr/0014-herdr-tab-switcher.md) / B26: inside herdr, the TUI's `c` focuses the Dossier's live agent or opens one in a new tab labelled with the slug, `C` always opens another, `]`/`[` cycle, and list/board badges come from a 2 s `herdr agent list` poll. A manual check in real herdr 0.9.3 passed (tab opened and focused, ▲ badge, second `c` focused the existing tab, exit closed the tab and cleared the badge). [ADR 0015](docs/adr/0015-repo-identity-and-local-resolution.md) / B27: synced `repos` frontmatter (normalized `host/owner/name`), a machine-local `local/repo-paths.json` (gitignored), `repo_roots` config, `dossier repo add|remove|locate|status`, `dossier_update.repos`, and learning on `dossier_session` and SessionStart (`cwd`); an unlisted repo yields a suggestion, never an edit. Launches start in the resolved primary repo with absolute Dossier paths, the deliverables rule (repo files as `identity:path`) and `--add-dir` for Claude. An end-to-end check with the built binary and a fake `claude` passed: scan resolved the checkout, `open` started in the repo with the right argv, the hook learned a moved checkout and suggested an unlisted one. **Bug fixed along the way:** the strict frontmatter reader lacked `attention`, so any Dossier whose attention an agent set became unreadable. No live Dossier had it set; a round-trip test now covers it. Deliberate gaps: `doctor` doesn't report unresolved repos (it runs every minute in the TUI); learning doesn't run on `dossier_link`/`dossier_promote`. Still to check: whether Claude Code reads a bare `AGENTS.md` (`docs/harness-capabilities.md` §3).
 >
 > **Team Sync loudness pass (2026-10-01):** closes the plan's "background results are discarded" and "CLI/TUI don't sync" gaps (see D8 below). Headless `team join` (token file, no TTY/gh) is covered by `internal/cli/team_headless_join_test.go`. `docs/team-sync-plan.md`'s status banner is superseded by this; live-GitHub validation (SPEC §14.11) is still outstanding.
@@ -279,7 +285,15 @@ Designs, verified facts and acceptance criteria are in the ADRs; this is the bui
 
 Open questions: which session id Cursor, Codex and Antigravity report through herdr (unchecked; the launched map covers it meanwhile). Whether `open_layout: workspace` (TUI and agent side by side per Dossier) is worth adding after a week of using tabs.
 
-### Roadmap: unprocessed-session recovery (proposed 2026-09-09, not started)
+### Roadmap: unprocessed-session recovery (proposed 2026-09-09; discovery built 2026-10-07)
+
+> **Status 2026-10-07 (`8db7133` and follow-up).** Discovery and the prompt to act are built: `Service.UnsavedSessions` derives the queue from the audit log, and one formatter puts it in the bound SessionStart, `dossier_session` (`unsaved_sessions`), and non-human `dossier_recall` warnings. The Operating Instructions' On Resume bullet tells the agent to distill, cite, and date the recovered content. How the settled hazards were resolved:
+> - **Clearing** is derived, not a `distilled_state_recovered` event. A boundary clears once the Distilled State mentions its transcript id (a `[src:]` citation or an Evidence line). An unrelated later save does not clear it. A boundary with no transcript clears on any later body change.
+> - **Team stores:** other authors' sessions are counted and attributed ("theirs to recover"), never listed for recovery.
+> - **Regression:** recovery goes through normal `Save` with `base_revision`.
+>
+> Still open from the list below: a `doctor` advisory and a TUI marker (discovery is agent-facing only so far); marking recovered content as recovered in the audit trail; and a transcript excluded from sync as oversized, which leaves a named artifact missing on the other machine.
+
 
 **The gap.** A session's Distilled State is written only by the agent's saves
 *during* the session. `Service.SessionEnd` cannot distill on the agent's behalf —

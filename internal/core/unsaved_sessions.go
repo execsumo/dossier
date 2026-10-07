@@ -165,37 +165,76 @@ func isArtifactIDByte(b byte) bool {
 // (SessionStart, dossier_session, dossier_recall) goes through it so they
 // cannot diverge. It states facts and does not issue instructions: the
 // instruction to act on it lives in the Operating Instructions.
-func FormatUnsavedSessionsNotice(dossierName string, sessions []UnsavedSession) string {
-	if len(sessions) == 0 {
+//
+// Sessions by currentAuthor (or with no recorded author) are listed with their
+// transcripts for recovery. Other authors' sessions are only counted and
+// attributed: whether one person's agent may distill a colleague's session is
+// a product decision, and the default is no (HANDOFF "unprocessed-session
+// recovery", team stores hazard). They are surfaced so the gap is visible,
+// not so it gets filled.
+func FormatUnsavedSessionsNotice(dossierName, currentAuthor string, sessions []UnsavedSession) string {
+	var own []UnsavedSession
+	othersByAuthor := map[string]int{}
+	var otherAuthors []string
+	for _, u := range sessions {
+		if u.Author == "" || u.Author == currentAuthor {
+			own = append(own, u)
+			continue
+		}
+		if othersByAuthor[u.Author] == 0 {
+			otherAuthors = append(otherAuthors, u.Author)
+		}
+		othersByAuthor[u.Author]++
+	}
+	if len(own) == 0 && len(otherAuthors) == 0 {
 		return ""
 	}
-	shown := sessions
-	if len(shown) > maxUnsavedSessionsListed {
-		shown = shown[:maxUnsavedSessionsListed]
-	}
-	parts := make([]string, 0, len(shown))
-	for _, u := range shown {
-		sid := u.SessionID
-		if sid == "" {
-			sid = "unknown"
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Dossier %s:", dossierName)
+	if len(own) > 0 {
+		shown := own
+		if len(shown) > maxUnsavedSessionsListed {
+			shown = shown[:maxUnsavedSessionsListed]
 		}
-		detail := fmt.Sprintf("session %s, %s", sid, u.TS.UTC().Format("2006-01-02"))
-		if u.Author != "" {
-			detail += ", by " + u.Author
+		parts := make([]string, 0, len(shown))
+		for _, u := range shown {
+			sid := u.SessionID
+			if sid == "" {
+				sid = "unknown"
+			}
+			detail := fmt.Sprintf("session %s, %s", sid, u.TS.UTC().Format("2006-01-02"))
+			if u.Author != "" {
+				detail += ", by " + u.Author
+			}
+			if len(u.TranscriptArtifactIDs) == 0 {
+				parts = append(parts, fmt.Sprintf("no transcript was captured (%s)", detail))
+			} else {
+				parts = append(parts, fmt.Sprintf("transcript %s (%s)", strings.Join(u.TranscriptArtifactIDs, ", "), detail))
+			}
 		}
-		if len(u.TranscriptArtifactIDs) == 0 {
-			parts = append(parts, fmt.Sprintf("no transcript was captured (%s)", detail))
-		} else {
-			parts = append(parts, fmt.Sprintf("transcript %s (%s)", strings.Join(u.TranscriptArtifactIDs, ", "), detail))
+		tail := ""
+		if more := len(own) - len(shown); more > 0 {
+			tail = fmt.Sprintf(" (+%d more)", more)
 		}
+		fmt.Fprintf(&sb, " %d session(s) ended without saving the Distilled State since its last save. Unsaved work is archived in %s%s. The Distilled State predates this work.",
+			len(own), strings.Join(parts, "; "), tail)
 	}
-	tail := ""
-	if more := len(sessions) - len(shown); more > 0 {
-		tail = fmt.Sprintf(" (+%d more)", more)
+	if len(otherAuthors) > 0 {
+		total := 0
+		named := make([]string, 0, len(otherAuthors))
+		for _, a := range otherAuthors {
+			total += othersByAuthor[a]
+			named = append(named, fmt.Sprintf("%s (%d)", a, othersByAuthor[a]))
+		}
+		also := ""
+		if len(own) > 0 {
+			also = " also"
+		}
+		fmt.Fprintf(&sb, " %d session(s) by other authors%s ended without saving: %s. Those are theirs to recover.",
+			total, also, strings.Join(named, ", "))
 	}
-	return fmt.Sprintf(
-		"Dossier %s: %d session(s) ended without saving the Distilled State since its last save. Unsaved work is archived in %s%s. The Distilled State predates this work.",
-		dossierName, len(sessions), strings.Join(parts, "; "), tail)
+	return sb.String()
 }
 
 // UnsavedSessionsNotice is the derived notice for one Dossier, or "" when there
@@ -206,5 +245,5 @@ func (s *Service) UnsavedSessionsNotice(dossierID, dossierName string) string {
 	if err != nil {
 		return ""
 	}
-	return FormatUnsavedSessionsNotice(dossierName, sessions)
+	return FormatUnsavedSessionsNotice(dossierName, s.cfg.Author, sessions)
 }
