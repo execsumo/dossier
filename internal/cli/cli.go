@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"dossier/internal/config"
 	"dossier/internal/core"
+	"dossier/internal/evaluator"
 	"dossier/internal/harness"
 	"dossier/internal/mcp"
 	"dossier/internal/repos"
@@ -1751,6 +1752,11 @@ func NewRootCmd() *cobra.Command {
 				for _, w := range warnings {
 					fmt.Printf("Warning: %s\n", w)
 				}
+				// Only the true end of a session anchors stats and evals;
+				// pre-compaction is a boundary inside a session that goes on.
+				if args[0] == "session-end" {
+					startSessionEval(os.Stdout, svc, homeDir, sessID)
+				}
 				fmt.Println("Session hook completed successfully.")
 
 			default:
@@ -1913,6 +1919,8 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(priorityCmd)
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(hookCmd)
+	rootCmd.AddCommand(newEvalCmd())
+	rootCmd.AddCommand(newStatsCmd())
 
 	rootCmd.AddCommand(tuiCmd)
 	rootCmd.AddCommand(openCmd)
@@ -2657,8 +2665,11 @@ func wireWithLoadedConfig(dossierHome string, cfg *config.Config, cfgPath string
 		syncerAdapter = sync.NewAdapter(gs)
 	}
 
-	svc := core.NewService(storeAdapter, searchAdapter, tokAdapter, hregAdapter, clockAdapter, cfg.ToCoreConfig(), syncerAdapter)
+	coreCfg := cfg.ToCoreConfig()
+	coreCfg.Version = effectiveVersion()
+	svc := core.NewService(storeAdapter, searchAdapter, tokAdapter, hregAdapter, clockAdapter, coreCfg, syncerAdapter)
 	svc.SetRepoLocator(repos.New(dossierHome, cfg.RepoRoots))
+	svc.SetEvaluator(evaluator.ClaudeCLI{})
 
 	return svc, cfg, nil
 }

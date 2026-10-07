@@ -554,6 +554,9 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 		AfterRevision:  string(newRev),
 		ArtifactsAdded: addedArtifactIDs,
 		TokenEstimate:  s.tok.Estimate(d.DistilledState.Body),
+		// The caller's real session (not the default bucket) attributes the
+		// save, so per-session save counts can be derived (ADR 0016).
+		SessionID: req.SessionID,
 	}
 	if isNew {
 		event.Event = AuditEventCreate

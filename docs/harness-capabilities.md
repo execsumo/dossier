@@ -234,6 +234,16 @@ Spike for turn-level save mechanics. It ran headless (`claude -p --setting-sourc
 - **`SessionStart.source` (verified):** `startup` on a new session and `resume` on `--resume`. `compact` and `clear` are documented but not exercised here, because compaction can't be forced cheaply in headless mode. Dossier's guide re-delivery already treats every SessionStart as a new context window, so it does not depend on the value.
 - **Not available from any hook (docs, 2026-10-07):** `PreCompact` receives the user's `/compact` instructions but cannot supply its own, so Dossier cannot shape Claude Code's compaction summary. `PostCompact` receives the generated `compact_summary`. Blocking automatic compaction can fail the request when compaction is recovering from a context-limit error, and the payload does not say which case applies, so Dossier should never block it.
 
+### Isolated `claude -p` for evals (verified 2026-10-07, Claude Code 2.1.292)
+
+`internal/evaluator` (ADR 0016) and `tools/resumeeval` both run model calls through `claude -p --output-format json --no-session-persistence --strict-mcp-config --mcp-config '{"mcpServers":{}}' --settings '{"disableAllHooks":true}' --setting-sources "" --tools "" --disable-slash-commands --system-prompt <neutral>`. Each call runs in an empty temp cwd, with `DOSSIER_HOME` pointing at an empty temp dir and `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` and `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` set.
+
+- **Without these flags, the user's setup leaks in (verified).** A plain `claude -p` reported the Dossier SessionStart library, MCP servers, hook output and the global CLAUDE.md.
+- **With them, it doesn't.** The CLI's own environment block and the account email are still visible.
+- **`disableAllHooks` is what keeps an eval from firing Dossier's own SessionStart/SessionEnd and recursing.**
+- **`--bare` needs `ANTHROPIC_API_KEY`.** It fails with "Not logged in" on OAuth installs, so it is not used.
+- **`total_cost_usd` in the JSON output is the reported cost.** It is what `session_eval` records.
+
 ### MCP Session Identity
 
 The stdio MCP server (`dossier mcp serve`) is launched per session with `CLAUDE_CODE_SESSION_ID` set in its environment. This UUID is identical to:

@@ -271,6 +271,7 @@ func TestMCPUnconfiguredStoreEmitsNoBackgroundSyncWarning(t *testing.T) {
 var mcpNonMutatingTools = map[string]bool{
 	"dossier_list":      true,
 	"dossier_changes":   true,
+	"dossier_stats":     true,
 	"dossier_recall":    true,
 	"dossier_search":    true,
 	"dossier_artifact":  true,

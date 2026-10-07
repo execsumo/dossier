@@ -223,6 +223,15 @@ type ActiveHarnessResolver interface {
 	ActiveHarness() (Harness, Capabilities, bool)
 }
 
+// Evaluator runs one isolated model call for an automatic session eval
+// (ADR 0016). Prompts and scoring live in core; the adapter only executes the
+// call, and must keep it isolated from the user's harness configuration (no
+// hooks, MCP servers, memory, or tools) so an eval can neither recurse into
+// Dossier nor be contaminated by it.
+type Evaluator interface {
+	Complete(ctx context.Context, model, prompt string) (text string, costUSD float64, err error)
+}
+
 // Clock defines a mockable interface for wall time.
 type Clock interface {
 	Now() time.Time

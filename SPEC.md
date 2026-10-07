@@ -363,6 +363,9 @@ Required event types:
 - `conflict_resolved`
 - `transcript_capture_unavailable`
 - `install_warning`
+- `distilled_state_not_captured` (a boundary found nothing saved)
+- `session_ended` (true session end; carries `version` and `guide_hash`, ADR 0016)
+- `session_eval` (automatic session eval outcome; carries `version`, `guide_hash`, and an `eval` summary)
 
 Audit writes to per-author shards must be append-only; because they are single-writer, they do not conflict across machines.
 
@@ -513,6 +516,8 @@ dossier archive <slug-or-id> [--json]
 dossier done <slug-or-id> [--json]
 dossier context refresh
 dossier doctor
+dossier stats [--all-authors|--author <name>] [--since YYYY-MM-DD] [--json]
+dossier eval run --dossier <slug-or-id> --session <session-id> [--json]
 ```
 
 ### 7.2 Command Behavior
@@ -712,6 +717,7 @@ Required tools:
 - `dossier_team` (read-only roster)
 - `dossier_inbox` (list/read/capture routed intake)
 - `dossier_inbox_resolve` (absorb or dismiss without deleting)
+- `dossier_stats` (read-only session outcomes and eval scores by version; ADR 0016)
 
 > **Note on `dossier_conflicts` / `dossier_resolve_conflict` (P0-5):** `dossier_conflicts` without arguments returns the unresolved conflicts; with `conflict_id` it returns the same comparison as `dossier conflicts <id>` (shared, mine, diff). `dossier_resolve_conflict` takes `conflict_id` and `choice` (`keep_shared`, `restore_mine`, `keep_both`) and behaves exactly as `dossier resolve`; it returns the resulting revision. Error codes: `not_found`, `invalid_frontmatter`, `concurrent_edit`.
 
