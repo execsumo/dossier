@@ -55,6 +55,8 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 - No TUI action for export yet (see `ARCHITECTURE.md` surface gaps).
 
 **Unprocessed-session recovery: remaining pieces** (discovery is built)
+- **Bounded Archive reads: shipped on `fix/bounded-artifact-reads`, not live-confirmed.** Some `c` launches started at 200–250k tokens. The suspected cause was On Resume step 5, which told the agent to read unsaved-session transcripts whole; one was 548 KB / 11k lines. Step 5 now says to recover in spans and to ask first if recovery needs more than a few. `dossier_artifact` also withholds an unranged fetch over 500 lines / 32 KB and returns an outline unless `full: true` is passed (SPEC §8 note). Confirm on the work machine with `tools/contextdiag`.
+- **Recovery by subagent (proposed).** Make recovery explicit and user-triggered. A subagent pages the transcript and returns only a distillation, so the raw session never enters the main context.
 6. A `doctor` advisory and a TUI marker. Discovery is agent-facing only so far.
 7. Marking recovered content as recovered in the audit trail.
 8. A transcript excluded from sync as oversized leaves the notice naming an artifact that is missing on other machines. Surface that case explicitly.

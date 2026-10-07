@@ -168,7 +168,7 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 		},
 		{
 			Name:        "dossier_artifact",
-			Description: "Fetch archived artifact content by id, optionally a cited line range. Resolves a [src:art_x#L10-L20] citation back to its verbatim source.",
+			Description: "Fetch archived artifact content by id, optionally a cited line range. Resolves a [src:art_x#L10-L20] citation back to its verbatim source. An unranged fetch of a large artifact (over 500 lines or 32 KB) returns its outline and line count instead of its content (withheld: true); fetch the range you need from that.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -191,6 +191,10 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 					"end_line": map[string]any{
 						"type":        "integer",
 						"description": "Optional 1-indexed last line to return",
+					},
+					"full": map[string]any{
+						"type":        "boolean",
+						"description": "Return a large artifact in full instead of its outline. Use only when the user asks for the whole artifact or the task genuinely needs all of it.",
 					},
 				},
 				"required": []string{"dossier_id", "artifact_id"},
@@ -609,6 +613,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			Fragment   string `json:"fragment"`
 			StartLine  int    `json:"start_line"`
 			EndLine    int    `json:"end_line"`
+			Full       bool   `json:"full"`
 		}
 		if err := json.Unmarshal(args, &params); err != nil {
 			s.sendError(id, -32602, "Missing dossier_id or artifact_id", nil)
@@ -620,6 +625,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			Fragment:   params.Fragment,
 			StartLine:  params.StartLine,
 			EndLine:    params.EndLine,
+			Full:       params.Full,
 		})
 
 	case "dossier_artifacts":
