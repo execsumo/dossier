@@ -582,25 +582,25 @@ stalls has failed.
 
 Honesty about state, so you can opine on the right things.
 
-**Working now:** durable topics that survive across sessions, curated state with
-full source retained, ownership, priorities, search, interface tagging with
-filtered views, and the delegation-contract skill described in Layer 3a. It runs
-locally on one person's machine.
+*Updated 2026-10-07.*
 
-> *Status note (2026-09-18):* the list below is aspirational, not in progress.
-> Current direction: `docs/team-adoption-architecture-plan.md` and its review
-> (`docs/team-adoption-plan-review.md`).
+**Working now:**
+- **Core:** durable topics that survive across sessions; curated state with full source retained; ownership; priorities with due dates; search; and interface tagging with filtered views.
+- **Delegation:** the delegation-contract skill described in Layer 3a, including recipient acceptance against a named version of the brief.
+- **Identity:** a team roster, so the tool knows who is looking and who owns what. Both people and named agents can own work.
+- **Where it runs:** in Claude Code and Pi. From the terminal dashboard, a topic can open its own agent session, started in the right code repository on each person's machine.
+- **Continuity:** when a session ends without saving, the next session is told which recorded work still needs folding in.
+- **Measurement:** after each session, Dossier checks how well the brief would let a fresh agent pick the work back up, and reports the results by Dossier version and by the AI model used. So we can see whether each release actually helps.
 
-**Being built next:** proper timezone handling; the requirements model in
-Layer 2a, including acceptance and the committed-by date; three-level importance
-with time pressure computed rather than hand-maintained; identity, so the tool
-knows who is looking; escalation up, across and down, routed by relationship
-rather than reporting line; colleague and interface notes; assembled meeting
-prep.
-Recipient acceptance on a handoff contract lands with that work.
+**Being piloted:** shared team memory (Layer 5). Colleagues share one store through a private repository that Dossier manages for them. It works end to end in testing but has not yet been validated against live GitHub or used by a real team. That pilot is the next gate.
 
-**Further out:** the shared team memory in Layer 5 — deliberately last, so the
-model is validated by real use before distribution is added on top of it.
+**Not built yet:**
+- proper timezone handling;
+- the committed-by date in the Layer 2a requirements model;
+- importance with time pressure computed rather than hand-maintained;
+- escalation routed by relationship (today escalation is a term written into a delegation contract, not routing);
+- colleague notes;
+- assembled meeting prep.
 
 ---
 

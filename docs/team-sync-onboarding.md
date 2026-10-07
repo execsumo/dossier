@@ -3,7 +3,7 @@
 > Audience: the least-technical teammate joining a shared Dossier store.
 > You do **not** need any developer tools for this. If you can run one command and sign in once, you're in.
 
-> **Status (2026-09-19, Team MVP):** joining now signs you in to GitHub through the GitHub CLI (`gh`) with a browser click, and shows the name teammates will see. Checked in a sandbox and in CI on macOS, Windows and Linux; **not yet validated against live GitHub or on a real Windows PC** (see [`team-sync-validation.md`](team-sync-validation.md) Part D and `docs/harness-capabilities.md` "Windows and macOS"). Until then, the person who set up the store should be available during the first join. Claims that are still untrue stay struck through, with the actual behavior next to them. Background: [`team-adoption-plan-review.md`](team-adoption-plan-review.md) §6, BUILD-DECISIONS B17.
+> **Status (2026-09-19, Team MVP):** joining now signs you in to GitHub through the GitHub CLI (`gh`) with a browser click, and shows the name teammates will see. Checked in a sandbox and in CI on macOS, Windows and Linux; **not yet validated against live GitHub or on a real Windows PC** (see [`team-sync-validation.md`](team-sync-validation.md) Part D and `docs/harness-capabilities.md` "Windows and macOS"). Until then, the person who set up the store should be available during the first join. Claims that are still untrue stay struck through, with the actual behavior next to them. Background: [`team-adoption-plan-review.md`](history/team-adoption-plan-review.md) §6, BUILD-DECISIONS B17.
 
 ## What a shared Dossier store is
 
@@ -149,4 +149,4 @@ Everyone with access to the team repo can read these, permanently. **Don't work 
 
 ---
 
-*Questions about joining? Ask the person who set up your team store. For the technical plan behind this feature, see `docs/team-sync-plan.md`.*
+*Questions about joining? Ask the person who set up your team store. For the technical plan behind this feature, see `docs/history/team-sync-plan.md`.*

@@ -23,7 +23,7 @@ reuse `cli.resolveSessionID`):
 - The `a` ("make active") key and the `★` marker did bind a Dossier, but only inside the
   `sess_default` bucket, which no live agent session ever reads. So "make active" had no
   effect on any agent's session — the recurring "why does this do nothing for me?"
-  confusion. `docs/tui-plan.md` catch-up items 1–2 tried to make this *honest* (banner +
+  confusion. `docs/history/tui-plan.md` catch-up items 1–2 tried to make this *honest* (banner +
   footer warning) but left the non-functional affordance in place.
 
 ## Decision
@@ -53,4 +53,4 @@ fully supported and unchanged — the CLI (`dossier switch`/`active`) and MCP
 - ADR 0002 is superseded (its entire premise — how the TUI resolves a session — is gone).
 - ADR 0003's MCP-vs-TUI `allowDefault` divergence is moot for the TUI (the TUI no longer
   resolves a session); it still describes the MCP-vs-CLI distinction, which stands.
-- `docs/tui-plan.md` catch-up items 1–3 are obsoleted by this decision.
+- `docs/history/tui-plan.md` catch-up items 1–3 are obsoleted by this decision.

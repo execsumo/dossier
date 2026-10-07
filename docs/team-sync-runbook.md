@@ -5,7 +5,7 @@
 
 > **Status (Pilot):** The team sync commands are built and work locally, but the shared GitHub flow is being piloted and is not yet validated against live GitHub. Treat this as an experimental feature.
 
-> **Status: corrected after the P0 fixes (review 2026-09-18, updated the same day).** The review struck claims about warnings, commands and TUI screens that did not exist. Those that the P0 fixes made true are restored below; those still untrue stay struck, with the actual behavior. The fixes are validated in a sandbox (`team-sync-validation.md` Parts A and C), not yet against live GitHub (Part D). Fix list: [`team-adoption-plan-review.md`](team-adoption-plan-review.md) §6.
+> **Status: corrected after the P0 fixes (review 2026-09-18, updated the same day).** The review struck claims about warnings, commands and TUI screens that did not exist. Those that the P0 fixes made true are restored below; those still untrue stay struck, with the actual behavior. The fixes are validated in a sandbox (`team-sync-validation.md` Parts A and C), not yet against live GitHub (Part D). Fix list: [`team-adoption-plan-review.md`](history/team-adoption-plan-review.md) §6.
 >
 > **Before creating a team store:** `team create` publishes **every Dossier already in the store**, archived ones included. It lists them and asks you to confirm, and it refuses a remote that is not empty. Use an empty repo whose default branch is `main`. Pilot policy is a **single store per person** (owner decision 2026-09-18), so your existing `~/.dossier` becomes the team store. First move every Dossier directory that isn't team-safe out of `~/.dossier` to a folder outside it. `dossier archive` is not enough: archived Dossiers stay in the store and sync. Read the list `team create` prints before you answer yes.
 
@@ -51,7 +51,7 @@
 
 - The next successful sync catches everything up. A deferred push never blocks a save. A deferred push is a visible warning: a manual `dossier sync` exits 1 with "Sync failed", and "Pushed local changes" appears only when commits were actually sent. Background syncs report too: the next Claude session start tells the agent (and so the user) when the last sync failed or a conflict is waiting, and a failed background sync during a session is mentioned once in Claude's next Dossier response. The TUI footer shows `last sync failed …` within about a minute. Off VPN, a Claude session start waits at most about 5 seconds for the team remote; a manual `dossier sync` reports the failure within about 10 seconds.
 
-*Sources: `docs/adr/0005-team-sync-via-github.md` §5; `docs/team-sync-plan.md` Non-negotiables (Local-first); `SPEC.md` §7.2 `dossier sync`.*
+*Sources: `docs/adr/0005-team-sync-via-github.md` §5; `docs/history/team-sync-plan.md` Non-negotiables (Local-first); `SPEC.md` §7.2 `dossier sync`.*
 
 ## 2. Sign-in missing, expired or rejected
 
@@ -74,7 +74,7 @@
 
 If the message mentions SAML or single sign-on, the organization requires the GitHub CLI to be authorized for it: GitHub → Settings → Applications → authorize the GitHub CLI for the organization, then run the command again.
 
-*Sources: BUILD-DECISIONS B17; `docs/team-adoption-plan-review.md` §6 Team MVP M6; `SPEC.md` §7 `dossier team join` and `dossier signin`.*
+*Sources: BUILD-DECISIONS B17; `docs/history/team-adoption-plan-review.md` §6 Team MVP M6; `SPEC.md` §7 `dossier team join` and `dossier signin`.*
 
 ## 3. Oversized artifact (>100 MB)
 
@@ -88,7 +88,7 @@ If the message mentions SAML or single sign-on, the organization requires the Gi
 - Don't try to sync it as-is. Dossier's supported artifacts are text (Markdown, JSON, TXT); native binary attachment storage is out of scope. Move the large file out of the store and reference it externally, or remove it from the dossier.
 - After removing or moving it, the next sync no longer warns about it.
 
-*Sources: `docs/adr/0005-team-sync-via-github.md` Consequences; `docs/team-sync-plan.md` Phase 2 §5; `SPEC.md` §7.2 `dossier sync` and §2.8 (text-first artifacts).*
+*Sources: `docs/adr/0005-team-sync-via-github.md` Consequences; `docs/history/team-sync-plan.md` Phase 2 §5; `SPEC.md` §7.2 `dossier sync` and §2.8 (text-first artifacts).*
 
 ## 4. A `dossier.md` sync conflict
 
@@ -120,7 +120,7 @@ Nothing is lost; there are **never merge markers** in the store.
   `doctor` lists unresolved conflicts as issues, and its Team Sync block's "Unresolved conflicts: N" agrees with that list. Resolved conflicts are not counted.
 - This is the same conflict flow used for local concurrent edits — **one mechanism, two triggers.**
 
-*Sources: `docs/adr/0005-team-sync-via-github.md` §4; `docs/team-sync-plan.md` Phase 2 §3; `BUILD-DECISIONS.md` §5 (conflict artifact format, `doctor` reports unresolved conflicts); `SPEC.md` §7.2.*
+*Sources: `docs/adr/0005-team-sync-via-github.md` §4; `docs/history/team-sync-plan.md` Phase 2 §3; `BUILD-DECISIONS.md` §5 (conflict artifact format, `doctor` reports unresolved conflicts); `SPEC.md` §7.2.*
 
 ## 5. Machine-local files that never sync
 
@@ -139,7 +139,7 @@ Nothing is lost; there are **never merge markers** in the store.
 
 **What to do:** nothing — this is correct behavior. If a teammate's `config.yaml` looks different from yours, that's expected and right.
 
-*Sources: `docs/adr/0005-team-sync-via-github.md` §5 + Consequences; `docs/team-sync-plan.md` Non-negotiables (Machine-local stays local) + Repo/store shape; `BUILD-DECISIONS.md` B12; `SPEC.md` §3.2.*
+*Sources: `docs/adr/0005-team-sync-via-github.md` §5 + Consequences; `docs/history/team-sync-plan.md` Non-negotiables (Machine-local stays local) + Repo/store shape; `BUILD-DECISIONS.md` B12; `SPEC.md` §3.2.*
 
 ## Healthy-state checks
 
@@ -147,7 +147,7 @@ Nothing is lost; there are **never merge markers** in the store.
 - `dossier doctor` — store integrity, unresolved conflicts, provenance references, and harness/capability status.
 - TUI footer — a glanceable status line on the dashboard and detail views, e.g. `Team sync · synced 2m ago · 1 conflict`, or `Team sync · last sync failed 18m ago · work is safe locally`. It is checked in the background when the TUI starts, when the store changes (at most once a minute), and every minute. It never blocks the TUI, even offline. `h` opens the full `doctor` report. The line is the same as the `Health:` line of `dossier doctor` and `dossier sync --status`. The footer replaces the daily `doctor` run.
 
-*Sources: `SPEC.md` §7.2; `docs/team-sync-plan.md` Phase 3 §4 (Surfacing).*
+*Sources: `SPEC.md` §7.2; `docs/history/team-sync-plan.md` Phase 3 §4 (Surfacing).*
 
 ## 6. `team join` or `team create` failed
 
@@ -177,7 +177,7 @@ Nothing is lost; there are **never merge markers** in the store.
 
 ## Sources
 
-- `docs/team-sync-plan.md` — the 4-phase plan and Non-negotiables.
+- `docs/history/team-sync-plan.md` — the 4-phase plan and Non-negotiables.
 - `docs/adr/0005-team-sync-via-github.md` — decision and conflict model (§4: "one mechanism, two triggers").
 - `BUILD-DECISIONS.md` B12 — local-first / conflict-honest rules; machine-local files that never sync.
 - `SPEC.md` §7 — the command surface (`dossier sync`, `dossier team create|join`).

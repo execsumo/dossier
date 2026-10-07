@@ -2,7 +2,7 @@
 
 > Codename: chainlink. Amazon-style working-backwards document.
 > Status: **v1 shipped** (all milestones complete). v02 — the team dimension —
-> is planned; see `VISION.md` for the forward narrative and `PLANv02.md` for the
+> is planned; see `VISION.md` for the forward narrative and `docs/history/PLANv02.md` for the
 > plan. Originally drafted 2026-06-14 · Rewritten against shipped reality 2026-08-05.
 >
 > **Scope of this document:** what exists today and why it was built that way.
@@ -321,6 +321,6 @@ metrics.
 
 - **`VISION.md`** — where this is going, written for business leaders and team
   members. Start there for the *what* and *why* of the team dimension.
-- **`PLANv02.md`** — the plan for building it, with sequencing and open decisions.
+- **`docs/history/PLANv02.md`** — the plan for building it, with sequencing and open decisions.
 - **`PRD.md`** — the v1 product requirements.
 - **`HANDOFF.md`** — implementation status and reading order for engineers.

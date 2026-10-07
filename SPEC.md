@@ -1258,7 +1258,7 @@ Checks:
 
 ### 14.11 Team Sync
 
-> Status (2026-09-18): convergence, remote-wins conflict capture, oversized exclusion and machine-local exclusion are covered by tests against local bare repos. The P0 fixes (review `docs/team-adoption-plan-review.md` §6) add tested criteria below. Sign-in at join is built (M6) but not yet run against live GitHub; persistent oversized-file warning (per-run only). Never exercised against live GitHub (validation Part D).
+> Status (2026-09-18): convergence, remote-wins conflict capture, oversized exclusion and machine-local exclusion are covered by tests against local bare repos. The P0 fixes (review `docs/history/team-adoption-plan-review.md` §6) add tested criteria below. Sign-in at join is built (M6) but not yet run against live GitHub; persistent oversized-file warning (per-run only). Never exercised against live GitHub (validation Part D).
 - Two stores converge through one remote.
 - Concurrent `dossier.md` edit yields exactly one `conflicts/*.md` (`kind: sync_concurrent_edit`) on the later syncer with no content lost anywhere.
 - Save never blocks on network (offline save succeeds, push retries later with a visible warning).
