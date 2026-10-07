@@ -2,6 +2,7 @@ package exportout
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -15,6 +16,9 @@ func TestInsideDirCaseInsensitiveFS(t *testing.T) {
 	caseInsensitiveFS = true
 	if !insideDir(other, store) {
 		t.Fatalf("on a case-insensitive filesystem %s is inside %s", other, store)
+	}
+	if runtime.GOOS == "windows" {
+		return // filepath.Rel itself ignores case on Windows
 	}
 	caseInsensitiveFS = false
 	if insideDir(other, store) {
