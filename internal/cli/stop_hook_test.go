@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"dossier/internal/core"
 )
@@ -29,12 +31,19 @@ func TestRunStopHook(t *testing.T) {
 		t.Fatalf("switch: %v", err)
 	}
 
+	// Generated against core.DefaultSaveNudgeTurns rather than a fixed count,
+	// so this test keeps covering "enough turns to cross the threshold"
+	// whatever that default is, instead of silently under-shooting it.
 	transcript := filepath.Join(t.TempDir(), "sess-stop.jsonl")
-	lines := []string{
-		`{"type":"user","timestamp":"2026-10-07T10:00:00Z","message":{"content":"one"}}`,
-		`{"type":"assistant","timestamp":"2026-10-07T10:00:01Z","message":{"content":[{"type":"tool_use","name":"Edit"}]}}`,
-		`{"type":"user","timestamp":"2026-10-07T10:01:00Z","message":{"content":"two"}}`,
-		`{"type":"user","timestamp":"2026-10-07T10:02:00Z","message":{"content":"three"}}`,
+	base := time.Date(2026, 10, 7, 10, 0, 0, 0, time.UTC)
+	var lines []string
+	lines = append(lines, fmt.Sprintf(
+		`{"type":"assistant","timestamp":%q,"message":{"content":[{"type":"tool_use","name":"Edit"}]}}`,
+		base.Format(time.RFC3339)))
+	for i := 0; i < core.DefaultSaveNudgeTurns; i++ {
+		ts := base.Add(time.Duration(i+1) * time.Minute)
+		lines = append(lines, fmt.Sprintf(
+			`{"type":"user","timestamp":%q,"message":{"content":"turn %d"}}`, ts.Format(time.RFC3339), i))
 	}
 	if err := os.WriteFile(transcript, []byte(strings.Join(lines, "\n")+"\n"), 0644); err != nil {
 		t.Fatal(err)

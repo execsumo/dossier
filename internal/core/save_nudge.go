@@ -8,7 +8,9 @@ import (
 
 // DefaultSaveNudgeTurns is how many user turns may pass without a save before
 // the Stop hook asks the agent to save. Zero in config disables the nudge.
-const DefaultSaveNudgeTurns = 3
+// 10 leaves room for the turns a session spends just establishing context
+// before any save-worthy work happens.
+const DefaultSaveNudgeTurns = 10
 
 // SessionActivity is what a harness transcript says happened in a session,
 // reduced to timestamps. Reading the transcript is the harness adapter's job;
