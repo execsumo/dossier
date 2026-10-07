@@ -2707,6 +2707,20 @@ func extrasToggleTableRow(expanded bool, showPriority, showDue bool) table.Row {
 	return row
 }
 
+// rowBadge is the agent badge plus, under a lead-name filter, a "[contract]"
+// marker when the dossier matched only through a contract owner, so its Lead
+// column (blank or another person) isn't left unexplained.
+func (m *Model) rowBadge(item core.ListItem) string {
+	badge := m.agentBadge(item.ID)
+	if m.leadFilter.kind == filterByName && item.Lead != m.leadFilter.name && containsString(item.ContractOwners, m.leadFilter.name) {
+		if badge != "" {
+			badge += " "
+		}
+		badge += "[contract]"
+	}
+	return badge
+}
+
 // populateTableRows maps visibleItems into the table rows, inserting the
 // extras toggle row between the live items (visibleItems[:liveCount]) and any
 // expanded extras (visibleItems[liveCount:]) so it always reads as the
@@ -2716,13 +2730,13 @@ func (m *Model) populateTableRows() {
 
 	rows := make([]table.Row, 0, len(m.visibleItems)+1)
 	for _, item := range m.visibleItems[:m.liveCount] {
-		rows = append(rows, itemTableRow(item, m.agentBadge(item.ID), showPriority, showDue))
+		rows = append(rows, itemTableRow(item, m.rowBadge(item), showPriority, showDue))
 	}
 	if m.extrasCount > 0 {
 		rows = append(rows, extrasToggleTableRow(m.extrasExpanded || !m.searchQuery.IsEmpty(), showPriority, showDue))
 	}
 	for _, item := range m.visibleItems[m.liveCount:] {
-		rows = append(rows, itemTableRow(item, m.agentBadge(item.ID), showPriority, showDue))
+		rows = append(rows, itemTableRow(item, m.rowBadge(item), showPriority, showDue))
 	}
 
 	m.table.SetRows(rows)
