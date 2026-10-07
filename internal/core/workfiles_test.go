@@ -11,6 +11,16 @@ import (
 type fileTestStore struct {
 	*localFakeStore
 	files map[string][]WorkingFile
+	// contents is the optional file content, keyed dossier id then path.
+	contents map[string]map[string][]byte
+}
+
+func (s *fileTestStore) ReadWorkingFile(dossierID, relPath string) ([]byte, error) {
+	data, ok := s.contents[dossierID][relPath]
+	if !ok {
+		return nil, NewError(ErrNotFound, "no such working file")
+	}
+	return data, nil
 }
 
 func (s *fileTestStore) ListWorkingFiles(dossierID string) ([]WorkingFile, error) {

@@ -5,6 +5,7 @@ import (
 	"dossier/assets"
 	"dossier/internal/core"
 	"fmt"
+	"sort"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -23,6 +24,8 @@ type FakeStore struct {
 	Roster            *core.Roster
 	TeamAudits        []core.AuditEvent
 	InboxItems        map[string]map[string]core.InboxItem
+	// WorkingFiles is the files/ content per dossier id (relative path -> bytes).
+	WorkingFiles map[string]map[string][]byte
 }
 
 // NewFakeStore instantiates an in-memory FakeStore.
@@ -393,3 +396,23 @@ func (f *FakeStore) ReadContextAsset(name string) (string, error) {
 }
 
 func (f *FakeStore) StaleContextAssets() []string { return nil }
+
+// ListWorkingFiles lists the in-memory files/ content set in WorkingFiles
+// (dossier id -> relative path -> bytes), sorted by path.
+func (f *FakeStore) ListWorkingFiles(dossierID string) ([]core.WorkingFile, error) {
+	var out []core.WorkingFile
+	for p, data := range f.WorkingFiles[dossierID] {
+		out = append(out, core.WorkingFile{Path: p, Size: int64(len(data))})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out, nil
+}
+
+// ReadWorkingFile returns an in-memory working file's bytes.
+func (f *FakeStore) ReadWorkingFile(dossierID, relPath string) ([]byte, error) {
+	data, ok := f.WorkingFiles[dossierID][relPath]
+	if !ok {
+		return nil, core.NewError(core.ErrNotFound, fmt.Sprintf("working file %q not found", relPath))
+	}
+	return data, nil
+}

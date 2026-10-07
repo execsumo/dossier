@@ -28,6 +28,7 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
   - Not done: live-GitHub validation (Part D, SPEC §14.11) and the two-colleague pilot (Part E). Both need the owner.
 - **Pi: supported through Dossier's own extension** (ADR 0009). Session identity and lifecycle bridging work. One known gap, from a code read not yet confirmed in a live Pi session: the CLI cannot update an existing Dossier's Distilled State, so a Pi agent cannot save mid-session. See `docs/harness-capabilities.md` §2.
 - **Session switcher over herdr (ADR 0014) and repo identity per machine (ADR 0015): shipped** (PRs #31, #32).
+- **`dossier export` (ADR 0017): shipped 2026-10-07 in v0.5.0.** CLI `dossier export` and MCP `dossier_export` write one self-contained Markdown brief for a reader who does not run Dossier. `Service.Export` is pure; `internal/exportout` owns the file I/O both adapters share. No TUI action yet.
 - **Continuity and measurement: shipped 2026-10-07** (PRs #32, #33).
   - **Guide/instructions split.** `assets/guide.md` covers Distilled State content only: a dated Current State that carries the user's corrections and approval scope, `[stated]` for claims with no source, update-in-place rules, and a pre-save checklist. `assets/instructions.md` covers tool protocol, including the On Resume check. SessionStart sends both.
   - **Unsaved-session recovery notice.** Derived from the audit log. It clears once the Distilled State cites the transcript. Other authors' sessions are attributed to them, never offered for recovery.
@@ -47,6 +48,11 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 **Proposed, not started (decide with data from item 2)**
 4. **Mechanical turn checkpoint.** A `Stop` hook would record files edited and repo branch@commit per turn as audit events, and surface "since the last save" on resume. This targets stale saves, which the unsaved-session notice cannot see. `Stop` behavior is verified in `docs/harness-capabilities.md`.
 5. **Section-level `dossier_save` with a section-policy table.** Each section would be free, protected, schema-checked or machine-owned. Saves get cheaper and more frequent, untouched sections can't be rewritten, and the Deliverables / Delegation Contracts schema moves out of guide prose and into checks in code.
+
+**Export follow-ups** (from review; none blocks use)
+- `doctor` does not detect duplicate or path-like artifact IDs. Export guards against both, but nothing reports them.
+- Export reads a whole binary file in `files/` just to classify it, and creates files with mode 0644 regardless of umask.
+- No TUI action for export yet (see `ARCHITECTURE.md` surface gaps).
 
 **Unprocessed-session recovery: remaining pieces** (discovery is built)
 6. A `doctor` advisory and a TUI marker. Discovery is agent-facing only so far.

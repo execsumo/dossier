@@ -13,6 +13,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -922,6 +923,11 @@ func (s *FSStore) WriteArtifact(dossierID string, a *core.Artifact) error {
 
 // ReadArtifact retrieves an artifact from store.
 func (s *FSStore) ReadArtifact(dossierID string, artifactID string) (*core.Artifact, error) {
+	// Artifact IDs come from frontmatter; never let one address a file outside
+	// artifacts/ (e.g. a machine-local session stash).
+	if artifactID == "" || artifactID == "." || strings.ContainsAny(artifactID, `/\:`) || strings.Contains(artifactID, "..") {
+		return nil, core.NewError(core.ErrNotFound, fmt.Sprintf("artifact %q not found", artifactID))
+	}
 	dossierDir, err := s.findDossierDir(dossierID)
 	if err != nil {
 		return nil, err
@@ -1833,6 +1839,47 @@ func (s *FSStore) WriteLibraryContext(data core.LibraryData) error {
 	}
 
 	return nil
+}
+
+// ReadWorkingFile returns the bytes of one file under a Dossier's files/
+// directory. relPath is the WorkingFile.Path form ("files/notes.md"). Anything
+// that is not a regular file inside files/ is refused: absolute paths, ".."
+// escapes, and symlinks that resolve outside files/.
+func (s *FSStore) ReadWorkingFile(dossierID, relPath string) ([]byte, error) {
+	dossierDir, err := s.findDossierDir(dossierID)
+	if err != nil {
+		return nil, err
+	}
+	slashed := filepath.ToSlash(relPath)
+	clean := path.Clean(slashed)
+	if filepath.IsAbs(relPath) || strings.HasPrefix(slashed, "/") || !strings.HasPrefix(clean, "files/") {
+		return nil, core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("working file path %q must be a normalized path under files/", relPath))
+	}
+	root, err := filepath.EvalSymlinks(filepath.Join(dossierDir, "files"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, core.NewError(core.ErrNotFound, fmt.Sprintf("working file %q not found", relPath))
+		}
+		return nil, err
+	}
+	target, err := filepath.EvalSymlinks(filepath.Join(dossierDir, filepath.FromSlash(clean)))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, core.NewError(core.ErrNotFound, fmt.Sprintf("working file %q not found", relPath))
+		}
+		return nil, err
+	}
+	if rel, err := filepath.Rel(root, target); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("working file path %q resolves outside files/", relPath))
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, core.NewError(core.ErrInvalidFrontmatter, fmt.Sprintf("working file %q is not a regular file", relPath))
+	}
+	return os.ReadFile(target)
 }
 
 // ListWorkingFiles enumerates a Dossier's files/ directory recursively. Paths are

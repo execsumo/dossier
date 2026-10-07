@@ -7,6 +7,7 @@ import (
 	"dossier/internal/config"
 	"dossier/internal/core"
 	"dossier/internal/evaluator"
+	"dossier/internal/exportout"
 	"dossier/internal/harness"
 	"dossier/internal/mcp"
 	"dossier/internal/repos"
@@ -769,6 +770,58 @@ func NewRootCmd() *cobra.Command {
 	}
 	artifactCmd.Flags().StringVarP(&artifactLinesFlag, "lines", "L", "", "Line range to fetch, e.g. 10-20 or L10-L20")
 	artifactCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
+
+	var (
+		exportOutputFlag string
+		exportForceFlag  bool
+		exportJSONFlag   bool
+	)
+	exportCmd := &cobra.Command{
+		Use:   "export <slug-or-id>",
+		Short: "Write one self-contained Markdown brief for a reader who does not run Dossier",
+		Long: "Export a Dossier as a single Markdown file: the Distilled State verbatim plus the evidence and working files behind it.\n" +
+			"Raw session transcripts, inbox, history, audit and conflicts never leave. The file is a point-in-time copy.\n" +
+			"Default location: ~/Downloads/<slug>-export-<YYYY-MM-DD>.md (home directory if there is no ~/Downloads); a name collision appends -2, -3, ...\n" +
+			"Use -o <path> to choose a file (refused if it exists, unless --force) or -o - for stdout. Paths inside the Dossier store are rejected.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				return err
+			}
+			res, doc, err := exportout.Run(cmd.Context(), svc, exportout.Options{
+				ID: args[0], Output: exportOutputFlag, Force: exportForceFlag, Actor: actorForCLI(svc),
+			})
+			if err != nil {
+				return err
+			}
+			data := res.Data.(core.ExportResult)
+			summary := cmd.OutOrStdout()
+			if exportOutputFlag == "-" {
+				// The document owns stdout; the summary must not mix into it.
+				fmt.Fprint(cmd.OutOrStdout(), doc)
+				summary = cmd.ErrOrStderr()
+			}
+			if exportJSONFlag {
+				enc := json.NewEncoder(summary)
+				enc.SetIndent("", "  ")
+				return enc.Encode(map[string]any{"ok": res.OK, "data": data, "warnings": res.Warnings})
+			}
+			fmt.Fprintf(summary, "Exported %s\n", data.Name)
+			fmt.Fprintf(summary, "Output:   %s\n", data.Output)
+			fmt.Fprintf(summary, "Revision: %s\n", data.Revision)
+			fmt.Fprintf(summary, "Included: %d artifact(s), %d working file(s)\n", len(data.ArtifactsIncluded), len(data.FilesIncluded))
+			fmt.Fprintf(summary, "Excluded: %d item(s)\n", len(data.Excluded))
+			fmt.Fprintf(summary, "Tokens:   ~%d\n", data.TokenEstimate)
+			for _, w := range res.Warnings {
+				fmt.Fprintf(summary, "Warning: %s\n", w)
+			}
+			return nil
+		},
+	}
+	exportCmd.Flags().StringVarP(&exportOutputFlag, "output", "o", "", "Output file path, or - for stdout (default ~/Downloads/<slug>-export-<date>.md)")
+	exportCmd.Flags().BoolVar(&exportForceFlag, "force", false, "Overwrite an existing file given with -o")
+	exportCmd.Flags().BoolVar(&exportJSONFlag, "json", false, "Print the summary as JSON")
 
 	inboxCmd := &cobra.Command{Use: "inbox", Short: "Manage machine-local routed intake"}
 	var inboxListJSON bool
@@ -1903,6 +1956,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(doneCmd)
 	rootCmd.AddCommand(searchCmd)
 	rootCmd.AddCommand(artifactCmd)
+	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(inboxCmd)
 	rootCmd.AddCommand(contextCmd)
 	rootCmd.AddCommand(mcpCmd)
@@ -2670,6 +2724,9 @@ func wireWithLoadedConfig(dossierHome string, cfg *config.Config, cfgPath string
 	}
 
 	coreCfg := cfg.ToCoreConfig()
+	// The store adapter is rooted at dossierHome, which --home can make differ
+	// from the configured dossier_home; core and adapters must agree on the root.
+	coreCfg.DossierHome = dossierHome
 	coreCfg.Version = effectiveVersion()
 	svc := core.NewService(storeAdapter, searchAdapter, tokAdapter, hregAdapter, clockAdapter, coreCfg, syncerAdapter)
 	svc.SetRepoLocator(repos.New(dossierHome, cfg.RepoRoots))

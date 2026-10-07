@@ -28,6 +28,13 @@ type AuditEvent struct {
 	SessionModel  string `json:"session_model,omitempty"`
 	SessionEffort string `json:"session_effort,omitempty"`
 	ModelMix      string `json:"model_mix,omitempty"`
+	// Revision, ArtifactsIncluded, FilesIncluded and Output describe an
+	// `exported` event (ADR 0017): the Dossier revision that left the system,
+	// what was inlined, and the output file's basename ("-" for stdout).
+	Revision          string   `json:"revision,omitempty"`
+	ArtifactsIncluded []string `json:"artifacts_included,omitempty"`
+	FilesIncluded     []string `json:"files_included,omitempty"`
+	Output            string   `json:"output,omitempty"`
 }
 
 // EvalSummary is the synced outcome of one automatic session eval. Probe
@@ -76,4 +83,5 @@ const (
 	AuditEventDistilledStateNotCaptured    = "distilled_state_not_captured"
 	AuditEventSessionEnded                 = "session_ended"
 	AuditEventSessionEval                  = "session_eval"
+	AuditEventExported                     = "exported"
 )
