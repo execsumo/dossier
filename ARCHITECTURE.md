@@ -16,7 +16,7 @@ Dossier is a single binary that wears three faces — CLI, MCP-over-stdio server
 This is ports-and-adapters (hexagonal). It buys us the property the SPEC implicitly requires but never states: **CLI, MCP, and TUI must behave identically** (acceptance criteria are written once but must hold across surfaces). They behave identically because they call the same `core.Service` and render the same `Result` values.
 
 Not every operation is exposed on every surface. Where one is exposed, it goes through the same `core.Service` call. Known gaps:
-- `dossier export` (ADR 0017) is CLI and MCP only. There is no TUI action yet.
+- `dossier export` (ADR 0017) is CLI and MCP only. There is no TUI action yet; when added it must call `Service.Export` and `internal/exportout`. `Service.Export` writes nothing: `internal/exportout.Run` resolves the path, writes the file atomically, then calls `Service.RecordExport` so the `exported` audit event only ever names an export that actually left.
 - Handing a Dossier to a new agent session (`dossier open`, TUI `c`) is not exposed over MCP: an agent is already in a session (`internal/harness/launch.go`).
 
 ```
@@ -67,6 +67,8 @@ dossier/
       service.go         # Service type/config plus Init and Doctor
       service_dossier.go # Save/Rename/Link/Merge/Recall/artifacts/List/Search
       service_promote.go # duplicate-safe promotion + transcript capture
+      export.go          # Service.Export (pure document assembly) + RecordExport audit; ADR 0017
+      workfiles.go       # WorkingFile, optional FileStore port (List/ReadWorkingFile), ## Files index, IsTextContent
       service_session.go # context, binding, guide delivery, lifecycle
       unsaved_sessions.go # derived unsaved-session recovery queue + the one notice formatter
       session_eval.go    # session_ended stamping, guide hash, automatic session eval (prompts, parsing, scoring) — ADR 0016
@@ -105,6 +107,7 @@ dossier/
       state.go           # .syncstate.json: last attempt / last successful pull & push / last error / auth state
       gitignore.go       # machine-local exclusion set (config.yaml, sessions/, context/, local/, raw artifacts, inbox/) — B13/B19
       adapter.go         # maps GitSync's internal types → core.Sync* DTOs (keeps core pure)
+    exportout/           # adapter-side half of export (I/O): default ~/Downloads path, -2/-3 suffix, no-clobber/--force, DOSSIER_HOME guard, atomic write, audit call; shared by CLI and MCP
     config/              # config.yaml load/save/defaults (incl. open_with and team.remote / team.branch)
     cli/                 # cobra commands, including `hook`, → core.Service → render
     mcp/                 # stdio MCP server → core.Service → §8.2 envelope
@@ -359,7 +362,7 @@ Implements SPEC §12. The non-negotiables:
 
 **Done dossiers live under `archive/`**: `FSStore.Write` places a dossier's slug folder at `<slug>/` while live and `archive/<slug>/` once its status is `done`, and moves it back if reopened; `Rename` keeps the parent. `archive` is a reserved slug. All root scans go through `dossierDirs` / `store.DossierDirs`, so lookup by slug or ID, list, search, conflicts, and sync stashing see both locations. Team Sync follows the move by dossier ID (`sync/rename.go` treats `archive/<slug>` as a dossier directory, so done/reopen is handled like a rename), `.gitignore` carries `archive/*/sessions/` and `archive/*/artifacts/*_raw.*`, and a `Write` that relocates the directory takes the same `.sync.lock` as `Rename` (ordinary saves never do).
 
-**Artifact vs. file namespaces**: `<slug>/artifacts/` is parsed, not scanned — `listArtifactsInternal` skips anything `parseArtifactFrontmatterOnly` rejects. A hand-written file there is therefore absent from the evidence index, uncitable, and outside the revision hash, yet still findable by `dossier search`: it reads as captured evidence while being none, and before the `Store.ValidateArtifactFiles` check `doctor` reported the store healthy over it. Loose deliverables, scratch, and user attachments belong in `<slug>/files/` (created with the dossier); `dossier link --from-file` is what promotes one into a real artifact, minting the id, provenance, and line count that `[src:]` resolves against. `context/instructions.md` states this contract to agents. `Store`'s optional `FileStore` capability (`ListWorkingFiles`) enumerates `files/` recursively; `dossier_recall` returns it as `files[]` and the TUI detail view summarizes it. The Distilled State's conditional `## Files` section (see the Distillation Guide) is the authored index; `doctor` fails on a listed `files/` path that no longer exists and advises (without failing) on files the index never mentions.
+**Artifact vs. file namespaces**: `<slug>/artifacts/` is parsed, not scanned — `listArtifactsInternal` skips anything `parseArtifactFrontmatterOnly` rejects. A hand-written file there is therefore absent from the evidence index, uncitable, and outside the revision hash, yet still findable by `dossier search`: it reads as captured evidence while being none, and before the `Store.ValidateArtifactFiles` check `doctor` reported the store healthy over it. Loose deliverables, scratch, and user attachments belong in `<slug>/files/` (created with the dossier); `dossier link --from-file` is what promotes one into a real artifact, minting the id, provenance, and line count that `[src:]` resolves against. `context/instructions.md` states this contract to agents. `Store`'s optional `FileStore` capability (`ListWorkingFiles`, plus `ReadWorkingFile` for export, which refuses anything that is not a regular file inside `files/`, symlink escapes included) enumerates `files/` recursively; `dossier_recall` returns it as `files[]` and the TUI detail view summarizes it. The Distilled State's conditional `## Files` section (see the Distillation Guide) is the authored index; `doctor` fails on a listed `files/` path that no longer exists and advises (without failing) on files the index never mentions.
 
 **Routed inbox**: `core.InboxStore` is an optional capability implemented by `FSStore` for `<slug>/inbox/<inbox-id>.md`. These files are deliberately outside revisions and artifacts; `internal/sync/gitignore.go` excludes inboxes for live and archived dossiers. `Service.CreateInbox`/`Inbox`/`ReadInbox`/`ResolveInbox` own creation, list/read, and absorb/dismiss rules. Absorb writes through ordinary `Save` with the requesting actor to preserve artifact revision/audit behavior, stores the resulting artifact id on the retained inbox record, and leaves distillation to the agent. `dossier inbox list|read|capture|resolve` provides CLI access to those same Service methods, including for Pi users; only absorb creates shared state. `Doctor` validates inbox YAML and dossier/item identity.
 

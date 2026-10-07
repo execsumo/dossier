@@ -276,6 +276,7 @@ var mcpNonMutatingTools = map[string]bool{
 	"dossier_search":    true,
 	"dossier_artifact":  true,
 	"dossier_artifacts": true,
+	"dossier_export":    true,
 	"dossier_session":   true,
 	"dossier_team":      true,
 	"dossier_conflicts": true,

@@ -1,7 +1,7 @@
 # ADR 0017: `dossier export` writes one self-contained brief for a non-Dossier reader
 
 ## Status
-Accepted (2026-10-07). Not yet implemented.
+Implemented (2026-10-07). Files: `internal/core/export.go` (`Service.Export`, `RecordExport`), `internal/core/workfiles.go` (`FileStore.ReadWorkingFile`, `IsTextContent`), `internal/core/audit.go` (`exported` event fields), `internal/store/fsstore.go` (`ReadWorkingFile`), `internal/store/fake.go`, `internal/exportout/exportout.go` (shared path resolution, atomic write, audit call), `internal/cli/cli.go` (`dossier export`), `internal/mcp/tools.go` (`dossier_export`). Tests: `internal/core/export_test.go`, `internal/store/workfile_read_test.go`, `internal/cli/export_test.go`, `internal/mcp/export_test.go`.
 
 ## Context
 A Dossier often has to reach someone who does not run Dossier. The motivating case: before a meeting,

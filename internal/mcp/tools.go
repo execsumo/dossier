@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"dossier/internal/core"
+	"dossier/internal/exportout"
 	"dossier/internal/harness"
 	"encoding/json"
 	"fmt"
@@ -129,6 +130,20 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 						"type":        "string",
 						"description": "The slug or ID of the dossier to recall",
 					},
+				},
+				"required": []string{"id"},
+			},
+		},
+		{
+			Name:        "dossier_export",
+			Description: "Write one self-contained Markdown brief of a dossier for a reader who does not run Dossier (Distilled State verbatim plus its evidence and text working files; transcripts and machine-local data never included). Writes the file and returns its path, revision, included/excluded items, token estimate and warnings; the document itself only with inline: true.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id":          map[string]any{"type": "string", "description": "The slug or ID of the dossier to export"},
+					"output_path": map[string]any{"type": "string", "description": "Optional file path. Default: ~/Downloads/<slug>-export-<YYYY-MM-DD>.md (home directory if there is no ~/Downloads); a default-name collision appends -2, -3. Paths inside DOSSIER_HOME are rejected."},
+					"force":       map[string]any{"type": "boolean", "description": "Overwrite output_path if it already exists"},
+					"inline":      map[string]any{"type": "boolean", "description": "Also return the full document in the response data (markdown)"},
 				},
 				"required": []string{"id"},
 			},
@@ -553,6 +568,25 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			}
 			s.addSyncAttentionWarning(ctx, &res, dossierID)
 		}
+
+	case "dossier_export":
+		var params struct {
+			ID         string `json:"id"`
+			OutputPath string `json:"output_path"`
+			Force      bool   `json:"force"`
+			Inline     bool   `json:"inline"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil || params.ID == "" {
+			s.sendError(id, -32602, "Missing id", nil)
+			return
+		}
+		if params.OutputPath == "-" {
+			s.sendError(id, -32602, "output_path \"-\" (stdout) is CLI only; use inline: true to receive the document", nil)
+			return
+		}
+		res, _, err = exportout.Run(ctx, s.svc, exportout.Options{
+			ID: params.ID, Output: params.OutputPath, Force: params.Force, Inline: params.Inline, Actor: s.actor(),
+		})
 
 	case "dossier_search":
 		var params struct {

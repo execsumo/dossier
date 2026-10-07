@@ -1,11 +1,13 @@
 package core
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // WorkingFile is one file under a Dossier's files/ namespace: loose
@@ -18,9 +20,27 @@ type WorkingFile struct {
 	Modified time.Time `json:"modified"`
 }
 
-// FileStore is an optional store capability: enumerating a Dossier's files/.
+// FileStore is an optional store capability: enumerating a Dossier's files/ and
+// reading one file's bytes (used by export, ADR 0017).
 type FileStore interface {
 	ListWorkingFiles(dossierID string) ([]WorkingFile, error)
+	// ReadWorkingFile returns the content of relPath (the WorkingFile.Path form,
+	// "files/..."). Implementations must refuse any path that is not a regular
+	// file inside the Dossier's files/ directory.
+	ReadWorkingFile(dossierID, relPath string) ([]byte, error)
+}
+
+// IsTextContent reports whether data is text a reader can be handed inline:
+// valid UTF-8 with no NUL byte in its first 8 KB (ADR 0017 §3).
+func IsTextContent(data []byte) bool {
+	head := data
+	if len(head) > 8192 {
+		head = head[:8192]
+	}
+	if bytes.IndexByte(head, 0) >= 0 {
+		return false
+	}
+	return utf8.Valid(data)
 }
 
 var filesIndexEntryRE = regexp.MustCompile("^\\s*[-*]\\s+`([^`]+)`")

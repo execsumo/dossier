@@ -28,6 +28,7 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
   - Not done: live-GitHub validation (Part D, SPEC §14.11) and the two-colleague pilot (Part E). Both need the owner.
 - **Pi: supported through Dossier's own extension** (ADR 0009). Session identity and lifecycle bridging work. One known gap, from a code read not yet confirmed in a live Pi session: the CLI cannot update an existing Dossier's Distilled State, so a Pi agent cannot save mid-session. See `docs/harness-capabilities.md` §2.
 - **Session switcher over herdr (ADR 0014) and repo identity per machine (ADR 0015): shipped** (PRs #31, #32).
+- **`dossier export` (ADR 0017): implemented 2026-10-07**, not yet merged to `main`. CLI `dossier export` and MCP `dossier_export` write one self-contained Markdown brief for a reader who does not run Dossier. `Service.Export` is pure; `internal/exportout` owns the file I/O both adapters share. No TUI action yet.
 - **Continuity and measurement: shipped 2026-10-07** (PRs #32, #33).
   - **Guide/instructions split.** `assets/guide.md` covers Distilled State content only: a dated Current State that carries the user's corrections and approval scope, `[stated]` for claims with no source, update-in-place rules, and a pre-save checklist. `assets/instructions.md` covers tool protocol, including the On Resume check. SessionStart sends both.
   - **Unsaved-session recovery notice.** Derived from the audit log. It clears once the Distilled State cites the transcript. Other authors' sessions are attributed to them, never offered for recovery.
@@ -43,9 +44,6 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 1. **Team Sync live validation and pilot**: [`docs/team-sync-validation.md`](docs/team-sync-validation.md) Parts D and E, then the pilot go/no-go.
 2. **Dogfood data.** Build `main` on the primary-use machine so sessions start recording. Read `dossier stats` weekly. Collect 5–10 real cases for `tools/resumeeval` (see its README).
 3. **Eval knob default.** It is on for every machine that doesn't set it, including teammates'. Flip `defaultEvalEnabled` in `internal/config/config.go` when tracking no longer justifies the inference cost.
-
-**Accepted, ready to build**
-- **`dossier export`** ([ADR 0017](docs/adr/0017-dossier-export.md), SPEC §7.2 / §8.1 / §14.13). This writes one self-contained Markdown brief for a reader who doesn't run Dossier (e.g. an executive questioning it with their own AI) and excludes transcripts. Build `Service.Export` in core, add `ReadWorkingFile` to the `FileStore` port, then add the CLI and MCP adapters. No TUI yet.
 
 **Proposed, not started (decide with data from item 2)**
 4. **Mechanical turn checkpoint.** A `Stop` hook would record files edited and repo branch@commit per turn as audit events, and surface "since the last save" on resume. This targets stale saves, which the unsaved-session notice cannot see. `Stop` behavior is verified in `docs/harness-capabilities.md`.
