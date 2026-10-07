@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"dossier/assets"
 	"dossier/internal/core"
 	"encoding/json"
 	"os"
@@ -134,14 +135,12 @@ func TestClaudeCodeHarness(t *testing.T) {
 		t.Fatalf("expected PreCompact to have 1 matcher, got %d", len(preCompactVal))
 	}
 
-	// Assert the Stop hook (save checkpoint) was added
-	stopVal, ok := hooks["Stop"].([]any)
-	if !ok || len(stopVal) != 1 {
-		t.Fatalf("expected Stop to have 1 matcher, got %v", hooks["Stop"])
-	}
-	stopHooks, _ := stopVal[0].(map[string]any)["hooks"].([]any)
-	if len(stopHooks) != 1 || !strings.Contains(stopHooks[0].(map[string]any)["command"].(string), "hook stop") {
-		t.Errorf("expected Stop command to run 'hook stop', got %v", stopHooks)
+	// A fresh install must not add a Stop hook: the save checkpoint it was for
+	// was dropped as too much friction in ordinary conversations (B29
+	// amendment). See TestClaudeCodeHarnessRemovesStaleStopHook for the
+	// migration that cleans it off an install that already has it.
+	if _, ok := hooks["Stop"]; ok {
+		t.Errorf("expected no Stop hook to be installed, got %v", hooks["Stop"])
 	}
 
 	// Assert unrelated hook UserPromptSubmit was preserved
@@ -293,5 +292,118 @@ func TestClaudeCodeHarnessSplitConfig(t *testing.T) {
 	claudeBaks, _ = filepath.Glob(claudeJSONPath + ".*.bak")
 	if after := len(settingsBaks) + len(claudeBaks); after != before {
 		t.Errorf("expected no new backups on idempotent run, got %d (was %d)", after, before)
+	}
+}
+
+// TestClaudeCodeHarnessRemovesStaleStopHook covers upgrading from a version
+// that installed the Stop hook (v0.5.1's save checkpoint) to one that does
+// not want it configured at all (dropped as too much friction; B29
+// amendment). Install must actively strip it — unlike SessionStart/End/
+// PreCompact, its absence is now the correct state, so nothing would ever
+// put it back, and leaving it would run a hook pointed at dead code.
+func TestClaudeCodeHarnessRemovesStaleStopHook(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
+	claudeJSONPath := filepath.Join(tempHome, ".claude.json")
+
+	// A v0.5.1-style config: all four hooks already configured correctly,
+	// including Stop sharing its matcher array with an unrelated hook, so
+	// removal must be surgical (drop only Dossier's own entry) not wholesale.
+	initial := map[string]any{
+		"hooks": map[string]any{
+			"SessionStart": []any{map[string]any{"matcher": "*", "hooks": []any{
+				map[string]any{"type": "command", "command": `"/tmp/dossier" hook session-start`},
+			}}},
+			"SessionEnd": []any{map[string]any{"matcher": "*", "hooks": []any{
+				map[string]any{"type": "command", "command": `"/tmp/dossier" hook session-end`},
+			}}},
+			"PreCompact": []any{map[string]any{"matcher": "*", "hooks": []any{
+				map[string]any{"type": "command", "command": `"/tmp/dossier" hook pre-compaction`},
+			}}},
+			"Stop": []any{map[string]any{"matcher": "*", "hooks": []any{
+				map[string]any{"type": "command", "command": `"/tmp/dossier" hook stop`},
+				map[string]any{"type": "command", "command": "echo unrelated-stop-hook"},
+			}}},
+		},
+		"customInstructions": []any{claudeSkillInstruction},
+		"mcpServers": map[string]any{
+			"dossier": map[string]any{"type": "stdio", "command": "/tmp/dossier", "args": []any{"mcp", "serve"}},
+		},
+	}
+	initialBytes, _ := json.Marshal(initial)
+	if err := os.WriteFile(claudeJSONPath, initialBytes, 0644); err != nil {
+		t.Fatalf("failed to write fake config: %v", err)
+	}
+	// Skills already installed and correct, so only the Stop hook is stale —
+	// this exercises the staleStopHook-but-hooksOk-already-true path.
+	for _, item := range []struct{ rel, asset string }{
+		{"skills/dossier-delegate/SKILL.md", "dossier-delegate-skill.md"},
+		{"skills/spark/SKILL.md", "spark-skill.md"},
+		{"skills/save-dossier/SKILL.md", "save-dossier-skill.md"},
+	} {
+		content, err := assets.FS.ReadFile(item.asset)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", item.asset, err)
+		}
+		p := filepath.Join(tempHome, ".claude", item.rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, content, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	h := NewClaudeCodeHarness("/tmp/dossier")
+	if err := h.Install(core.InstallOpts{YesToAll: true, StableBinaryPath: "/tmp/dossier"}); err != nil {
+		t.Fatalf("install failed: %v", err)
+	}
+
+	var got map[string]any
+	b, err := os.ReadFile(claudeJSONPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("failed to parse .claude.json: %v", err)
+	}
+	hooks, ok := got["hooks"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected hooks map, got %T", got["hooks"])
+	}
+	stopVal, hasStop := hooks["Stop"].([]any)
+	if hasStop {
+		// Dossier's own entry must be gone; the unrelated hook in the same
+		// matcher array must survive.
+		matcher, _ := stopVal[0].(map[string]any)
+		stopHooks, _ := matcher["hooks"].([]any)
+		for _, hv := range stopHooks {
+			if cmd, _ := hv.(map[string]any)["command"].(string); strings.Contains(cmd, "hook stop") {
+				t.Errorf("Dossier's own Stop hook command survived: %v", cmd)
+			}
+		}
+		if len(stopHooks) != 1 {
+			t.Errorf("expected only the unrelated Stop hook to remain, got %v", stopHooks)
+		}
+	}
+	for _, name := range []string{"SessionStart", "SessionEnd", "PreCompact"} {
+		if _, ok := hooks[name].([]any); !ok {
+			t.Errorf("expected %s to remain configured, got %T", name, hooks[name])
+		}
+	}
+	if baks, _ := filepath.Glob(claudeJSONPath + ".*.bak"); len(baks) != 1 {
+		t.Errorf("expected exactly one backup from the migration, got %d", len(baks))
+	}
+
+	// Idempotency: a second install, with Stop now absent (or down to just the
+	// unrelated hook), makes no further changes.
+	before, _ := filepath.Glob(claudeJSONPath + ".*.bak")
+	if err := h.Install(core.InstallOpts{YesToAll: true, StableBinaryPath: "/tmp/dossier"}); err != nil {
+		t.Fatalf("second install failed: %v", err)
+	}
+	after, _ := filepath.Glob(claudeJSONPath + ".*.bak")
+	if len(after) != len(before) {
+		t.Errorf("expected no new backup on idempotent run, got %d (was %d)", len(after), len(before))
 	}
 }

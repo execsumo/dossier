@@ -1746,10 +1746,19 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	hookCmd := &cobra.Command{
-		Use:   "hook <session-start|session-end|pre-compaction|stop>",
+		Use:   "hook <session-start|session-end|pre-compaction>",
 		Short: "Run lifecycle integration hooks",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			// "stop" is handled before wiring the service, and before touching
+			// stdin, so a Claude Code install that has not yet re-run `dossier
+			// harness install claude-code` (which removes this hook entry; B29
+			// amendment) exits quietly rather than with "Unknown hook event" —
+			// the fix is re-running install, not anything this call could report.
+			if args[0] == "stop" {
+				return
+			}
+
 			homeDir := resolveHomeDir()
 			svc, err := wire(homeDir)
 			if err != nil {
@@ -1765,9 +1774,6 @@ func NewRootCmd() *cobra.Command {
 				// Cwd is the session's working directory (Claude Code sends it);
 				// SessionStart learns repo locations from it (ADR 0015).
 				Cwd string `json:"cwd"`
-				// StopHookActive is true when the agent is already continuing
-				// because of a Stop hook (Claude Code sends it on Stop).
-				StopHookActive bool `json:"stop_hook_active"`
 			}
 
 			stat, _ := os.Stdin.Stat()
@@ -1782,11 +1788,6 @@ func NewRootCmd() *cobra.Command {
 			}
 			if payload.TranscriptPath == "" {
 				payload.TranscriptPath = piTranscriptPath()
-			}
-
-			if args[0] == "stop" {
-				runStopHook(os.Stdout, svc, sessID, payload.TranscriptPath, payload.StopHookActive)
-				return
 			}
 
 			transcript := harness.ResolveTranscript(sessID, payload.TranscriptPath)

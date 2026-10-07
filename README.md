@@ -39,7 +39,7 @@ curl.exe -L https://github.com/execsumo/dossier/releases/latest/download/dossier
 
 `init` sets everything up: your workspace at `~/.dossier`, plus Dossier's MCP server and session hooks in Claude Code. It asks before changing anything, backs up every file it touches, and never overwrites your existing setup. Re-run it anytime; check on things with `dossier doctor`.
 
-Update with `brew upgrade dossier`, or on Windows download the new `.exe` and run `.\dossier.exe init` again. After an update that adds hooks or skills (as v0.5.1 does), run `dossier harness install claude-code` so Claude Code picks them up; it only adds what is missing.
+Update with `brew upgrade dossier`, or on Windows download the new `.exe` and run `.\dossier.exe init` again. After an update that changes hooks or skills, run `dossier harness install claude-code` so Claude Code picks up the change — it only adds what's missing and removes a Dossier-owned hook that a prior version installed and a newer one no longer wants.
 
 ## Use it
 
@@ -49,8 +49,7 @@ Once installed, it just works:
 
 - **Session start:** your open Dossiers appear in the conversation. Pick one up or start a new one.
 - **During the session:** the agent recalls, saves, searches, and switches Dossiers for you. Each session follows its own Dossier, so parallel sessions never collide.
-- **Saving:** type `/save-dossier` before you `/clear` or exit. It brings the Dossier's Distilled State up to date with this session's work, like saving a file. The end-of-session hooks only archive the transcript; they cannot write the summary for you.
-- **Save checkpoint:** after a few turns of work with no save, Dossier asks the agent once, at the end of its reply, to save before handing back to you. Set `save_nudge_turns` in `config.yaml` to change how many turns (default 10), or `0` to turn it off.
+- **Saving:** type `/save-dossier` before you `/clear` or exit. It brings the Dossier's Distilled State up to date with this session's work, like saving a file. The end-of-session hooks only archive the transcript; they cannot write the summary for you — saving is on you, the same as any other tool with a save command.
 - **Session end:** the transcript is archived into the Dossier automatically. If a session ended without saving, the next one says so; it does not try to rebuild the work from the transcript.
 
 Capture a new idea in one line:
@@ -172,7 +171,6 @@ open_with: claude-code   # claude-code, cursor, codex, or antigravity
 interfaces: [Pricing WBR, "1:1", Steerco]
 leads: [Alice, Bob]
 token_limit: 100000
-save_nudge_turns: 10     # turns of unsaved work before the save checkpoint; 0 = off
 eval:                    # automatic session evals (3 model calls per saved session)
   enabled: true          # on by default; false keeps stats but stops evals
   model: haiku
