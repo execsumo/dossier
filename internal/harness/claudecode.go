@@ -167,12 +167,26 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 	startCmd := execCmd + " session-start"
 	endCmd := execCmd + " session-end"
 	preCompactCmd := execCmd + " pre-compaction"
-	stopCmd := execCmd + " stop"
 
 	hooksOk := isHookConfigured(hooksMap["SessionStart"], startCmd) &&
 		isHookConfigured(hooksMap["SessionEnd"], endCmd) &&
-		isHookConfigured(hooksMap["PreCompact"], preCompactCmd) &&
-		isHookConfigured(hooksMap["Stop"], stopCmd)
+		isHookConfigured(hooksMap["PreCompact"], preCompactCmd)
+
+	// Migration: v0.5.1 installed a Stop hook for an automatic save checkpoint
+	// that turned out to be too much friction in ordinary conversations
+	// (dropped; BUILD-DECISIONS B29 amendment). Strip any Stop hook entry that
+	// is this binary's own — never a Stop hook the user or another tool added —
+	// so an existing install is cleaned up rather than left running a hook
+	// Dossier no longer wants configured.
+	staleStopHook := false
+	if cleaned, found := removeDossierHooks(hooksMap["Stop"]); found {
+		if arr, ok := cleaned.([]any); ok && len(arr) == 0 {
+			delete(hooksMap, "Stop")
+		} else {
+			hooksMap["Stop"] = cleaned
+		}
+		staleStopHook = true
+	}
 
 	// Migration: older versions mistakenly wrote the dossier MCP entry into the
 	// hooks file (settings.json). MCP servers belong in ~/.claude.json; strip any
@@ -259,7 +273,7 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 	saveSkillPath := filepath.Join(home, ".claude", "skills", "save-dossier", "SKILL.md")
 	saveSkillOk := managedAssetInstalled(saveSkillPath, saveSkillContent)
 
-	if hooksOk && mcpOk && !staleMCPInHooks && hasSkill && delegateSkillOk && sparkSkillOk && saveSkillOk {
+	if hooksOk && mcpOk && !staleMCPInHooks && !staleStopHook && hasSkill && delegateSkillOk && sparkSkillOk && saveSkillOk {
 		return nil
 	}
 
@@ -281,8 +295,8 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 
 	timestamp := time.Now().Unix()
 
-	// Backup hooks path if hooks are changing (or stale MCP is being stripped) and file exists
-	if (!hooksOk || staleMCPInHooks) && len(hooksData) > 0 {
+	// Backup hooks path if hooks are changing (or stale MCP/Stop are being stripped) and file exists
+	if (!hooksOk || staleMCPInHooks || staleStopHook) && len(hooksData) > 0 {
 		backupPath := fmt.Sprintf("%s.%d.bak", hooksPath, timestamp)
 		if err := os.WriteFile(backupPath, hooksData, 0644); err != nil {
 			return fmt.Errorf("failed to create hooks config backup: %w", err)
@@ -300,15 +314,18 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 		}
 	}
 
-	// Update and write hooks if needed (hook change or stale-MCP migration)
-	if !hooksOk || staleMCPInHooks {
+	// Update and write hooks if needed (hook change, or stale-MCP/stale-Stop migration)
+	if !hooksOk || staleMCPInHooks || staleStopHook {
 		if !hooksOk {
 			hooksMap["SessionStart"] = updateHookArray(hooksMap["SessionStart"], startCmd, "hook session-start")
 			hooksMap["SessionEnd"] = updateHookArray(hooksMap["SessionEnd"], endCmd, "hook session-end")
 			hooksMap["PreCompact"] = updateHookArray(hooksMap["PreCompact"], preCompactCmd, "hook pre-compaction")
-			hooksMap["Stop"] = updateHookArray(hooksMap["Stop"], stopCmd, "hook stop")
-			hooksConfigMap["hooks"] = hooksMap
 		}
+		// hooksMap already aliases hooksConfigMap["hooks"] when that key existed
+		// going in; this assignment is what wires it in when the map was built
+		// fresh, and is what persists the staleStopHook removal above when
+		// hooksOk was otherwise already true.
+		hooksConfigMap["hooks"] = hooksMap
 
 		// Inject custom instruction for Dossier usage
 		if !hasSkill {

@@ -160,8 +160,8 @@ func isArtifactIDByte(b byte) bool {
 // dossier_session, dossier_recall) goes through it so they cannot diverge.
 //
 // It is a fact, not a work order. Saving is the user's job, before they exit
-// (/save-dossier, prompted by the Stop-hook checkpoint); a missed save is
-// surfaced so the gap is visible, not reconstructed. The notice therefore names
+// (/save-dossier); a missed save is surfaced so the gap is visible, not
+// reconstructed. The notice therefore names
 // sessions but not their transcript artifacts: naming them invited agents to
 // load whole transcripts at the start of a session, which is the context cost
 // the Distilled State exists to avoid. Other authors' sessions are counted and
