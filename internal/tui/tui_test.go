@@ -3491,3 +3491,17 @@ func TestDeriveLeadOptionsCountsContractOwners(t *testing.T) {
 		t.Fatalf("counts = %v, want Priya=3 Bob=1", counts)
 	}
 }
+
+func TestRowBadgeMarksContractOnlyMatch(t *testing.T) {
+	m := &Model{leadFilter: leadFilter{kind: filterByName, name: "Sam"}}
+	if got := m.rowBadge(core.ListItem{Lead: "Sam", ContractOwners: []string{"Sam"}}); got != "" {
+		t.Errorf("lead match badge = %q, want empty", got)
+	}
+	if got := m.rowBadge(core.ListItem{Lead: "Ann", ContractOwners: []string{"Sam"}}); got != "[contract]" {
+		t.Errorf("contract-only badge = %q, want [contract]", got)
+	}
+	m.leadFilter = leadFilter{kind: filterAll}
+	if got := m.rowBadge(core.ListItem{Lead: "Ann", ContractOwners: []string{"Sam"}}); got != "" {
+		t.Errorf("unfiltered badge = %q, want empty", got)
+	}
+}
