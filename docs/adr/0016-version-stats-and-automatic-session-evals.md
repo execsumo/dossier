@@ -63,6 +63,25 @@ by hand works regardless of the knob.
 - Transcripts over 400 KB are skipped, not truncated. A truncated transcript would score only the
   part that survived.
 
+### 5. Amendment (2026-10-07): eval effort, and the session's model as a dimension
+- **Eval effort.** `eval.effort` (`low|medium|high|xhigh|max`, validated at config load) is passed to every eval call as
+  `claude --effort` and recorded on the `session_eval` summary with the eval model. Haiku has no effort support:
+  Claude Code accepts the flag and ignores it (verified), so an effort setting only matters with Sonnet, Opus or Fable.
+- **Session model and effort.** `session_ended` now records the session's dominant model and reasoning effort (most
+  main-thread assistant turns) plus `model_mix` (every `model/effort:turns`). This is the user's choice, outside
+  Dossier's control, and it can move scores as much as the Guide does.
+  - Source is the transcript: each assistant record carries `message.model` and `effort` / `perTurnEffort`.
+  - `$CLAUDE_EFFORT` in the SessionEnd hook reports the configured default, not the level the session ran
+    (verified), so it is not used.
+  - Subagent (sidechain) turns are excluded.
+- **Grouping.** `StatsReq.By` / `--by` / `dossier_stats.by` regroups the same numbers by any of `version`, `guide`,
+  `model`, `effort` (the session's) and `eval` (the evaluator's model/effort). The default stays `version,guide`.
+  Use `model,effort` to separate model effects from Dossier's, and `eval` to keep a change of evaluator setup from
+  reading as a product change.
+- **First comparison on one case:** sonnet at low effort ran in 11s for $0.02, against haiku's 80s and $0.05. It
+  extracted different probes and scored 43% against 62%. Evaluator setup visibly moves the score, which is why it
+  is a dimension.
+
 ## Consequences
 - Every saved session costs three small-model calls while the knob is on (about $0.05 and 80s of
   background time on haiku in the first end-to-end run). The default is on by product decision

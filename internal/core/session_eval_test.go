@@ -14,11 +14,13 @@ type fakeEvaluator struct {
 	errs    []error
 	cost    float64
 	prompts []string
+	calls   []EvalCall
 }
 
-func (f *fakeEvaluator) Complete(_ context.Context, _ string, prompt string) (string, float64, error) {
+func (f *fakeEvaluator) Complete(_ context.Context, call EvalCall) (string, float64, error) {
 	i := len(f.prompts)
-	f.prompts = append(f.prompts, prompt)
+	f.prompts = append(f.prompts, call.Prompt)
+	f.calls = append(f.calls, call)
 	if i < len(f.errs) && f.errs[i] != nil {
 		return "", f.cost, f.errs[i]
 	}
@@ -45,7 +47,7 @@ func newEvalHarness(t *testing.T, enabled bool) (*unsavedHarness, *Service) {
 	t.Helper()
 	h := newUnsavedHarness(t)
 	svc := NewService(h.store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, h.clock,
-		Config{Author: "Alice", Version: "v1.2.3", Eval: EvalConfig{Enabled: enabled, Model: "haiku"}}, nil)
+		Config{Author: "Alice", Version: "v1.2.3", Eval: EvalConfig{Enabled: enabled, Model: "sonnet", Effort: "low"}}, nil)
 	return h, svc
 }
 
@@ -165,6 +167,11 @@ func TestEvaluateSessionScoresAndRecords(t *testing.T) {
 	if strings.Contains(fe.prompts[1], "transcript for sess_a") {
 		t.Fatalf("the resume call must see only the Distilled State, not the transcript")
 	}
+	for i, c := range fe.calls {
+		if c.Model != "sonnet" || c.Effort != "low" {
+			t.Errorf("call %d = model %q effort %q, want the configured sonnet/low", i, c.Model, c.Effort)
+		}
+	}
 	if res.Probes[2].Answer != "NOT IN STATE" || res.Probes[2].Pass {
 		t.Errorf("probe 3 = %+v", res.Probes[2])
 	}
@@ -173,7 +180,7 @@ func TestEvaluateSessionScoresAndRecords(t *testing.T) {
 	if e == nil || e.Eval == nil {
 		t.Fatal("session_eval audit event missing")
 	}
-	if e.Version != "v1.2.3" || e.GuideHash != svc.GuideHash() || e.SessionID != "sess_a" || e.Eval.Passed != 2 || e.Eval.Model != "haiku" {
+	if e.Version != "v1.2.3" || e.GuideHash != svc.GuideHash() || e.SessionID != "sess_a" || e.Eval.Passed != 2 || e.Eval.Model != "sonnet" || e.Eval.Effort != "low" {
 		t.Fatalf("session_eval event = %+v / %+v", e, e.Eval)
 	}
 	if strings.Contains(e.Message, "500ms") {
@@ -234,14 +241,14 @@ func TestEvaluateSessionRecordsSkipsAndFailures(t *testing.T) {
 func TestRecordSessionEndedStampsVersionAndGuide(t *testing.T) {
 	h, svc := newEvalHarness(t, true)
 	h.bind("sess_a")
-	if err := svc.RecordSessionEnded("sess_a"); err != nil {
+	if err := svc.RecordSessionEnded("sess_a", ""); err != nil {
 		t.Fatal(err)
 	}
 	e := lastAuditEvent(t, h.store, AuditEventSessionEnded)
 	if e == nil || e.Version != "v1.2.3" || e.GuideHash == "" || e.SessionID != "sess_a" || e.Message != "claude-code" {
 		t.Fatalf("session_ended = %+v", e)
 	}
-	if err := svc.RecordSessionEnded("sess_unbound"); err != nil {
+	if err := svc.RecordSessionEnded("sess_unbound", ""); err != nil {
 		t.Fatalf("an unbound session must be a no-op, got %v", err)
 	}
 }
@@ -274,7 +281,7 @@ func TestStatsByVersion(t *testing.T) {
 	h.agentSave("s1", "# Recovery\n\n## Situation\nOne.")
 	h.agentSave("s1", "# Recovery\n\n## Situation\nOne, again.")
 	h.boundary("s1")
-	if err := v1.RecordSessionEnded("s1"); err != nil {
+	if err := v1.RecordSessionEnded("s1", ""); err != nil {
 		t.Fatal(err)
 	}
 	v1.SetEvaluator(&fakeEvaluator{outputs: []string{evalProbesOut, evalAnswersOut, evalJudgeOut}, cost: 0.02})
@@ -283,7 +290,7 @@ func TestStatsByVersion(t *testing.T) {
 	}
 	h.bind("s2")
 	h.boundary("s2")
-	if err := v1.RecordSessionEnded("s2"); err != nil {
+	if err := v1.RecordSessionEnded("s2", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -291,7 +298,7 @@ func TestStatsByVersion(t *testing.T) {
 	h.bind("s3")
 	h.agentSave("s3", "# Recovery\n\n## Situation\nThree.")
 	h.boundary("s3")
-	if err := v2.RecordSessionEnded("s3"); err != nil {
+	if err := v2.RecordSessionEnded("s3", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := v2.EvaluateSession(h.ctx, "dos_fake_id", "s3"); err != nil { // no evaluator: recorded skip
@@ -301,7 +308,7 @@ func TestStatsByVersion(t *testing.T) {
 	// Bob's session on v0.3.2 is excluded unless all authors are asked for.
 	h.bind("s4")
 	h.boundary("s4")
-	if err := bob.RecordSessionEnded("s4"); err != nil {
+	if err := bob.RecordSessionEnded("s4", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -337,5 +344,113 @@ func TestStatsByVersion(t *testing.T) {
 	}
 	if len(since.Rows) != 0 {
 		t.Errorf("Since in the future should drop every session: %+v", since.Rows)
+	}
+}
+
+const sampleModelTranscript = `{"type":"user","message":{"role":"user","content":"hi"}}
+{"type":"assistant","isSidechain":false,"effort":"high","message":{"model":"claude-opus-5","role":"assistant","content":[]}}
+{"type":"assistant","isSidechain":false,"effort":"high","message":{"model":"claude-opus-5","role":"assistant","content":[]}}
+{"type":"assistant","isSidechain":false,"effort":"medium","perTurnEffort":"low","message":{"model":"claude-sonnet-5-5","role":"assistant","content":[]}}
+{"type":"assistant","isSidechain":true,"effort":"high","message":{"model":"claude-haiku-4-5","role":"assistant","content":[]}}
+{"type":"assistant","message":{"model":"<synthetic>","role":"assistant","content":[]}}
+not json at all`
+
+func TestTranscriptModelUsage(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want []ModelUsage
+	}{
+		{"dominant first, perTurnEffort wins, sidechain and synthetic skipped", sampleModelTranscript, []ModelUsage{
+			{Model: "claude-opus-5", Effort: "high", Turns: 2},
+			{Model: "claude-sonnet-5-5", Effort: "low", Turns: 1},
+		}},
+		{"model without effort", `{"type":"assistant","message":{"model":"claude-haiku-4-5"}}`, []ModelUsage{{Model: "claude-haiku-4-5", Turns: 1}}},
+		{"empty", "", []ModelUsage{}},
+		{"other harness format", `{"role":"assistant","content":"hi"}`, []ModelUsage{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := TranscriptModelUsage(tt.raw)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %+v, want %+v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("got %+v, want %+v", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
+func TestRecordSessionEndedCapturesSessionModel(t *testing.T) {
+	h, svc := newEvalHarness(t, true)
+	h.bind("sess_a")
+	if err := svc.RecordSessionEnded("sess_a", sampleModelTranscript); err != nil {
+		t.Fatal(err)
+	}
+	e := lastAuditEvent(t, h.store, AuditEventSessionEnded)
+	if e.SessionModel != "claude-opus-5" || e.SessionEffort != "high" || e.ModelMix != "claude-opus-5/high:2, claude-sonnet-5-5/low:1" {
+		t.Fatalf("session_ended = model %q effort %q mix %q", e.SessionModel, e.SessionEffort, e.ModelMix)
+	}
+}
+
+func TestStatsGroupsByModelEffortAndEvalSetup(t *testing.T) {
+	h := newUnsavedHarness(t)
+	svc := NewService(h.store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, h.clock,
+		Config{Author: "Alice", Version: "v0.4.0", Eval: EvalConfig{Enabled: true, Model: "sonnet", Effort: "medium"}}, nil)
+	opus := `{"type":"assistant","effort":"high","message":{"model":"claude-opus-5-5"}}`
+	sonnet := `{"type":"assistant","effort":"low","message":{"model":"claude-sonnet-5-5"}}`
+	for i, tr := range []string{opus, opus, sonnet} {
+		sid := []string{"s1", "s2", "s3"}[i]
+		h.bind(sid)
+		h.agentSave(sid, "# Recovery\n\n## Situation\n"+sid)
+		h.boundary(sid)
+		if err := svc.RecordSessionEnded(sid, tr); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc.SetEvaluator(&fakeEvaluator{outputs: []string{evalProbesOut, evalAnswersOut, evalJudgeOut}})
+	if _, err := svc.EvaluateSession(h.ctx, "dos_fake_id", "s1"); err != nil {
+		t.Fatal(err)
+	}
+
+	byModel, err := svc.Stats(StatsReq{By: []string{"model", "effort"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int{}
+	for _, r := range byModel.Rows {
+		if r.Version != "" || r.GuideHash != "" {
+			t.Errorf("ungrouped dimensions must stay empty: %+v", r)
+		}
+		got[r.SessionModel+"/"+r.SessionEffort] = r.Sessions
+	}
+	if got["claude-opus-5-5/high"] != 2 || got["claude-sonnet-5-5/low"] != 1 || len(got) != 2 {
+		t.Fatalf("by model/effort = %v", got)
+	}
+
+	byEval, err := svc.Stats(StatsReq{By: []string{"Version", "eval", "eval"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"version", "eval"}; strings.Join(byEval.By, ",") != strings.Join(want, ",") {
+		t.Fatalf("by = %v, want normalised %v", byEval.By, want)
+	}
+	setups := map[string]int{}
+	for _, r := range byEval.Rows {
+		setups[r.EvalSetup] = r.Sessions
+	}
+	if setups["sonnet/medium"] != 1 || setups[""] != 2 {
+		t.Fatalf("by eval setup = %v", setups)
+	}
+
+	if _, err := svc.Stats(StatsReq{By: []string{"weather"}}); err == nil {
+		t.Fatal("an unknown dimension must be rejected")
+	}
+	def, err := svc.Stats(StatsReq{})
+	if err != nil || strings.Join(def.By, ",") != "version,guide" {
+		t.Fatalf("default grouping = %v (%v)", def.By, err)
 	}
 }

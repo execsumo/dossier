@@ -229,7 +229,15 @@ type ActiveHarnessResolver interface {
 // hooks, MCP servers, memory, or tools) so an eval can neither recurse into
 // Dossier nor be contaminated by it.
 type Evaluator interface {
-	Complete(ctx context.Context, model, prompt string) (text string, costUSD float64, err error)
+	Complete(ctx context.Context, call EvalCall) (text string, costUSD float64, err error)
+}
+
+// EvalCall is one isolated model call.
+type EvalCall struct {
+	Model string
+	// Effort is the reasoning effort level; empty uses the model's default.
+	Effort string
+	Prompt string
 }
 
 // Clock defines a mockable interface for wall time.

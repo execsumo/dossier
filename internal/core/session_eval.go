@@ -78,12 +78,16 @@ func (s *Service) GuideHash() string {
 // RecordSessionEnded appends the session_ended audit event that anchors
 // per-version session metrics. Called at the true end of a session only (not
 // at pre-compaction). A session with no binding has no Dossier to record in.
-func (s *Service) RecordSessionEnded(sessionID string) error {
+//
+// transcript is the raw session transcript; the session's model and reasoning
+// effort are read from it (TranscriptModelUsage). Empty is fine: the event is
+// still recorded, without them.
+func (s *Service) RecordSessionEnded(sessionID, transcript string) error {
 	binding, err := s.store.GetSessionBinding(sessionID)
 	if err != nil || binding == nil || binding.DossierID == "" {
 		return nil
 	}
-	return s.store.AppendAudit(binding.DossierID, AuditEvent{
+	e := AuditEvent{
 		TS:        s.clock.Now(),
 		Event:     AuditEventSessionEnded,
 		DossierID: binding.DossierID,
@@ -93,7 +97,12 @@ func (s *Service) RecordSessionEnded(sessionID string) error {
 		Version:   s.cfg.Version,
 		GuideHash: s.GuideHash(),
 		Message:   binding.Harness,
-	})
+	}
+	if usage := TranscriptModelUsage(transcript); len(usage) > 0 {
+		e.SessionModel, e.SessionEffort = usage[0].Model, usage[0].Effort
+		e.ModelMix = formatModelMix(usage)
+	}
+	return s.store.AppendAudit(binding.DossierID, e)
 }
 
 // SessionEvalDue reports whether an automatic eval should run for a session
@@ -146,7 +155,7 @@ func (s *Service) EvaluateSession(ctx context.Context, dossierID, sessionID stri
 		SessionID: sessionID,
 		Version:   s.cfg.Version,
 		GuideHash: s.GuideHash(),
-		Summary:   EvalSummary{Model: s.cfg.Eval.Model, Revision: string(rev)},
+		Summary:   EvalSummary{Model: s.cfg.Eval.Model, Effort: s.cfg.Eval.Effort, Revision: string(rev)},
 	}
 	record := func() {
 		summary := res.Summary
@@ -192,8 +201,10 @@ func (s *Service) EvaluateSession(ctx context.Context, dossierID, sessionID stri
 		return skip(fmt.Sprintf("transcript too large to evaluate (%d bytes > %d)", len(art.Content), maxEvalTranscriptBytes))
 	}
 
-	model := s.cfg.Eval.Model
-	text, cost, err := s.eval.Complete(ctx, model, evalProbePrompt(art.Content))
+	call := func(prompt string) EvalCall {
+		return EvalCall{Model: s.cfg.Eval.Model, Effort: s.cfg.Eval.Effort, Prompt: prompt}
+	}
+	text, cost, err := s.eval.Complete(ctx, call(evalProbePrompt(art.Content)))
 	res.Summary.CostUSD += cost
 	if err != nil {
 		return fail("probe extraction", err)
@@ -206,7 +217,7 @@ func (s *Service) EvaluateSession(ctx context.Context, dossierID, sessionID stri
 		return skip("no probes extracted from the transcript")
 	}
 
-	text, cost, err = s.eval.Complete(ctx, model, evalAnswerPrompt(d.DistilledState.Body, probes))
+	text, cost, err = s.eval.Complete(ctx, call(evalAnswerPrompt(d.DistilledState.Body, probes)))
 	res.Summary.CostUSD += cost
 	if err != nil {
 		return fail("resume", err)
@@ -219,7 +230,7 @@ func (s *Service) EvaluateSession(ctx context.Context, dossierID, sessionID stri
 		probes[i].Answer = answers[strconv.Itoa(i+1)]
 	}
 
-	text, cost, err = s.eval.Complete(ctx, model, evalJudgePrompt(probes))
+	text, cost, err = s.eval.Complete(ctx, call(evalJudgePrompt(probes)))
 	res.Summary.CostUSD += cost
 	if err != nil {
 		return fail("judge", err)

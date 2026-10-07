@@ -516,7 +516,7 @@ dossier archive <slug-or-id> [--json]
 dossier done <slug-or-id> [--json]
 dossier context refresh
 dossier doctor
-dossier stats [--all-authors|--author <name>] [--since YYYY-MM-DD] [--json]
+dossier stats [--all-authors|--author <name>] [--since YYYY-MM-DD] [--by version,guide,model,effort,eval] [--json]
 dossier eval run --dossier <slug-or-id> --session <session-id> [--json]
 ```
 

@@ -67,8 +67,8 @@ var spawnDetached = evaluator.SpawnDetached
 // startSessionEval records the session end and, when an eval is due, starts
 // it detached so the hook returns at once. Failures are reported, never fatal:
 // the session itself is already archived.
-func startSessionEval(out io.Writer, svc *core.Service, home, sessionID string) {
-	if err := svc.RecordSessionEnded(sessionID); err != nil {
+func startSessionEval(out io.Writer, svc *core.Service, home, sessionID, transcript string) {
+	if err := svc.RecordSessionEnded(sessionID, transcript); err != nil {
 		fmt.Fprintf(out, "Warning: could not record session end for stats: %v\n", err)
 	}
 	dossierID, due := svc.SessionEvalDue(sessionID)
@@ -169,11 +169,14 @@ func sanitizeFileName(s string) string {
 func newStatsCmd() *cobra.Command {
 	var allAuthors, asJSON bool
 	var author, since string
+	var by []string
 	cmd := &cobra.Command{
 		Use:   "stats",
 		Short: "Everyday-use session outcomes and eval scores by version",
 		Long: "Aggregates session outcomes from the audit logs, grouped by binary version and guide hash:\n" +
 			"sessions, how many had a boundary with nothing saved, saves per session, and automatic eval scores by probe kind.\n" +
+			"--by regroups the same numbers: by the session's model and effort (the user's choice, outside Dossier's control)\n" +
+			"to separate model effects from Guide effects, or by the evaluator's own setup.\n" +
 			"Only sessions that ended on a version that records session_ended are counted.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -181,7 +184,7 @@ func newStatsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			req := core.StatsReq{Author: author, AllAuthors: allAuthors}
+			req := core.StatsReq{Author: author, AllAuthors: allAuthors, By: by}
 			if since != "" {
 				t, err := time.Parse("2006-01-02", since)
 				if err != nil {
@@ -206,6 +209,7 @@ func newStatsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&author, "author", "", "Limit to one author (default: you)")
 	cmd.Flags().StringVar(&since, "since", "", "Only sessions ended on or after YYYY-MM-DD")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output as JSON")
+	cmd.Flags().StringSliceVar(&by, "by", nil, "Group by any of: version, guide, model, effort, eval (default version,guide). model/effort are the session's; eval is the evaluator's model/effort")
 	return cmd
 }
 
@@ -220,18 +224,30 @@ func renderStats(w io.Writer, rep core.StatsReport, evalCfg core.EvalConfig) {
 	if !evalCfg.Enabled {
 		knob = "off"
 	}
-	fmt.Fprintf(w, "Session outcomes by version (%s). Automatic evals: %s, model %s.\n\n", scope, knob, evalCfg.Model)
+	setup := evalCfg.Model
+	if evalCfg.Effort != "" {
+		setup += ", effort " + evalCfg.Effort
+	}
+	fmt.Fprintf(w, "Session outcomes by %s (%s). Automatic evals: %s, model %s.\n\n", strings.Join(rep.By, " + "), scope, knob, setup)
 	if len(rep.Rows) == 0 {
 		fmt.Fprintln(w, "No sessions recorded yet. Sessions are counted from the first session that ends on a version with stats.")
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "VERSION\tGUIDE\tSESSIONS\tUNSAVED\tSAVES/SESSION\tEVALS\tRECOVERED\tSKIPPED\tEVAL COST\tLAST")
+	var header []string
+	for _, d := range rep.By {
+		header = append(header, statsDimLabel[d])
+	}
+	header = append(header, "SESSIONS", "UNSAVED", "SAVES/SESSION", "EVALS", "RECOVERED", "SKIPPED", "EVAL COST", "LAST")
+	fmt.Fprintln(tw, strings.Join(header, "\t"))
 	for _, r := range rep.Rows {
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%.1f\t%d\t%s\t%d\t$%.2f\t%s\n",
-			orDash(r.Version), orDash(r.GuideHash), r.Sessions, pct(r.Unsaved, r.Sessions),
-			float64(r.Saves)/float64(max(r.Sessions, 1)), r.Evals, pct(r.EvalPassed, r.EvalProbes),
-			r.EvalSkipped, r.EvalCostUSD, r.Last.Local().Format("2006-01-02"))
+		cells := statsDimValues(rep.By, r)
+		cells = append(cells,
+			fmt.Sprint(r.Sessions), pct(r.Unsaved, r.Sessions),
+			fmt.Sprintf("%.1f", float64(r.Saves)/float64(max(r.Sessions, 1))), fmt.Sprint(r.Evals),
+			pct(r.EvalPassed, r.EvalProbes), fmt.Sprint(r.EvalSkipped), fmt.Sprintf("$%.2f", r.EvalCostUSD),
+			r.Last.Local().Format("2006-01-02"))
+		fmt.Fprintln(tw, strings.Join(cells, "\t"))
 	}
 	tw.Flush()
 
@@ -239,7 +255,7 @@ func renderStats(w io.Writer, rep core.StatsReport, evalCfg core.EvalConfig) {
 		if len(r.ByKind) == 0 && len(r.SkipReasons) == 0 {
 			continue
 		}
-		fmt.Fprintf(w, "\n%s (guide %s)\n", orDash(r.Version), orDash(r.GuideHash))
+		fmt.Fprintf(w, "\n%s\n", strings.Join(statsDimValues(rep.By, r), " · "))
 		kinds := make([]string, 0, len(r.ByKind))
 		for k := range r.ByKind {
 			kinds = append(kinds, k)
@@ -259,6 +275,35 @@ func renderStats(w io.Writer, rep core.StatsReport, evalCfg core.EvalConfig) {
 		}
 	}
 	fmt.Fprintln(w, "\nUNSAVED: sessions with a boundary (compaction or end) that found nothing saved. RECOVERED: eval probes a fresh agent answered from the Distilled State.")
+}
+
+var statsDimLabel = map[string]string{
+	core.StatsByVersion: "VERSION",
+	core.StatsByGuide:   "GUIDE",
+	core.StatsByModel:   "SESSION MODEL",
+	core.StatsByEffort:  "SESSION EFFORT",
+	core.StatsByEval:    "EVAL SETUP",
+}
+
+func statsDimValues(by []string, r core.StatsRow) []string {
+	out := make([]string, 0, len(by))
+	for _, d := range by {
+		var v string
+		switch d {
+		case core.StatsByVersion:
+			v = r.Version
+		case core.StatsByGuide:
+			v = r.GuideHash
+		case core.StatsByModel:
+			v = r.SessionModel
+		case core.StatsByEffort:
+			v = r.SessionEffort
+		case core.StatsByEval:
+			v = r.EvalSetup
+		}
+		out = append(out, orDash(v))
+	}
+	return out
 }
 
 func pct(n, d int) string {

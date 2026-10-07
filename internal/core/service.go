@@ -34,7 +34,13 @@ type EvalConfig struct {
 	Enabled bool
 	// Model is passed to the evaluator for every call (e.g. "haiku").
 	Model string
+	// Effort is the reasoning effort for every eval call: low, medium, high,
+	// xhigh or max; empty uses the model's default.
+	Effort string
 }
+
+// EvalEffortLevels are the reasoning effort levels Claude Code accepts.
+var EvalEffortLevels = []string{"low", "medium", "high", "xhigh", "max"}
 
 // Service orchestrates Dossier domain use-cases over the port interfaces.
 // It contains zero business logic leakages to driving adapters (CLI/MCP/TUI).
