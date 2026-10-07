@@ -18,6 +18,40 @@ type TeamConfig struct {
 	Branch string `yaml:"branch,omitempty"`
 }
 
+// EvalConfig is the knob for automatic session evals (ADR 0016). Each eval
+// spends three model calls, so it can be switched off.
+type EvalConfig struct {
+	// Enabled turns automatic evals on. A pointer so an absent key keeps the
+	// default rather than reading as false.
+	Enabled *bool `yaml:"enabled,omitempty"`
+	// Model is passed to the evaluator for every call.
+	Model string `yaml:"model,omitempty"`
+}
+
+// DefaultEvalModel is the model automatic evals use unless configured.
+const DefaultEvalModel = "haiku"
+
+// defaultEvalEnabled is the out-of-the-box setting. On while version-by-version
+// tracking is being established; flip here (or per machine in config.yaml)
+// once the cost is no longer worth it.
+const defaultEvalEnabled = true
+
+// EvalEnabled resolves the knob against its default.
+func (e EvalConfig) EvalEnabled() bool {
+	if e.Enabled == nil {
+		return defaultEvalEnabled
+	}
+	return *e.Enabled
+}
+
+// EvalModel resolves the model against its default.
+func (e EvalConfig) EvalModel() string {
+	if m := strings.TrimSpace(e.Model); m != "" {
+		return m
+	}
+	return DefaultEvalModel
+}
+
 // Config represents the canonical schema of ~/.dossier/config.yaml.
 type Config struct {
 	DossierHome string     `yaml:"dossier_home"`
@@ -32,6 +66,8 @@ type Config struct {
 	// Dossier's repos when this machine has not learned their location yet
 	// (ADR 0015). Machine-local, like the rest of this file.
 	RepoRoots []string `yaml:"repo_roots,omitempty"`
+	// Eval is the automatic session eval knob (ADR 0016).
+	Eval EvalConfig `yaml:"eval,omitempty"`
 }
 
 // configFile is the strict read schema. TokenTarget and SchemaVersion are
@@ -48,6 +84,7 @@ type configFile struct {
 	TokenTarget   *int       `yaml:"token_target,omitempty"`
 	SchemaVersion int        `yaml:"schema_version,omitempty"`
 	RepoRoots     []string   `yaml:"repo_roots,omitempty"`
+	Eval          EvalConfig `yaml:"eval,omitempty"`
 }
 
 // Default returns the default configuration with standard paths.
@@ -115,6 +152,7 @@ func Load(path string) (*Config, error) {
 	cfg.Leads = wire.Leads
 	cfg.Team = wire.Team
 	cfg.RepoRoots = wire.RepoRoots
+	cfg.Eval = wire.Eval
 	if wire.TokenLimit != nil {
 		cfg.TokenLimit = *wire.TokenLimit
 	} else if wire.TokenTarget != nil {
@@ -133,6 +171,14 @@ const defaultConfigHelp = `# Dossier configuration. Edit the lists below as need
 # Example leads:
 #   - Alice
 #   - Bob
+#
+# Automatic session evals score, after each saved session, how well the
+# Distilled State preserves what the session established (3 model calls per
+# session; see "dossier stats"). They are on by default. To turn them off or
+# change the model:
+#   eval:
+#     enabled: false
+#     model: haiku
 `
 
 // Save marshals and writes the configuration to a YAML file.
@@ -213,5 +259,9 @@ func (c *Config) ToCoreConfig() core.Config {
 		Leads:       append([]string{}, c.Leads...),
 		TokenLimit:  c.TokenLimit,
 		TeamRemote:  c.Team.Remote,
+		Eval: core.EvalConfig{
+			Enabled: c.Eval.EvalEnabled(),
+			Model:   c.Eval.EvalModel(),
+		},
 	}
 }

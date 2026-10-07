@@ -2719,14 +2719,14 @@ func TestTUI_FooterSequenceConsistency(t *testing.T) {
 	assertOrdered("dashboard", dashView, []string{"/ search", "f filters", "v view", "q quit", "? more help"})
 	assertAbsent("dashboard", dashView, []string{"s stage", "p priority", "l lead", "n next action", "↑/↓", "enter:", "esc:"})
 	// The health report is occasional: extended help only, never the footer.
-	assertAbsent("dashboard", dashView, []string{"H health"})
+	assertAbsent("dashboard", dashView, []string{"h health"})
 	var fullHelp strings.Builder
 	for _, column := range m.helpKeyMap(ViewDashboard).FullHelp() {
 		for _, b := range column {
 			fullHelp.WriteString(b.Help().Key + " " + b.Help().Desc + "\n")
 		}
 	}
-	if !strings.Contains(fullHelp.String(), "H health") {
+	if !strings.Contains(fullHelp.String(), "h health") {
 		t.Errorf("extended help should list the health report, got:\n%s", fullHelp.String())
 	}
 
@@ -2762,7 +2762,7 @@ func TestModalChromeUsesStandardTitlesAndMinimalFooters(t *testing.T) {
 	}{
 		{ViewLeadSelector, "Filter Dossiers"},
 		{ViewEdit, "Edit Dossier"},
-		{ViewLinkInput, "Add Link"},
+		{ViewLinkInput, "Attach Content"},
 		{ViewLinkSelector, "Choose Link Target"},
 		{ViewMergeSelector, "Merge Dossiers"},
 		{ViewMergeConflictResolver, "Resolve Merge Conflict"},
@@ -3503,5 +3503,25 @@ func TestRowBadgeMarksContractOnlyMatch(t *testing.T) {
 	m.leadFilter = leadFilter{kind: filterAll}
 	if got := m.rowBadge(core.ListItem{Lead: "Ann", ContractOwners: []string{"Sam"}}); got != "" {
 		t.Errorf("unfiltered badge = %q, want empty", got)
+	}
+}
+
+func TestEscClearsCommittedSearch(t *testing.T) {
+	for _, view := range []View{ViewDashboard, ViewKanban} {
+		store := newTestStore()
+		seedDossier(store, "one", "One Topic", core.StatusSpark)
+		m := boardModel(t, store, 120, 40)
+		m.currentView = view
+		m.listView = view
+		m, _ = press(t, m, "/")
+		m, _ = press(t, m, "o")
+		m, _ = press(t, m, "enter")
+		m, _ = press(t, m, "esc")
+		if !m.searchQuery.IsEmpty() || m.searchInput.Value() != "" || m.searchActive {
+			t.Fatalf("view %v: esc should clear the committed search", view)
+		}
+		if m.currentView != view {
+			t.Fatalf("view %v: first esc should only clear search, got view %v", view, m.currentView)
+		}
 	}
 }

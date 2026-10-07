@@ -43,6 +43,7 @@ Use a throwaway Dossier home and a throwaway private repository or sandbox:
 | **SessionStart Hook** | Yes (`SessionStart`) |
 | **SessionEnd Hook** | Yes (`SessionEnd`) |
 | **Pre-Compaction Hook** | Yes (`PreCompact`) |
+| **Turn-end Hook** | Yes (`Stop`; verified 2026-10-07, not installed by Dossier, see §3) |
 | **Raw Transcript Access** | Yes (via session UUID matching) |
 | **Stable Session ID** | Yes (UUID string in payload) |
 | **MCP Session Env Var** | Yes (`CLAUDE_CODE_SESSION_ID`, verified) |
@@ -221,6 +222,27 @@ was not made. SessionEnd with no save remains intentionally visible as a
 warning and `distilled_state_not_captured` audit event; Claude's display of
 SessionEnd stdout remains unverified (see below), so operators should not treat
 that hook output as a guaranteed user-visible notice.
+
+### Stop hook and resume source (verified 2026-10-07, Claude Code 2.1.292)
+
+Spike for turn-level save mechanics. It ran headless (`claude -p --setting-sources "" --settings <file> --strict-mcp-config --model haiku`) with logging hooks. Dossier does not install a `Stop` hook today; this records what one could rely on.
+
+- **`Stop` fires once per completed turn** (it does not fire on a user interrupt). The payload carries `session_id`, `transcript_path`, `cwd`, `prompt_id`, `permission_mode`, `stop_hook_active`, `last_assistant_message`, `background_tasks`, and `session_crons` (verified).
+- **Non-blocking `additionalContext` continues the turn (verified).** Returning `{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"…"}}` made the model read the text and take one more turn. The follow-up `Stop` arrived with `stop_hook_active: true`. Claude Code's documented loop protections (that flag, plus an 8-consecutive-continuation cap reset by any tool call) are what keep a hook from looping. A hook must still check `stop_hook_active` itself.
+- **The transcript is current for tool calls at `Stop` time (verified).** A copy of `transcript_path` taken inside the hook already held the turn's `Read` and `Edit` `tool_use` blocks, with full inputs (`file_path`, `old_string`, `new_string`). The final assistant text was missing from the first turn's copy, which matches the docs' warning. So: derive "what changed this turn" from `tool_use` blocks, and take the final reply from `last_assistant_message`, never from the file.
+- **Hook cost.** Both spike hooks were shell scripts and added no perceptible latency; a whole one-turn run took about 7s wall time, nearly all of it model time. A Go `dossier hook stop` would need to stay fast: it runs after every turn of every session, bound or not.
+- **`SessionStart.source` (verified):** `startup` on a new session and `resume` on `--resume`. `compact` and `clear` are documented but not exercised here, because compaction can't be forced cheaply in headless mode. Dossier's guide re-delivery already treats every SessionStart as a new context window, so it does not depend on the value.
+- **Not available from any hook (docs, 2026-10-07):** `PreCompact` receives the user's `/compact` instructions but cannot supply its own, so Dossier cannot shape Claude Code's compaction summary. `PostCompact` receives the generated `compact_summary`. Blocking automatic compaction can fail the request when compaction is recovering from a context-limit error, and the payload does not say which case applies, so Dossier should never block it.
+
+### Isolated `claude -p` for evals (verified 2026-10-07, Claude Code 2.1.292)
+
+`internal/evaluator` (ADR 0016) and `tools/resumeeval` both run model calls through `claude -p --output-format json --no-session-persistence --strict-mcp-config --mcp-config '{"mcpServers":{}}' --settings '{"disableAllHooks":true}' --setting-sources "" --tools "" --disable-slash-commands --system-prompt <neutral>`. Each call runs in an empty temp cwd, with `DOSSIER_HOME` pointing at an empty temp dir and `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` and `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` set.
+
+- **Without these flags, the user's setup leaks in (verified).** A plain `claude -p` reported the Dossier SessionStart library, MCP servers, hook output and the global CLAUDE.md.
+- **With them, it doesn't.** The CLI's own environment block and the account email are still visible.
+- **`disableAllHooks` is what keeps an eval from firing Dossier's own SessionStart/SessionEnd and recursing.**
+- **`--bare` needs `ANTHROPIC_API_KEY`.** It fails with "Not logged in" on OAuth installs, so it is not used.
+- **`total_cost_usd` in the JSON output is the reported cost.** It is what `session_eval` records.
 
 ### MCP Session Identity
 

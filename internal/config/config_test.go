@@ -353,3 +353,43 @@ func TestTokenLimitConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestEvalKnob(t *testing.T) {
+	tests := []struct {
+		name        string
+		yaml        string
+		wantEnabled bool
+		wantModel   string
+	}{
+		{"absent keeps defaults", "author: alice\n", true, DefaultEvalModel},
+		{"explicit off", "author: alice\neval:\n  enabled: false\n", false, DefaultEvalModel},
+		{"explicit on with model", "author: alice\neval:\n  enabled: true\n  model: sonnet\n", true, "sonnet"},
+		{"blank model falls back", "author: alice\neval:\n  model: \"  \"\n", true, DefaultEvalModel},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(tt.yaml), 0644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			core := cfg.ToCoreConfig()
+			if core.Eval.Enabled != tt.wantEnabled || core.Eval.Model != tt.wantModel {
+				t.Fatalf("eval = %+v, want enabled=%v model=%q", core.Eval, tt.wantEnabled, tt.wantModel)
+			}
+		})
+	}
+}
+
+func TestEvalKnobRejectsUnknownKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("author: alice\neval:\n  enable: false\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("a misspelled eval key must be rejected, not silently ignored (it would leave evals on)")
+	}
+}

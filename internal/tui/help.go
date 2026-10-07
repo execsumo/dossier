@@ -51,8 +51,10 @@ func modalHelpBindings(v View) []bubbleskey.Binding {
 		return withBack(tuiHelpKey("tab", "next field"), tuiHelpKey("↑/↓", "change option"), tuiHelpKey("space", "toggle interface"), tuiHelpKey("enter", "save"))
 	case ViewArtifactIndex:
 		return withBack(tuiHelpKey("enter", "view artifact"))
+	case ViewLinkAdd:
+		return withBack(tuiHelpKey("tab", "next field"), tuiHelpKey("enter", "save"))
 	case ViewLinks:
-		return withBack(tuiHelpKey("enter", "open link"))
+		return withBack(tuiHelpKey("enter", "open link"), tuiHelpKey("a", "add"))
 	case ViewContracts, ViewHealth:
 		return withBack(tuiHelpKey("↑/↓", "scroll"))
 	case ViewConflicts:
@@ -72,14 +74,12 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 
 	common := []bubbleskey.Binding{
 		tuiHelpKey("q", "quit"),
-		tuiHelpKey("ctrl+r", "refresh"),
 		tuiHelpKey("?", "more help"),
 	}
 	// The health report is occasional, so it appears only in the extended help.
 	fullCommon := []bubbleskey.Binding{
 		tuiHelpKey("q", "quit"),
-		tuiHelpKey("ctrl+r", "refresh"),
-		tuiHelpKey("H", "health"),
+		tuiHelpKey("h", "health"),
 		tuiHelpKey("?", "more help"),
 	}
 
@@ -90,7 +90,7 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 		contextual = []bubbleskey.Binding{
 			tuiHelpKey("/", "search"), tuiHelpKey("f", "filters"),
 			tuiHelpKey("v", "view"),
-			tuiHelpKey("e", "edit"), tuiHelpKey("k", "add link"),
+			tuiHelpKey("e", "edit"), tuiHelpKey("k", "attach content"),
 			tuiHelpKey("l", "links"), tuiHelpKey("m", "merge"), tuiHelpKey("c", "open agent"),
 		}
 		shortContextual = []bubbleskey.Binding{
@@ -111,7 +111,7 @@ func (m Model) helpKeyMap(v View) help.KeyMap {
 		contextual = []bubbleskey.Binding{
 			tuiHelpKey("e", "edit"), tuiHelpKey("r", "rename"),
 			tuiHelpKey("a", "artifacts"), tuiHelpKey("d", "delegation terms"), tuiHelpKey("l", "links"), tuiHelpKey("o", "open in editor"),
-			tuiHelpKey("k", "add link"), tuiHelpKey("c", "open agent"), tuiHelpKey("s", "raw state"), tuiHelpKey("v", "view"),
+			tuiHelpKey("k", "attach content"), tuiHelpKey("c", "open agent"), tuiHelpKey("s", "raw state"), tuiHelpKey("v", "view"),
 		}
 		shortContextual = []bubbleskey.Binding{
 			tuiHelpKey("l", "links"), tuiHelpKey("v", "view"),

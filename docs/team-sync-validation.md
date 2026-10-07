@@ -26,7 +26,7 @@
 | List / compare / resolve conflicts (MCP) | `dossier_conflicts` (optional `conflict_id`); `dossier_resolve_conflict` (`conflict_id`, `choice`) |
 | Resolve conflicts (TUI) | `x` opens the conflicts overlay (side by side; `d` diff); `1`/`2`/`3` choose |
 | Health line | `Health:` first line of `dossier doctor` and `dossier sync --status`; TUI footer |
-| Full report key (TUI) | `H` |
+| Full report key (TUI) | `h` |
 | Raw promote transcript | `artifacts/art_<n>_raw.*`, gitignored as `*/artifacts/*_raw.*` |
 
 ## Run log

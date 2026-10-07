@@ -21,6 +21,19 @@ type Config struct {
 	Leads       []string
 	TokenLimit  int
 	TeamRemote  string
+	// Version is the running binary's version, stamped on session_ended and
+	// session_eval audit events so outcomes can be compared by release.
+	Version string
+	// Eval configures automatic session evals (ADR 0016).
+	Eval EvalConfig
+}
+
+// EvalConfig is the knob for automatic session evals. They spend model
+// inference, so they can be switched off.
+type EvalConfig struct {
+	Enabled bool
+	// Model is passed to the evaluator for every call (e.g. "haiku").
+	Model string
 }
 
 // Service orchestrates Dossier domain use-cases over the port interfaces.
@@ -41,6 +54,7 @@ type Service struct {
 	cfg    Config
 	syncer Syncer
 	repos  RepoLocator
+	eval   Evaluator
 }
 
 // RecallResult carries the output fields for dossier recall queries.

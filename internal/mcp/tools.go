@@ -287,6 +287,15 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 			},
 		},
 		{
+			Name:        "dossier_stats",
+			Description: "Everyday-use session outcomes by Dossier version and guide hash: sessions, share with an unsaved boundary, saves per session, and automatic session-eval scores by probe kind. Use when asked how Dossier is performing across versions.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+				"all_authors": map[string]any{"type": "boolean", "description": "Include every author's sessions (default: only yours)."},
+				"author":      map[string]any{"type": "string", "description": "Limit to one author."},
+				"since":       map[string]any{"type": "string", "description": "Only sessions ended on or after this date (YYYY-MM-DD)."},
+			}},
+		},
+		{
 			Name:        "dossier_changes",
 			Description: "List changes since an RFC3339 timestamp, derived from Dossier audit logs.",
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"since": map[string]any{"type": "string", "description": "RFC3339 timestamp; changes strictly after this time are returned."}}, "required": []string{"since"}},
@@ -464,6 +473,30 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 		}
 		res, err = s.svc.MonitorPolled(ctx, core.MonitorPolledReq{Actor: s.actor(), ID: params.ID, URL: params.URL, Date: params.Date})
 
+	case "dossier_stats":
+		var params struct {
+			AllAuthors bool   `json:"all_authors"`
+			Author     string `json:"author"`
+			Since      string `json:"since"`
+		}
+		if len(args) > 0 {
+			if err := json.Unmarshal(args, &params); err != nil {
+				s.sendError(id, -32602, "Invalid stats arguments", nil)
+				return
+			}
+		}
+		req := core.StatsReq{AllAuthors: params.AllAuthors, Author: params.Author}
+		if params.Since != "" {
+			since, perr := time.Parse("2006-01-02", params.Since)
+			if perr != nil {
+				s.sendError(id, -32602, "since must be YYYY-MM-DD", nil)
+				return
+			}
+			req.Since = since
+		}
+		res.Data, err = s.svc.Stats(req)
+		res.OK = err == nil
+
 	case "dossier_changes":
 		var params struct {
 			Since string `json:"since"`
@@ -478,6 +511,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			return
 		}
 		res.Data, err = s.svc.Changes(ctx, since)
+		res.OK = err == nil
 
 	case "dossier_list":
 		var params struct {
@@ -602,8 +636,13 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 			arts = append(arts, artItem)
 		}
 
+		// Attribute the save to the calling session when one resolves, so
+		// per-session save counts can be derived (ADR 0016). No session is
+		// fine: the save itself does not depend on it.
+		saveSession, _, _ := harness.ResolveSession("", false)
 		res, err = s.svc.Save(ctx, core.SaveReq{
 			Actor:                  s.actor(),
+			SessionID:              saveSession,
 			ID:                     params.ID,
 			BaseRevision:           params.BaseRevision,
 			DistilledStateMarkdown: params.DistilledStateMarkdown,
@@ -712,9 +751,27 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 					}
 				}
 
+				// Sessions that ended without saving the Distilled State. Carried
+				// in a dedicated field (the Active path drops Recall's warnings),
+				// and removed from warnings so the two never both say it.
+				var unsavedNotice string
+				if recData, ok := res.Data.(core.RecallResult); ok {
+					unsavedNotice = s.svc.UnsavedSessionsNotice(recData.Frontmatter.ID, recData.Frontmatter.Name)
+				}
+				if unsavedNotice != "" {
+					kept := res.Warnings[:0]
+					for _, w := range res.Warnings {
+						if string(w) != unsavedNotice {
+							kept = append(kept, w)
+						}
+					}
+					res.Warnings = kept
+				}
+
 				username, displayName := s.svc.CurrentUser()
 				type SessionResponse struct {
 					State                 interface{}       `json:"state"`
+					UnsavedSessions       string            `json:"unsaved_sessions,omitempty"`
 					CurrentUser           map[string]string `json:"current_user"`
 					Guide                 string            `json:"distillation_guide,omitempty"`
 					GuideRef              string            `json:"distillation_guide_ref,omitempty"`
@@ -738,6 +795,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 				}
 				resp := SessionResponse{
 					State:                 res.Data,
+					UnsavedSessions:       unsavedNotice,
 					CurrentUser:           map[string]string{"username": username, "display_name": displayName},
 					Guide:                 guide,
 					OperatingInstructions: s.svc.GetInstructions(),

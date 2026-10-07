@@ -145,7 +145,7 @@ Nothing is lost; there are **never merge markers** in the store.
 
 - `dossier sync --status` — read-only: health line, last successful pull/push, last error, auth state, unpushed commits, diverged remote, unresolved conflicts.
 - `dossier doctor` — store integrity, unresolved conflicts, provenance references, and harness/capability status.
-- TUI footer — a glanceable status line on the dashboard and detail views, e.g. `Team sync · synced 2m ago · 1 conflict`, or `Team sync · last sync failed 18m ago · work is safe locally`. It is checked in the background when the TUI starts, when the store changes (at most once a minute), and every minute. It never blocks the TUI, even offline. `H` opens the full `doctor` report. The line is the same as the `Health:` line of `dossier doctor` and `dossier sync --status`. The footer replaces the daily `doctor` run.
+- TUI footer — a glanceable status line on the dashboard and detail views, e.g. `Team sync · synced 2m ago · 1 conflict`, or `Team sync · last sync failed 18m ago · work is safe locally`. It is checked in the background when the TUI starts, when the store changes (at most once a minute), and every minute. It never blocks the TUI, even offline. `h` opens the full `doctor` report. The line is the same as the `Health:` line of `dossier doctor` and `dossier sync --status`. The footer replaces the daily `doctor` run.
 
 *Sources: `SPEC.md` §7.2; `docs/team-sync-plan.md` Phase 3 §4 (Surfacing).*
 

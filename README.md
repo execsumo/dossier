@@ -127,6 +127,23 @@ Each Dossier is a folder under `~/.dossier/<slug>/`, moved to `~/.dossier/archiv
 
 One Go binary runs the CLI, the MCP server, the hooks, and the TUI. They all share one core, so they behave identically.
 
+### Measuring resumption quality
+
+Every session that ends records which Dossier version and which guide it ran under. `dossier stats` shows, by version:
+- how many sessions there were;
+- how many hit a compaction or end with nothing saved;
+- saves per session;
+- automatic eval scores.
+
+An automatic eval runs in the background after each saved session. It turns the session's transcript into questions, has a fresh agent answer them from the Distilled State alone, and records how many it got right (three small-model calls; turn them off with `eval.enabled: false`). Your coding agent can also ask for the same report through the `dossier_stats` tool.
+
+```bash
+dossier stats                    # your sessions, newest version first
+dossier stats --all-authors --since 2026-10-01
+```
+
+For controlled A/B comparisons of guide versions on fixed cases, see [`tools/resumeeval`](tools/resumeeval/README.md). That README covers collecting cases from your own sessions, writing probes, and running a comparison.
+
 ## Configuration
 
 Settings live in `~/.dossier/config.yaml` (machine-local, never synced):
@@ -136,6 +153,9 @@ open_with: claude-code   # claude-code, cursor, codex, or antigravity
 interfaces: [Pricing WBR, "1:1", Steerco]
 leads: [Alice, Bob]
 token_limit: 100000
+eval:                    # automatic session evals (3 model calls per saved session)
+  enabled: true          # on by default; false keeps stats but stops evals
+  model: haiku
 ```
 
 ## Uninstall

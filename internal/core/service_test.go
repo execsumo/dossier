@@ -1391,6 +1391,9 @@ func TestSessionStartResendsGuideAfterCompaction(t *testing.T) {
 	if !strings.Contains(first, "GUIDE BODY") {
 		t.Fatalf("a bound session start must carry the Guide ahead of any tool call")
 	}
+	if !strings.Contains(first, "INSTRUCTIONS BODY") {
+		t.Fatalf("a bound session start must carry the Operating Instructions alongside the Guide")
+	}
 
 	// The MCP bind that follows recognises it as already delivered.
 	if got := svc.GuideForSession("sess_compact"); got != "" {
@@ -1405,6 +1408,9 @@ func TestSessionStartResendsGuideAfterCompaction(t *testing.T) {
 	}
 	if !strings.Contains(second, "GUIDE BODY") {
 		t.Fatalf("the session start after compaction must resend the Guide")
+	}
+	if !strings.Contains(second, "INSTRUCTIONS BODY") {
+		t.Fatalf("the session start after compaction must resend the Operating Instructions")
 	}
 }
 

@@ -554,6 +554,9 @@ func (s *Service) save(ctx context.Context, req SaveReq) (Result, string, error)
 		AfterRevision:  string(newRev),
 		ArtifactsAdded: addedArtifactIDs,
 		TokenEstimate:  s.tok.Estimate(d.DistilledState.Body),
+		// The caller's real session (not the default bucket) attributes the
+		// save, so per-session save counts can be derived (ADR 0016).
+		SessionID: req.SessionID,
 	}
 	if isNew {
 		event.Event = AuditEventCreate
@@ -956,6 +959,11 @@ func (s *Service) Recall(ctx context.Context, req RecallReq) (Result, error) {
 
 	index, indexWarnings := s.evidenceIndex(d.Frontmatter.ID, d.DistilledState.Body, !req.HumanView)
 	warnings = append(warnings, indexWarnings...)
+	if !req.HumanView {
+		if msg := s.UnsavedSessionsNotice(d.Frontmatter.ID, d.Frontmatter.Name); msg != "" {
+			warnings = append(warnings, Warning(msg))
+		}
+	}
 	externalLinks := ParseExternalLinks(d.DistilledState.Body)
 
 	var files []WorkingFile

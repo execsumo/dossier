@@ -96,7 +96,7 @@ func (m Model) healthFooterLine() string {
 	}
 	line := m.healthSummary.Line(time.Now())
 	if m.healthSummary.Issues > 0 || m.healthSummary.Conflicts > 0 {
-		line += " · H for details"
+		line += " · h for details"
 	}
 	return line
 }

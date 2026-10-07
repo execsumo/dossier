@@ -332,6 +332,16 @@ func (s *Service) SessionStartMode(ctx context.Context, sessionID string, lean b
 			sb.WriteString(guide)
 			sb.WriteString("\n")
 		}
+		// The Operating Instructions travel with the Guide. They are where the
+		// load-bearing protocol rules live (eager saves: the boundary hooks
+		// cannot distill), and a session resumed after /clear or compaction
+		// must have them before it acts, not only after it next calls
+		// dossier_session.
+		if instructions := s.GetInstructions(); instructions != "" {
+			sb.WriteString("\nOperating Instructions:\n")
+			sb.WriteString(instructions)
+			sb.WriteString("\n")
+		}
 
 		recallRes, err := s.Recall(ctx, RecallReq{ID: activeDossierID})
 		if err == nil {
@@ -350,6 +360,9 @@ func (s *Service) SessionStartMode(ctx context.Context, sessionID string, lean b
 			sb.WriteString("Distilled State:\n")
 			sb.WriteString(recData.DistilledState)
 			sb.WriteString("\n")
+			if notice := s.UnsavedSessionsNotice(activeDossierID, recData.Frontmatter.Name); notice != "" {
+				sb.WriteString("\n" + notice + "\n")
+			}
 		}
 	}
 
@@ -366,7 +379,7 @@ func (s *Service) GetGuide() string {
 
 // GuideForSession returns the Distillation Guide the first time it is requested
 // within a session and "" on every request after that, so the session-start hook
-// and the dossier_session response stop spending the same ~3.5k tokens twice on
+// and the dossier_session response stop spending the same ~5k tokens twice on
 // a resumed or post-compaction session.
 //
 // Suppression is deliberately biased toward delivering: an unknown session, an

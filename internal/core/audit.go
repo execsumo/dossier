@@ -15,6 +15,31 @@ type AuditEvent struct {
 	ArtifactsAdded []string  `json:"artifacts_added,omitempty"`
 	TokenEstimate  int       `json:"token_estimate,omitempty"`
 	Message        string    `json:"message,omitempty"`
+	// Version and GuideHash identify the binary and the Distillation Guide +
+	// Operating Instructions in force. Set on session_ended and session_eval.
+	Version   string       `json:"version,omitempty"`
+	GuideHash string       `json:"guide_hash,omitempty"`
+	Eval      *EvalSummary `json:"eval,omitempty"`
+}
+
+// EvalSummary is the synced outcome of one automatic session eval. Probe
+// text, answers and judge reasons stay machine-local; only counts sync.
+type EvalSummary struct {
+	Model    string                   `json:"model,omitempty"`
+	Revision string                   `json:"revision,omitempty"`
+	Probes   int                      `json:"probes"`
+	Passed   int                      `json:"passed"`
+	ByKind   map[string]EvalKindScore `json:"by_kind,omitempty"`
+	CostUSD  float64                  `json:"cost_usd,omitempty"`
+	// Skipped names why no score was produced (too large, no transcript,
+	// evaluator failure). A skipped eval is recorded, never dropped.
+	Skipped string `json:"skipped,omitempty"`
+}
+
+// EvalKindScore counts probes of one kind.
+type EvalKindScore struct {
+	Probes int `json:"probes"`
+	Passed int `json:"passed"`
 }
 
 // Allowed audit event type constants
@@ -38,4 +63,6 @@ const (
 	AuditEventTranscriptCaptureUnavailable = "transcript_capture_unavailable"
 	AuditEventInstallWarning               = "install_warning"
 	AuditEventDistilledStateNotCaptured    = "distilled_state_not_captured"
+	AuditEventSessionEnded                 = "session_ended"
+	AuditEventSessionEval                  = "session_eval"
 )
