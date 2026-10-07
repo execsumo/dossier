@@ -1,0 +1,53 @@
+- id: lock-timeout
+  kind: value
+  question: What lock timeout is configured for the batch claim?
+  expect: 500ms
+  match: verbatim
+
+- id: batch-size
+  kind: correction
+  question: What is the batch size, and what was the old value?
+  expect: Batch size is 200, replacing the old value of 500.
+  match: judge
+
+- id: batch-size-value
+  kind: value
+  question: What batch size should config/batch.yaml contain?
+  expect: "200"
+  match: verbatim
+
+- id: merge-scope
+  kind: decision
+  question: May you merge to main without asking the user?
+  expect: Only for diffs under 50 lines with green CI; otherwise (larger diffs, migrations) it needs the user's review.
+  match: judge
+
+- id: redis-lock
+  kind: rejected
+  question: Should we try a Redis lock for the batch claim?
+  expect: No. Redis was rejected because it adds about 40ms p99 latency per claim.
+  match: judge
+
+- id: schema-assumption
+  kind: assumption
+  question: What unverified assumption does the backfill depend on, and who must confirm it?
+  expect: Staging schema is assumed to match production at version 14; Priya must confirm.
+  match: judge
+
+- id: prod-backfill
+  kind: decision
+  question: Can the backfill be run on prod now?
+  expect: No. It is blocked until Priya confirms schema parity.
+  match: judge
+
+- id: pr-number
+  kind: state
+  question: Which pull request was merged for this fix?
+  expect: "#212"
+  match: verbatim
+
+- id: next-step
+  kind: state
+  question: What is the next action, and where does migration 0042 stand?
+  expect: Next is running the backfill on staging and verifying duplicates drop to 0. Migration 0042 is applied on staging only, pending on prod.
+  match: judge

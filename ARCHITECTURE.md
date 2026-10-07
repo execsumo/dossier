@@ -64,6 +64,7 @@ dossier/
       service_dossier.go # Save/Rename/Link/Merge/Recall/artifacts/List/Search
       service_promote.go # duplicate-safe promotion + transcript capture
       service_session.go # context, binding, guide delivery, lifecycle
+      unsaved_sessions.go # derived unsaved-session recovery queue + the one notice formatter
       service_harness.go # capability reporting + integration installation
       service_team.go    # TeamCreate (preview + confirmed)/Join and Sync/SyncStatus; sync_auth_failed mapping
       service_conflict.go # ListConflicts/ConflictDetail/ResolveConflict (keep_shared|restore_mine|keep_both → conflicts/resolved/)
@@ -106,6 +107,7 @@ dossier/
                          #     saved as a single Save of only the changed fields
                          #   help.go — the '?' key reference; footers advertise verbs, it holds the rest
   assets/                # go:embed — Distillation Guide, context templates, installables
+  tools/resumeeval/      # dev-only A/B eval of Distillation Guide resumption fidelity (not in the binary; see its README)
     guide.md
     library.tmpl.md
     dossier-delegate-skill.md  # installed into Claude Code's skills dir
