@@ -114,6 +114,16 @@ func (s *Service) Export(ctx context.Context, req ExportReq) (Result, error) {
 			})
 			continue
 		}
+		// The listing decided inclusion; re-check what was actually read. A
+		// second artifact file claiming another's ID must not smuggle a
+		// transcript (or anything else) out under a snapshot's listing.
+		if full.ID != it.art.ID || full.Type == ArtifactTypeTranscript || full.Type != it.art.Type {
+			excluded = append(excluded, ExportExclusion{
+				Kind: ExportExcludedUnreadable, ID: it.art.ID, Title: it.art.Title,
+				Reason: "its stored ID or type does not match the evidence index; run dossier doctor",
+			})
+			continue
+		}
 		heading := "### " + oneLine(full.Title)
 		if len(it.superseded) > 0 {
 			heading += " (supersedes " + strings.Join(it.superseded, ", ") + ")"
@@ -162,11 +172,11 @@ func (s *Service) Export(ctx context.Context, req ExportReq) (Result, error) {
 			})
 			continue
 		}
-		meta := []string{"Path: " + f.Path, "Type: working file"}
+		meta := []string{"Path: " + oneLine(f.Path), "Type: working file"}
 		if !f.Modified.IsZero() {
 			meta = append(meta, "Modified: "+f.Modified.Format(exportDateLayout))
 		}
-		chunk := exportItemText("### "+f.Path, strings.Join(meta, " · "), string(data))
+		chunk := exportItemText("### "+oneLine(f.Path), strings.Join(meta, " · "), string(data))
 		support.WriteString(chunk)
 		sections = append(sections, exportSection{label: f.Path, text: chunk})
 		fileIDs = append(fileIDs, f.Path)
@@ -235,7 +245,8 @@ func (s *Service) Export(ctx context.Context, req ExportReq) (Result, error) {
 	markdown := doc.String()
 
 	// Warnings. None rewrites or trims content.
-	scan := append([]exportSection{{label: "the Distilled State", text: body}}, sections...)
+	header := "# " + oneLine(fm.Name) + "\n" + strings.Join(headerParts, " · ")
+	scan := append([]exportSection{{label: "the header", text: header}, {label: "the Distilled State", text: body}}, sections...)
 	scan = append(scan, exportSection{label: "Not included", text: notIncluded.String()})
 	warnings = append(warnings, localPathWarnings(scan)...)
 
@@ -354,7 +365,12 @@ func exportArtifactOrder(body string, artifacts []Artifact) (included []exportAr
 			transcripts = append(transcripts, art)
 			continue
 		}
-		key := string(art.Type) + "\x00" + art.Title + "\x00" + art.Provenance.URL
+		// Only snapshots supersede one another; two decision records that happen
+		// to share a title are distinct evidence.
+		key := "id\x00" + art.ID
+		if art.Type == ArtifactTypeSourceSnapshot || art.Type == ArtifactTypeFileSnapshot {
+			key = string(art.Type) + "\x00" + art.Title + "\x00" + art.Provenance.URL
+		}
 		g, ok := groups[key]
 		if !ok {
 			g = &group{cite: -1}
@@ -459,14 +475,17 @@ func exportExclusionName(e ExportExclusion) string {
 }
 
 func exportExclusionLine(e ExportExclusion) string {
-	name := exportExclusionName(e)
+	// One physical line per entry, so a filename or error text cannot forge
+	// document structure.
+	name := oneLine(exportExclusionName(e))
+	reason := oneLine(e.Reason)
 	switch e.Kind {
 	case ExportExcludedTranscript:
-		return fmt.Sprintf("- %s: transcript. %s.", name, capitalize(e.Reason))
+		return fmt.Sprintf("- %s: transcript. %s.", name, capitalize(reason))
 	case ExportExcludedBinaryFile:
-		return fmt.Sprintf("- %s: binary file (%s), %s.", name, humanBytes(e.Size), e.Reason)
+		return fmt.Sprintf("- %s: binary file (%s), %s.", name, humanBytes(e.Size), reason)
 	}
-	return fmt.Sprintf("- %s: %s.", name, capitalize(e.Reason))
+	return fmt.Sprintf("- %s: %s.", name, capitalize(reason))
 }
 
 func capitalize(s string) string {
@@ -492,9 +511,10 @@ func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// localPathRE finds absolute paths under a home directory. The leading group
-// keeps it from matching the middle of a longer path or word.
-var localPathRE = regexp.MustCompile("(?m)(?:^|[\\s(\\[\"'`=:,])((?:/home/[^/\\s]+|/Users/[^/\\s]+|~)/[^\\s`\"'<>)\\]]*)")
+// localPathRE finds absolute paths under a home directory (Unix, macOS,
+// Windows), including inside file:// URLs. The leading group keeps it from
+// matching the middle of a longer path or word.
+var localPathRE = regexp.MustCompile("(?m)(?:^|[\\s(\\[\"'`=:,<]|file://)((?:/home/[^/\\s]+|/Users/[^/\\s]+|~)/[^\\s`\"'<>)\\]]*|[A-Za-z]:\\\\Users\\\\[^\\\\\\s]+\\\\[^\\s`\"'<>)\\]]*)")
 
 // localPathWarnings names each home-directory path once, with where it occurs.
 // The content is never changed: rewording a constraint is the owner's call.

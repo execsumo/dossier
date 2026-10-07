@@ -394,3 +394,19 @@ func TestIsTextContent(t *testing.T) {
 		})
 	}
 }
+
+func TestExportDoesNotDedupeNonSnapshots(t *testing.T) {
+	f := newExportFixture(t, "## Objective\nx\n", Config{}, []Artifact{
+		{ID: "art_d1", Type: ArtifactTypeDecisionEvidence, Title: "Approval", Content: "FIRST-DECISION\n"},
+		{ID: "art_d2", Type: ArtifactTypeDecisionEvidence, Title: "Approval", Content: "SECOND-DECISION\n"},
+	}, nil)
+	data, _ := f.export(t)
+	for _, want := range []string{"FIRST-DECISION", "SECOND-DECISION"} {
+		if !strings.Contains(data.Markdown, want) {
+			t.Errorf("distinct decision evidence sharing a title must both be exported; missing %s", want)
+		}
+	}
+	if strings.Contains(data.Markdown, "supersedes") {
+		t.Errorf("only snapshots supersede one another")
+	}
+}

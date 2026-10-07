@@ -923,6 +923,11 @@ func (s *FSStore) WriteArtifact(dossierID string, a *core.Artifact) error {
 
 // ReadArtifact retrieves an artifact from store.
 func (s *FSStore) ReadArtifact(dossierID string, artifactID string) (*core.Artifact, error) {
+	// Artifact IDs come from frontmatter; never let one address a file outside
+	// artifacts/ (e.g. a machine-local session stash).
+	if artifactID == "" || artifactID == "." || strings.ContainsAny(artifactID, `/\:`) || strings.Contains(artifactID, "..") {
+		return nil, core.NewError(core.ErrNotFound, fmt.Sprintf("artifact %q not found", artifactID))
+	}
 	dossierDir, err := s.findDossierDir(dossierID)
 	if err != nil {
 		return nil, err

@@ -304,17 +304,19 @@ func hasExportedEvent(events []core.AuditEvent) bool {
 
 func TestExportCLIRejectsPathsInsideStoreAndBadTargets(t *testing.T) {
 	e := newExportEnv(t, true)
-	link := filepath.Join(t.TempDir(), "link-to-store")
-	if err := os.Symlink(e.home, link); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
 	cases := map[string]string{
 		"store root file":       filepath.Join(e.home, "brief.md"),
 		"inside a dossier":      filepath.Join(e.dir, "files", "brief.md"),
 		"inside archive":        filepath.Join(e.home, "archive", "brief.md"),
 		"store root itself":     e.home,
-		"through a symlink":     filepath.Join(link, "brief.md"),
 		"dotdot into the store": filepath.Join(t.TempDir(), "..", filepath.Base(filepath.Dir(e.home)), "store", "x.md"),
+	}
+	// Symlinks need privileges on some Windows machines; skip only that case.
+	link := filepath.Join(t.TempDir(), "link-to-store")
+	if err := os.Symlink(e.home, link); err != nil {
+		t.Logf("symlinks unavailable, skipping the symlink case: %v", err)
+	} else {
+		cases["through a symlink"] = filepath.Join(link, "brief.md")
 	}
 	for name, target := range cases {
 		t.Run(name, func(t *testing.T) {

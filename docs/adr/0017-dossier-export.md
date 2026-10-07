@@ -51,11 +51,12 @@ and one fixed shape means the owner never has to make a packaging decision befor
 |---|---|
 | Artifacts of type `source_snapshot`, `file_snapshot`, `link`, `query`, `decision_evidence` | Included in full. |
 | Artifacts of type `transcript` | **Excluded**, listed under Not included. Raw sessions never leave. |
-| Superseded snapshots | Only the newest of each `(type, title, provenance.url)` group is included, by `refreshed_at` and then `captured_at`. Its heading lists the superseded IDs (`supersedes art_a, art_b`), so a citation of an older snapshot still resolves to the current version. |
+| Superseded snapshots (`source_snapshot`, `file_snapshot` only) | Only the newest of each `(type, title, provenance.url)` group is included, by `refreshed_at` and then `captured_at`. Its heading lists the superseded IDs (`supersedes art_a, art_b`), so a citation of an older snapshot still resolves to the current version. |
 | Text working files under `files/` | Included in full. This is where the formal write-up usually lives. |
 | Binary working files under `files/` (e.g. `.pptx`, `.pdf`, `.docx`) | Not inlined. Listed under Not included with path and size, plus a warning. Dossier stores no binaries natively (SPEC §4.3). |
 | `## Files` entries pointing outside the Dossier (repo paths, absolute paths) | Not resolved or inlined. Listed under Not included, plus a warning. |
 | `inbox/`, `history/`, `audit/`, `conflicts/`, session stashes, `config.yaml` | Never read for export. Not listed. |
+| An artifact whose stored ID or type does not match its evidence-index entry | Not inlined. Listed under Not included as a mismatch to check with `dossier doctor`. Artifact IDs that look like paths are never resolved, so no ID can reach a file outside `artifacts/`. |
 
 "Text" means valid UTF-8 with no NUL bytes in the first 8 KB. No such check exists yet; add it to
 core as a pure helper. Reading a working file's content needs a new `ReadWorkingFile` method on the
@@ -65,8 +66,9 @@ uncited artifacts by `captured_at`; then working files by path.
 ### 4. Guardrails: warn, never edit
 Warnings go in the result envelope (CLI stderr, MCP `warnings`). None of them blocks the export,
 and none rewrites content:
-- **Local paths.** Each absolute path under the user's home directory (`/home/<user>/`,
-  `/Users/<user>/`, `~/`) found in the output is named once, with where it occurs.
+- **Local paths.** Each absolute path under a home directory (`/home/<user>/`,
+  `/Users/<user>/`, `~/`, `C:\Users\<user>\`), including inside `file://` URLs and the header
+  line, is named once, with where it occurs.
   Paths are not rewritten: changing a constraint's wording is a decision for the owner.
 - **Unresolved conflicts** on this Dossier: the brief may not be settled.
 - **Size.** If the token estimate of the whole file exceeds `token_limit`, warn with the estimate.

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"dossier/internal/core"
@@ -125,10 +126,19 @@ func resolveTarget(o Options, data core.ExportResult, storeRoots []string) (stri
 	return path, nil
 }
 
+// caseInsensitiveFS reports whether the platform's default filesystem ignores
+// case. Erring towards rejection is safe: the guard only ever refuses a path.
+var caseInsensitiveFS = runtime.GOOS == "darwin" || runtime.GOOS == "windows"
+
 // insideDir reports whether path resolves to dir or somewhere beneath it,
 // following symlinks through the nearest existing ancestor.
 func insideDir(path, dir string) bool {
 	p, d := resolveExisting(path), resolveExisting(dir)
+	if caseInsensitiveFS {
+		// Default macOS (APFS) and Windows filesystems ignore case, so
+		// ~/.Dossier is the store too.
+		p, d = strings.ToLower(p), strings.ToLower(d)
+	}
 	rel, err := filepath.Rel(d, p)
 	if err != nil {
 		return false
