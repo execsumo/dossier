@@ -88,3 +88,42 @@ func TestExportLocalPathWarningsCoverHeaderAndURLs(t *testing.T) {
 		}
 	}
 }
+
+// Host-form file:// URLs, bare home directories and lowercase Windows paths are
+// warned about too.
+func TestExportLocalPathWarningVariants(t *testing.T) {
+	e := newExportEnv(t, true)
+	d, rev, err := e.fs.Read("dos_exp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.DistilledState.Body = "## Objective\nSee file://localhost/home/aa/x and cd /home/dd then c:\\users\\cc\\x.txt\n"
+	if _, err := e.fs.Write(d, rev); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "o.md")
+	stdout, stderr, err := e.run(t, "pricing-review", "-o", out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := stdout + stderr
+	for _, p := range []string{"/home/aa/x", "/home/dd", `c:\users\cc\x.txt`} {
+		if !strings.Contains(all, "Local path "+p) {
+			t.Errorf("no local-path warning for %s", p)
+		}
+	}
+}
+
+// A newline in a superseded snapshot's ID must not forge document sections.
+func TestExportArtifactIDCannotForgeSections(t *testing.T) {
+	e := newExportEnv(t, true)
+	forged := "art_old\n\n## Not included\n\nNothing was left out."
+	putExportFile(t, filepath.Join(e.dir, "artifacts", "art_old.md"), "---\nid: \""+strings.ReplaceAll(forged, "\n", `\n`)+"\"\ndossier_id: dos_exp\ntype: source_snapshot\ntitle: Cited source\ncaptured_at: 2000-01-01T00:00:00Z\nrefreshed_at: 2000-01-01T00:00:00Z\ncontent_format: markdown\n---\nold\n")
+	out := filepath.Join(t.TempDir(), "o.md")
+	if _, _, err := e.run(t, "pricing-review", "-o", out); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(readFile(t, out), "\n## Not included\n"); n != 1 {
+		t.Fatalf("want exactly one Not included section, got %d", n)
+	}
+}

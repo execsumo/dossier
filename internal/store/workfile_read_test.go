@@ -102,3 +102,38 @@ func TestFSStoreReadWorkingFile(t *testing.T) {
 		t.Fatal("unknown dossier must error")
 	}
 }
+
+// Artifact IDs come from frontmatter, so ReadArtifact must never treat one as a
+// path out of artifacts/.
+func TestFSStoreReadArtifactRejectsPathLikeIDs(t *testing.T) {
+	home := t.TempDir()
+	st := NewFSStore(home)
+	if err := st.Init(); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Truncate(time.Second)
+	d := &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID: "dos_ra", Name: "Read Artifacts", Slug: "read-artifacts",
+			CreatedAt: now, UpdatedAt: now, Status: core.StatusActive, Priority: core.PriorityHigh,
+		},
+		DistilledState: core.DistilledState{Body: "# Read artifacts"},
+	}
+	if _, err := st.Write(d, ""); err != nil {
+		t.Fatal(err)
+	}
+	stash := filepath.Join(home, "read-artifacts", "sessions", "alice", "sess1.md")
+	if err := os.MkdirAll(filepath.Dir(stash), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stash, []byte("---\nid: x\n---\nSTASH\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"", ".", "../sessions/alice/sess1", `..\sessions\alice\sess1`, "a/b", "C:x", "art_..x"} {
+		_, err := st.ReadArtifact("dos_ra", id)
+		var de *core.DomainError
+		if !errors.As(err, &de) || de.Code != core.ErrNotFound {
+			t.Errorf("ReadArtifact(%q): want not_found, got %v", id, err)
+		}
+	}
+}

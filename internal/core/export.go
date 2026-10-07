@@ -120,15 +120,15 @@ func (s *Service) Export(ctx context.Context, req ExportReq) (Result, error) {
 		if full.ID != it.art.ID || full.Type == ArtifactTypeTranscript || full.Type != it.art.Type {
 			excluded = append(excluded, ExportExclusion{
 				Kind: ExportExcludedUnreadable, ID: it.art.ID, Title: it.art.Title,
-				Reason: "its stored ID or type does not match the evidence index; run dossier doctor",
+				Reason: "its stored ID or type does not match the evidence index (likely a duplicate artifact ID); inspect artifacts/",
 			})
 			continue
 		}
 		heading := "### " + oneLine(full.Title)
 		if len(it.superseded) > 0 {
-			heading += " (supersedes " + strings.Join(it.superseded, ", ") + ")"
+			heading += " (supersedes " + oneLine(strings.Join(it.superseded, ", ")) + ")"
 		}
-		meta := []string{"ID: " + full.ID, "Type: " + string(full.Type), "Captured: " + full.CapturedAt.Format(exportDateLayout)}
+		meta := []string{"ID: " + oneLine(full.ID), "Type: " + string(full.Type), "Captured: " + full.CapturedAt.Format(exportDateLayout)}
 		if !full.RefreshedAt.IsZero() && !full.RefreshedAt.Equal(full.CapturedAt) {
 			meta = append(meta, "Refreshed: "+full.RefreshedAt.Format(exportDateLayout))
 		}
@@ -514,7 +514,7 @@ func oneLine(s string) string {
 // localPathRE finds absolute paths under a home directory (Unix, macOS,
 // Windows), including inside file:// URLs. The leading group keeps it from
 // matching the middle of a longer path or word.
-var localPathRE = regexp.MustCompile("(?m)(?:^|[\\s(\\[\"'`=:,<]|file://)((?:/home/[^/\\s]+|/Users/[^/\\s]+|~)/[^\\s`\"'<>)\\]]*|[A-Za-z]:\\\\Users\\\\[^\\\\\\s]+\\\\[^\\s`\"'<>)\\]]*)")
+var localPathRE = regexp.MustCompile("(?m)(?:^|[\\s(\\[\"'`=:,<]|file://[^/\\s]*)((?:/home/[^/\\s`\"'<>)\\]]+|/Users/[^/\\s`\"'<>)\\]]+)(?:/[^\\s`\"'<>)\\]]*)?|~/[^\\s`\"'<>)\\]]*|(?i:[a-z]:\\\\users\\\\)[^\\\\\\s]+(?:\\\\[^\\s`\"'<>)\\]]*)?)")
 
 // localPathWarnings names each home-directory path once, with where it occurs.
 // The content is never changed: rewording a constraint is the owner's call.
