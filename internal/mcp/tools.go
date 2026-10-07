@@ -293,6 +293,7 @@ func getToolDefinitions(configured ...[]string) []ToolDefinition {
 				"all_authors": map[string]any{"type": "boolean", "description": "Include every author's sessions (default: only yours)."},
 				"author":      map[string]any{"type": "string", "description": "Limit to one author."},
 				"since":       map[string]any{"type": "string", "description": "Only sessions ended on or after this date (YYYY-MM-DD)."},
+				"by":          map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"version", "guide", "model", "effort", "eval"}}, "description": "Group rows by these dimensions (default version, guide). model/effort are the session's model and reasoning effort (the user's choice); eval is the evaluator's model/effort. Use model+effort to separate model effects from Dossier's."},
 			}},
 		},
 		{
@@ -475,9 +476,10 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 
 	case "dossier_stats":
 		var params struct {
-			AllAuthors bool   `json:"all_authors"`
-			Author     string `json:"author"`
-			Since      string `json:"since"`
+			AllAuthors bool     `json:"all_authors"`
+			Author     string   `json:"author"`
+			Since      string   `json:"since"`
+			By         []string `json:"by"`
 		}
 		if len(args) > 0 {
 			if err := json.Unmarshal(args, &params); err != nil {
@@ -485,7 +487,7 @@ func (s *Server) handleToolCall(ctx context.Context, id any, name string, args j
 				return
 			}
 		}
-		req := core.StatsReq{AllAuthors: params.AllAuthors, Author: params.Author}
+		req := core.StatsReq{AllAuthors: params.AllAuthors, Author: params.Author, By: params.By}
 		if params.Since != "" {
 			since, perr := time.Parse("2006-01-02", params.Since)
 			if perr != nil {

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -14,14 +15,39 @@ type StatsReq struct {
 	AllAuthors bool
 	// Since drops sessions that ended before it. Zero means no limit.
 	Since time.Time
+	// By lists the dimensions rows are grouped by, from StatsDimensions.
+	// Empty means version and guide.
+	By []string
 }
+
+// Stats grouping dimensions. version/guide are what Dossier controls; model
+// and effort are the session's (the user's choice); eval is the evaluator's
+// own model/effort, which also moves the score.
+const (
+	StatsByVersion = "version"
+	StatsByGuide   = "guide"
+	StatsByModel   = "model"
+	StatsByEffort  = "effort"
+	StatsByEval    = "eval"
+)
+
+// StatsDimensions are the valid StatsReq.By values.
+var StatsDimensions = []string{StatsByVersion, StatsByGuide, StatsByModel, StatsByEffort, StatsByEval}
+
+// DefaultStatsBy is the grouping when none is asked for.
+var DefaultStatsBy = []string{StatsByVersion, StatsByGuide}
 
 // StatsRow aggregates the sessions that ran one binary version with one
 // guide hash. Sessions are counted from session_ended events, so sessions
 // that ended before version stamping existed are not included.
 type StatsRow struct {
-	Version   string    `json:"version"`
-	GuideHash string    `json:"guide_hash"`
+	// Only the dimensions grouped by are set; the rest are empty.
+	Version       string `json:"version,omitempty"`
+	GuideHash     string `json:"guide_hash,omitempty"`
+	SessionModel  string `json:"session_model,omitempty"`
+	SessionEffort string `json:"session_effort,omitempty"`
+	// EvalSetup is the evaluator's "model/effort" for the session's eval.
+	EvalSetup string    `json:"eval_setup,omitempty"`
 	First     time.Time `json:"first"`
 	Last      time.Time `json:"last"`
 	Sessions  int       `json:"sessions"`
@@ -45,6 +71,7 @@ type StatsRow struct {
 
 // StatsReport is per-version session outcomes, newest version first.
 type StatsReport struct {
+	By         []string   `json:"by"`
 	Author     string     `json:"author,omitempty"`
 	AllAuthors bool       `json:"all_authors,omitempty"`
 	Rows       []StatsRow `json:"rows"`
@@ -66,7 +93,11 @@ func (s *Service) Stats(req StatsReq) (StatsReport, error) {
 	if author == "" && !req.AllAuthors {
 		author = s.cfg.Author
 	}
-	report := StatsReport{Author: author, AllAuthors: req.AllAuthors}
+	by, err := normalizeStatsBy(req.By)
+	if err != nil {
+		return StatsReport{}, err
+	}
+	report := StatsReport{By: by, Author: author, AllAuthors: req.AllAuthors}
 
 	listed, err := s.store.List("all")
 	if err != nil {
@@ -126,10 +157,28 @@ func (s *Service) Stats(req StatsReq) (StatsReport, error) {
 	var keys []string
 	for _, key := range order {
 		ss := sessions[key]
-		rk := ss.ended.Version + "\x00" + ss.ended.GuideHash
-		row := rows[rk]
-		if row == nil {
-			row = &StatsRow{Version: ss.ended.Version, GuideHash: ss.ended.GuideHash}
+		dims := ss.dimensions()
+		var row *StatsRow
+		var keyParts []string
+		probe := StatsRow{}
+		for _, d := range by {
+			keyParts = append(keyParts, dims[d])
+			switch d {
+			case StatsByVersion:
+				probe.Version = dims[d]
+			case StatsByGuide:
+				probe.GuideHash = dims[d]
+			case StatsByModel:
+				probe.SessionModel = dims[d]
+			case StatsByEffort:
+				probe.SessionEffort = dims[d]
+			case StatsByEval:
+				probe.EvalSetup = dims[d]
+			}
+		}
+		rk := strings.Join(keyParts, "\x00")
+		if row = rows[rk]; row == nil {
+			row = &probe
 			rows[rk] = row
 			keys = append(keys, rk)
 		}
@@ -185,4 +234,50 @@ func skipReasonClass(reason string) string {
 		return strings.TrimSpace(reason[:i])
 	}
 	return reason
+}
+
+// dimensions returns this session's value for every StatsDimensions entry.
+func (ss *statsSession) dimensions() map[string]string {
+	evalSetup := ""
+	if ss.eval != nil && ss.eval.Model != "" {
+		evalSetup = ss.eval.Model
+		if ss.eval.Effort != "" {
+			evalSetup += "/" + ss.eval.Effort
+		}
+	}
+	return map[string]string{
+		StatsByVersion: ss.ended.Version,
+		StatsByGuide:   ss.ended.GuideHash,
+		StatsByModel:   ss.ended.SessionModel,
+		StatsByEffort:  ss.ended.SessionEffort,
+		StatsByEval:    evalSetup,
+	}
+}
+
+// normalizeStatsBy validates and de-duplicates the grouping dimensions.
+func normalizeStatsBy(by []string) ([]string, error) {
+	if len(by) == 0 {
+		return append([]string{}, DefaultStatsBy...), nil
+	}
+	valid := map[string]bool{}
+	for _, d := range StatsDimensions {
+		valid[d] = true
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, d := range by {
+		d = strings.ToLower(strings.TrimSpace(d))
+		if d == "" || seen[d] {
+			continue
+		}
+		if !valid[d] {
+			return nil, NewError(ErrInvalidFrontmatter, fmt.Sprintf("unknown stats dimension %q (valid: %s)", d, strings.Join(StatsDimensions, ", ")))
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	if len(out) == 0 {
+		return append([]string{}, DefaultStatsBy...), nil
+	}
+	return out, nil
 }

@@ -26,6 +26,10 @@ type EvalConfig struct {
 	Enabled *bool `yaml:"enabled,omitempty"`
 	// Model is passed to the evaluator for every call.
 	Model string `yaml:"model,omitempty"`
+	// Effort is the reasoning effort for every eval call (low, medium, high,
+	// xhigh, max). Empty uses the model's default. Models without effort
+	// support (Haiku) ignore it.
+	Effort string `yaml:"effort,omitempty"`
 }
 
 // DefaultEvalModel is the model automatic evals use unless configured.
@@ -179,6 +183,7 @@ const defaultConfigHelp = `# Dossier configuration. Edit the lists below as need
 #   eval:
 #     enabled: false
 #     model: haiku
+#     effort: medium   # low|medium|high|xhigh|max; Haiku ignores effort
 `
 
 // Save marshals and writes the configuration to a YAML file.
@@ -212,6 +217,15 @@ func (c *Config) save(path string, includeHelp bool) error {
 func (c *Config) validateValues() error {
 	if c.TokenLimit < 0 {
 		return fmt.Errorf("token_limit must not be negative")
+	}
+	if effort := strings.ToLower(strings.TrimSpace(c.Eval.Effort)); effort != "" {
+		valid := false
+		for _, level := range core.EvalEffortLevels {
+			valid = valid || effort == level
+		}
+		if !valid {
+			return fmt.Errorf("eval.effort %q is not one of %s", c.Eval.Effort, strings.Join(core.EvalEffortLevels, ", "))
+		}
 	}
 	for _, vocabulary := range []struct {
 		label  string
@@ -262,6 +276,7 @@ func (c *Config) ToCoreConfig() core.Config {
 		Eval: core.EvalConfig{
 			Enabled: c.Eval.EvalEnabled(),
 			Model:   c.Eval.EvalModel(),
+			Effort:  strings.ToLower(strings.TrimSpace(c.Eval.Effort)),
 		},
 	}
 }

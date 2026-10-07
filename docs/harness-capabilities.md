@@ -244,6 +244,13 @@ Spike for turn-level save mechanics. It ran headless (`claude -p --setting-sourc
 - **`--bare` needs `ANTHROPIC_API_KEY`.** It fails with "Not logged in" on OAuth installs, so it is not used.
 - **`total_cost_usd` in the JSON output is the reported cost.** It is what `session_eval` records.
 
+### Session model and reasoning effort (verified 2026-10-07, Claude Code 2.1.292)
+
+- **The transcript is the reliable source.** Each main-thread assistant record carries `message.model` and a top-level `effort`. Newer records also carry `perTurnEffort`. In a session run with `--model sonnet --effort low`, every assistant record read `claude-sonnet-5-5` / `low`. Real sessions mix models: one of the maintainer's sessions had 650 turns on `claude-opus-5/high` and 38 on `claude-sonnet-5/medium`. Subagent turns are marked `isSidechain`.
+- **`$CLAUDE_EFFORT` is wrong at SessionStart and SessionEnd.** In that same `low` session both hooks saw `CLAUDE_EFFORT=medium`, the configured default. Only `Stop` saw `low`, both in the env and in its payload's `effort.level`, which the docs scope to tool-use-context events. Dossier therefore reads effort from the transcript.
+- **`SessionStart` may carry `model`, but it is optional.** It is omitted after `/clear` and on recovery. `SessionEnd` has no model field.
+- **`claude --effort` on Haiku is accepted silently.** `--model haiku --effort high` returned normally. Per the model-config docs Haiku has no effort support, so the flag is a no-op there.
+
 ### MCP Session Identity
 
 The stdio MCP server (`dossier mcp serve`) is launched per session with `CLAUDE_CODE_SESSION_ID` set in its environment. This UUID is identical to:

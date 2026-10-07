@@ -140,7 +140,11 @@ An automatic eval runs in the background after each saved session. It turns the 
 ```bash
 dossier stats                    # your sessions, newest version first
 dossier stats --all-authors --since 2026-10-01
+dossier stats --by model,effort  # by the model and reasoning effort your sessions ran on
+dossier stats --by version,eval  # by Dossier version and the evaluator's own model/effort
 ```
+
+A score can reflect the model a session ran on as much as Dossier's guide. Each session records its model and reasoning effort from its transcript, so `--by` can separate the two. `--by` takes any of `version`, `guide`, `model`, `effort` and `eval`.
 
 For controlled A/B comparisons of guide versions on fixed cases, see [`tools/resumeeval`](tools/resumeeval/README.md). That README covers collecting cases from your own sessions, writing probes, and running a comparison.
 
@@ -156,6 +160,7 @@ token_limit: 100000
 eval:                    # automatic session evals (3 model calls per saved session)
   enabled: true          # on by default; false keeps stats but stops evals
   model: haiku
+  effort: medium         # low|medium|high|xhigh|max; omit for the model default (Haiku ignores effort)
 ```
 
 ## Uninstall

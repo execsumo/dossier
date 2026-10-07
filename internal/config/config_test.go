@@ -365,6 +365,7 @@ func TestEvalKnob(t *testing.T) {
 		{"explicit off", "author: alice\neval:\n  enabled: false\n", false, DefaultEvalModel},
 		{"explicit on with model", "author: alice\neval:\n  enabled: true\n  model: sonnet\n", true, "sonnet"},
 		{"blank model falls back", "author: alice\neval:\n  model: \"  \"\n", true, DefaultEvalModel},
+		{"effort set", "author: alice\neval:\n  model: sonnet\n  effort: High\n", true, "sonnet"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -391,5 +392,25 @@ func TestEvalKnobRejectsUnknownKey(t *testing.T) {
 	}
 	if _, err := Load(path); err == nil {
 		t.Fatal("a misspelled eval key must be rejected, not silently ignored (it would leave evals on)")
+	}
+}
+
+func TestEvalEffort(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("author: alice\neval:\n  effort: High\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ToCoreConfig().Eval.Effort; got != "high" {
+		t.Fatalf("effort = %q, want normalised high", got)
+	}
+	if err := os.WriteFile(path, []byte("author: alice\neval:\n  effort: extreme\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "eval.effort") {
+		t.Fatalf("an invalid effort must be rejected, got %v", err)
 	}
 }

@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"dossier/internal/core"
 )
 
 // ClaudeCLI runs `claude -p` in a sterile environment: no hooks (so an eval
@@ -27,7 +29,7 @@ type ClaudeCLI struct {
 }
 
 // Args returns the isolated argument list for one call.
-func (c ClaudeCLI) Args(model string) []string {
+func (c ClaudeCLI) Args(model, effort string) []string {
 	a := []string{
 		"-p",
 		"--output-format", "json",
@@ -42,11 +44,14 @@ func (c ClaudeCLI) Args(model string) []string {
 	if model != "" {
 		a = append(a, "--model", model)
 	}
+	if effort != "" {
+		a = append(a, "--effort", effort)
+	}
 	return a
 }
 
 // Complete implements core.Evaluator.
-func (c ClaudeCLI) Complete(ctx context.Context, model, prompt string) (string, float64, error) {
+func (c ClaudeCLI) Complete(ctx context.Context, call core.EvalCall) (string, float64, error) {
 	bin := c.Bin
 	if bin == "" {
 		bin = "claude"
@@ -73,14 +78,14 @@ func (c ClaudeCLI) Complete(ctx context.Context, model, prompt string) (string, 
 	}
 	defer os.RemoveAll(home)
 
-	cmd := exec.CommandContext(ctx, path, c.Args(model)...)
+	cmd := exec.CommandContext(ctx, path, c.Args(call.Model, call.Effort)...)
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(),
 		"DOSSIER_HOME="+home,
 		"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
 		"CLAUDE_CODE_DISABLE_CLAUDE_MDS=1",
 	)
-	cmd.Stdin = strings.NewReader(prompt)
+	cmd.Stdin = strings.NewReader(call.Prompt)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil && stdout.Len() == 0 {

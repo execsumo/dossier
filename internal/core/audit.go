@@ -20,12 +20,23 @@ type AuditEvent struct {
 	Version   string       `json:"version,omitempty"`
 	GuideHash string       `json:"guide_hash,omitempty"`
 	Eval      *EvalSummary `json:"eval,omitempty"`
+	// SessionModel and SessionEffort are the session's dominant model and
+	// reasoning effort (most main-thread turns), read from its transcript;
+	// ModelMix lists every model/effort pair with turn counts. Set on
+	// session_ended. Outside Dossier's control, recorded to separate model
+	// effects from Guide effects.
+	SessionModel  string `json:"session_model,omitempty"`
+	SessionEffort string `json:"session_effort,omitempty"`
+	ModelMix      string `json:"model_mix,omitempty"`
 }
 
 // EvalSummary is the synced outcome of one automatic session eval. Probe
 // text, answers and judge reasons stay machine-local; only counts sync.
 type EvalSummary struct {
-	Model    string                   `json:"model,omitempty"`
+	Model string `json:"model,omitempty"`
+	// Effort is the reasoning effort requested for the eval calls; empty
+	// means the model's default. Models without effort support ignore it.
+	Effort   string                   `json:"effort,omitempty"`
 	Revision string                   `json:"revision,omitempty"`
 	Probes   int                      `json:"probes"`
 	Passed   int                      `json:"passed"`

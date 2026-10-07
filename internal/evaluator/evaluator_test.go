@@ -8,20 +8,22 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"dossier/internal/core"
 )
 
 func TestArgsIsolateTheCall(t *testing.T) {
-	args := strings.Join(ClaudeCLI{}.Args("haiku"), " ")
+	args := strings.Join(ClaudeCLI{}.Args("haiku", "high"), " ")
 	for _, want := range []string{
 		"-p", "--no-session-persistence", "--strict-mcp-config", `{"mcpServers":{}}`,
-		`{"disableAllHooks":true}`, "--setting-sources", "--tools", "--disable-slash-commands", "--model haiku",
+		`{"disableAllHooks":true}`, "--setting-sources", "--tools", "--disable-slash-commands", "--model haiku", "--effort high",
 	} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args %q missing %q", args, want)
 		}
 	}
-	if strings.Contains(strings.Join(ClaudeCLI{}.Args(""), " "), "--model") {
-		t.Error("an empty model must not pass --model")
+	if bare := strings.Join(ClaudeCLI{}.Args("", ""), " "); strings.Contains(bare, "--model") || strings.Contains(bare, "--effort") {
+		t.Error("an empty model or effort must not pass its flag")
 	}
 }
 
@@ -48,7 +50,7 @@ func TestParseOutput(t *testing.T) {
 }
 
 func TestCompleteReportsMissingBinary(t *testing.T) {
-	_, _, err := ClaudeCLI{Bin: "definitely-not-a-claude-binary"}.Complete(t.Context(), "haiku", "hi")
+	_, _, err := ClaudeCLI{Bin: "definitely-not-a-claude-binary"}.Complete(t.Context(), core.EvalCall{Model: "haiku", Prompt: "hi"})
 	if err == nil || !strings.Contains(err.Error(), "claude CLI not found") {
 		t.Fatalf("err = %v", err)
 	}

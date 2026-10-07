@@ -1755,7 +1755,7 @@ func NewRootCmd() *cobra.Command {
 				// Only the true end of a session anchors stats and evals;
 				// pre-compaction is a boundary inside a session that goes on.
 				if args[0] == "session-end" {
-					startSessionEval(os.Stdout, svc, homeDir, sessID)
+					startSessionEval(os.Stdout, svc, homeDir, sessID, transcript)
 				}
 				fmt.Println("Session hook completed successfully.")
 
