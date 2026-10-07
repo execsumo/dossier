@@ -3154,7 +3154,7 @@ func (m Model) renderDetailMetadata() string {
 		"Due:", fm.DueDate,
 	))
 	sb.WriteString(renderRow("Interfaces:", strings.Join(fm.Interfaces, ", ")))
-	sb.WriteString(renderRow("Tokens:", fmt.Sprintf("%d estimated", m.recallResult.TokenEstimate)))
+	sb.WriteString(renderRow("Tokens:", fmt.Sprintf("%.1fk estimated", float64(m.recallResult.TokenEstimate)/1000)))
 	sb.WriteString(renderRow("Next:", fm.NextAction))
 	if files := summarizeWorkingFiles(m.recallResult.Files); files != "" {
 		sb.WriteString(renderRow("Files:", files))
