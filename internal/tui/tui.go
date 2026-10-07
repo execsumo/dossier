@@ -927,7 +927,9 @@ func (m Model) resolveConflictCmd(conflict core.Conflict, choice string) tea.Cmd
 func (m Model) readArtifactCmd(dossierID, artifactID string) tea.Cmd {
 	requestID := m.nextRequestID()
 	return func() tea.Msg {
-		res, err := m.svc.ReadArtifact(context.Background(), core.ReadArtifactReq{DossierID: dossierID, ArtifactID: artifactID})
+		// Full: a person paging the viewer has no context window to protect;
+		// the outline-instead-of-content default is for agent callers.
+		res, err := m.svc.ReadArtifact(context.Background(), core.ReadArtifactReq{DossierID: dossierID, ArtifactID: artifactID, Full: true})
 		if err != nil {
 			return artifactContentMsg{requestID: requestID, dossierID: dossierID, err: err}
 		}

@@ -1026,6 +1026,67 @@ func numberLines(lines []string, startLine int) string {
 	return sb.String()
 }
 
+// artifactOutline renders the Markdown headings of an artifact with their line
+// numbers, skipping fenced code. A compiled transcript is outlined by its turn
+// headings ("## [n] role") only, since the tool output inside it carries
+// headings of its own. An artifact without headings is previewed by its first
+// lines instead. Long outlines are capped, and the cap is stated.
+func artifactOutline(art *Artifact) string {
+	lines := splitContentLines(art.Content)
+	nodesOnly := false
+	if art.Type == ArtifactTypeTranscript {
+		for _, line := range lines {
+			if strings.HasPrefix(line, compiledTurnHeading) {
+				nodesOnly = true
+				break
+			}
+		}
+	}
+
+	var entries []string
+	inFence := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence || !strings.HasPrefix(line, "#") {
+			continue
+		}
+		if nodesOnly && !strings.HasPrefix(line, compiledTurnHeading) {
+			continue
+		}
+		if r := []rune(line); len(r) > outlineMaxHeading {
+			line = string(r[:outlineMaxHeading]) + "…"
+		}
+		entries = append(entries, fmt.Sprintf("%d\t%s\n", i+1, line))
+	}
+
+	var sb strings.Builder
+	if len(entries) == 0 {
+		n := len(lines)
+		if n > outlinePreviewLines {
+			n = outlinePreviewLines
+		}
+		sb.WriteString(fmt.Sprintf("(no headings; first %d of %d lines)\n", n, len(lines)))
+		sb.WriteString(numberLines(lines[:n], 1))
+		return sb.String()
+	}
+	shown := entries
+	if len(shown) > outlineMaxEntries {
+		shown = shown[:outlineMaxEntries]
+	}
+	for _, e := range shown {
+		sb.WriteString(e)
+	}
+	if more := len(entries) - len(shown); more > 0 {
+		sb.WriteString(fmt.Sprintf("(+%d more headings after line %s; fetch a later range to see them)\n",
+			more, strings.SplitN(shown[len(shown)-1], "\t", 2)[0]))
+	}
+	return sb.String()
+}
+
 // evidenceIndex summarizes a dossier's archived artifacts and flags the ones
 // the Distilled State never cites.
 func (s *Service) evidenceIndex(dossierID string, body string, advise bool) ([]ArtifactSummary, []Warning) {
@@ -1076,6 +1137,9 @@ type ReadArtifactReq struct {
 	Fragment  string
 	StartLine int
 	EndLine   int
+	// Full returns an unranged fetch in full however large the artifact is.
+	// Without it, a large artifact yields an outline (ArtifactContent.Withheld).
+	Full bool
 }
 
 // ArtifactContent is a fetched artifact span.
@@ -1085,11 +1149,28 @@ type ArtifactContent struct {
 	EndLine   int    `json:"end_line"`
 	Ranged    bool   `json:"ranged"`
 	Content   string `json:"content"`
+	// Withheld is set when an unranged fetch of a large artifact returned its
+	// Outline instead of its Content; see ReadArtifactReq.Full.
+	Withheld bool `json:"withheld,omitempty"`
+	// Outline lists "<line>\t<heading>" entries (or, for an artifact without
+	// headings, its first lines) so the caller can choose a range to fetch.
+	Outline string `json:"outline,omitempty"`
 }
 
-// largeArtifactLineWarning is the point past which an unranged fetch is worth
-// a nudge toward citing a span instead.
-const largeArtifactLineWarning = 500
+// An unranged fetch past either limit returns an outline instead of the
+// content. The Distilled State exists so a session does not have to reload the
+// raw record; a whole multi-thousand-line transcript pulled in by default
+// defeats that. Nothing is cut silently: the response says it was withheld,
+// gives the line count and an outline to pick a range from, and Full fetches
+// everything on explicit request.
+const (
+	largeArtifactLines  = 500
+	largeArtifactBytes  = 32 * 1024
+	outlineMaxEntries   = 100
+	outlineMaxHeading   = 120
+	outlinePreviewLines = 20
+	compiledTurnHeading = "## ["
+)
 
 // ReadArtifact resolves an artifact citation to its content.
 //
@@ -1150,9 +1231,24 @@ func (s *Service) ReadArtifact(ctx context.Context, req ReadArtifactReq) (Result
 	ranged := start > 0 || end > 0
 
 	if !ranged {
-		if total > largeArtifactLineWarning {
+		large := total > largeArtifactLines || len(art.Content) > largeArtifactBytes
+		if large && !req.Full {
 			warnings = append(warnings, Warning(fmt.Sprintf(
-				"Artifact %s is %d lines and was returned in full. Cite and fetch a range (#L<start>-L<end>) to keep the working context small.",
+				"Artifact %s is %d lines (%d bytes); its content was withheld and an outline returned instead. Fetch the range you need (fragment \"L<start>-L<end>\"), or request it in full only if the whole artifact is genuinely needed.",
+				art.ID, total, len(art.Content))))
+			return Result{
+				OK: true,
+				Data: ArtifactContent{
+					ArtifactSummary: summary,
+					Withheld:        true,
+					Outline:         artifactOutline(art),
+				},
+				Warnings: warnings,
+			}, nil
+		}
+		if large {
+			warnings = append(warnings, Warning(fmt.Sprintf(
+				"Artifact %s is %d lines and was returned in full on request. Cite and fetch a range (#L<start>-L<end>) to keep the working context small.",
 				art.ID, total)))
 		}
 		return Result{

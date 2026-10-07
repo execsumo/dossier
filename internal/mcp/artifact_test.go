@@ -53,6 +53,12 @@ func resultText(t *testing.T, res map[string]any) string {
 
 func newArtifactFixture(t *testing.T) *core.Service {
 	t.Helper()
+	svc, _ := newArtifactFixtureStore(t)
+	return svc
+}
+
+func newArtifactFixtureStore(t *testing.T) (*core.Service, *store.FakeStore) {
+	t.Helper()
 
 	fakeStore := store.NewFakeStore()
 	clk := &mockClock{}
@@ -84,7 +90,7 @@ func newArtifactFixture(t *testing.T) *core.Service {
 			Content: "unreferenced\n",
 		},
 	}
-	return svc
+	return svc, fakeStore
 }
 
 func TestDossierArtifactToolIsAdvertised(t *testing.T) {
@@ -147,5 +153,29 @@ func TestDossierRecallCarriesEvidenceIndex(t *testing.T) {
 	}
 	if !strings.Contains(text, "art_orphan") {
 		t.Errorf("recall did not surface the uncited artifact:\n%s", text)
+	}
+}
+
+func TestDossierArtifactWithholdsLargeArtifactUnlessFull(t *testing.T) {
+	svc, fakeStore := newArtifactFixtureStore(t)
+	fakeStore.Artifacts["dos_1"] = append(fakeStore.Artifacts["dos_1"], core.Artifact{
+		ID: "art_big", DossierID: "dos_1", Type: core.ArtifactTypeDecisionEvidence,
+		Title: "Big log", ContentFormat: core.ContentFormatMarkdown,
+		Content: strings.Repeat("# heading\nbody line\n", 400), // 800 lines
+	})
+
+	results := callTools(t, svc, []string{
+		`{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05"},"id":1}`,
+		`{"jsonrpc":"2.0","method":"tools/call","params":{"name":"dossier_artifact","arguments":{"dossier_id":"dos_1","artifact_id":"art_big"}},"id":2}`,
+		`{"jsonrpc":"2.0","method":"tools/call","params":{"name":"dossier_artifact","arguments":{"dossier_id":"dos_1","artifact_id":"art_big","full":true}},"id":3}`,
+	})
+
+	outline := resultText(t, results[1])
+	if !strings.Contains(outline, `"withheld":true`) || strings.Contains(outline, "body line") {
+		t.Errorf("unranged fetch of a large artifact did not return an outline only:\n%.400s", outline)
+	}
+	full := resultText(t, results[2])
+	if strings.Contains(full, `"withheld":true`) || !strings.Contains(full, `800\tbody line`) {
+		t.Errorf("full:true did not return the whole artifact:\n%.400s", full)
 	}
 }

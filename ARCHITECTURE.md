@@ -119,6 +119,7 @@ dossier/
                          #   help.go — the '?' key reference; footers advertise verbs, it holds the rest
   assets/                # go:embed — Distillation Guide, context templates, installables
   tools/resumeeval/      # dev-only A/B eval of Distillation Guide resumption fidelity (not in the binary; see its README)
+  tools/contextdiag/     # dev-only: per-turn context usage of a Claude Code session, stdlib Python (see its README)
     guide.md
     library.tmpl.md
     dossier-delegate-skill.md  # installed into Claude Code's skills dir

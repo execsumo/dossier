@@ -693,12 +693,16 @@ func NewRootCmd() *cobra.Command {
 	searchCmd.Flags().StringVarP(&dossierSearchFlag, "dossier", "d", "", "Scope search to a specific dossier (slug or ID)")
 	searchCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
-	var artifactLinesFlag string
+	var (
+		artifactLinesFlag string
+		artifactFullFlag  bool
+	)
 	artifactCmd := &cobra.Command{
 		Use:   "artifact <slug-or-id> [<artifact-id>]",
 		Short: "Show a dossier's evidence index, or fetch one artifact's content",
 		Long: "With one argument, list every archived artifact and whether the distilled state cites it.\n" +
-			"With two, print the artifact line-numbered, so a [src:art_x#L10-L20] citation can be followed to its source.",
+			"With two, print the artifact line-numbered, so a [src:art_x#L10-L20] citation can be followed to its source.\n" +
+			"A large artifact (over 500 lines or 32 KB) prints its outline instead; pass -L for a range or --full for all of it.",
 		Args: cobra.RangeArgs(1, 2),
 		Run: func(cmd *cobra.Command, args []string) {
 			homeDir := resolveHomeDir()
@@ -740,7 +744,7 @@ func NewRootCmd() *cobra.Command {
 				return
 			}
 
-			req := core.ReadArtifactReq{DossierID: args[0], ArtifactID: args[1]}
+			req := core.ReadArtifactReq{DossierID: args[0], ArtifactID: args[1], Full: artifactFullFlag}
 			if artifactLinesFlag != "" {
 				req.Fragment = normalizeLineFlag(artifactLinesFlag)
 			}
@@ -761,14 +765,20 @@ func NewRootCmd() *cobra.Command {
 			}
 			fmt.Printf("Artifact: %s (%s)\n", content.Title, content.ID)
 			fmt.Printf("Type:     %s\n", content.Type)
-			fmt.Printf("Lines:    %d-%d of %d\n\n", content.StartLine, content.EndLine, content.Lines)
-			fmt.Print(content.Content)
+			if content.Withheld {
+				fmt.Printf("Lines:    %d (content withheld; outline below)\n\n", content.Lines)
+				fmt.Print(content.Outline)
+			} else {
+				fmt.Printf("Lines:    %d-%d of %d\n\n", content.StartLine, content.EndLine, content.Lines)
+				fmt.Print(content.Content)
+			}
 			for _, w := range res.Warnings {
 				fmt.Printf("\nWarning: %s\n", w)
 			}
 		},
 	}
 	artifactCmd.Flags().StringVarP(&artifactLinesFlag, "lines", "L", "", "Line range to fetch, e.g. 10-20 or L10-L20")
+	artifactCmd.Flags().BoolVar(&artifactFullFlag, "full", false, "Print a large artifact in full instead of its outline")
 	artifactCmd.Flags().BoolVar(&jsonFlag, "json", false, "Output results in JSON format")
 
 	var (

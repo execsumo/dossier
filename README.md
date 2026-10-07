@@ -148,6 +148,19 @@ A score can reflect the model a session ran on as much as Dossier's guide. Each 
 
 For controlled A/B comparisons of guide versions on fixed cases, see [`tools/resumeeval`](tools/resumeeval/README.md). That README covers collecting cases from your own sessions, writing probes, and running a comparison.
 
+### Diagnosing a heavy session start
+
+If a Claude Code session opened from Dossier starts with far more context than its Dossier explains, `contextdiag` shows what filled it. It is one Python 3 file with no dependencies, so it runs on any machine without a checkout:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/execsumo/dossier/main/tools/contextdiag/contextdiag.py -o contextdiag.py
+python3 contextdiag.py                                     # recent Dossier sessions: turn-1 vs peak context
+python3 contextdiag.py --latest                            # per-turn breakdown of the newest one
+python3 contextdiag.py <session-id> --no-inputs --turns 30 > contextdiag-report.txt
+```
+
+The per-turn figures are the tokens the API actually billed, and each jump is listed with the hook output, attachment or tool result that caused it. The report has sizes and tool names only, never message content; `--no-inputs` also drops file paths and commands, so the report is safe to share from a work machine. See [`tools/contextdiag`](tools/contextdiag/README.md).
+
 ## Configuration
 
 Settings live in `~/.dossier/config.yaml` (machine-local, never synced):

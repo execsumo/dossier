@@ -460,3 +460,115 @@ func TestSplitContentLinesIsCanonical(t *testing.T) {
 		}
 	}
 }
+
+func TestReadArtifactLargeUnrangedFetchReturnsOutline(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{"over the line limit", numberedBody(largeArtifactLines + 1)},
+		{"over the byte limit", strings.Repeat("y", largeArtifactBytes+1) + "\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _ := newDossierWithArtifact(t, "## Findings\n- [observed] X. [src:art_evidence]", tt.content)
+
+			res, err := svc.ReadArtifact(context.Background(), ReadArtifactReq{
+				DossierID: "dos_fake_id", ArtifactID: "art_evidence",
+			})
+			if err != nil {
+				t.Fatalf("ReadArtifact() error = %v", err)
+			}
+			content := res.Data.(ArtifactContent)
+			if !content.Withheld {
+				t.Fatalf("Withheld = false; a large unranged fetch must return an outline")
+			}
+			if content.Content != "" {
+				t.Errorf("Content has %d bytes; want none when withheld", len(content.Content))
+			}
+			if content.Outline == "" {
+				t.Errorf("Outline is empty; the caller needs something to pick a range from")
+			}
+			if content.Lines != artifactLineCount(tt.content) {
+				t.Errorf("Lines = %d, want %d", content.Lines, artifactLineCount(tt.content))
+			}
+			if len(res.Warnings) == 0 || !strings.Contains(string(res.Warnings[0]), "withheld") {
+				t.Errorf("withholding produced no warning naming it; it must degrade visibly: %v", res.Warnings)
+			}
+		})
+	}
+}
+
+func TestReadArtifactLargeFetchFullOrRangedReturnsContent(t *testing.T) {
+	body := numberedBody(largeArtifactLines + 1)
+	svc, _ := newDossierWithArtifact(t, "## Findings\n- [observed] X. [src:art_evidence]", body)
+
+	full, err := svc.ReadArtifact(context.Background(), ReadArtifactReq{
+		DossierID: "dos_fake_id", ArtifactID: "art_evidence", Full: true,
+	})
+	if err != nil {
+		t.Fatalf("ReadArtifact(Full) error = %v", err)
+	}
+	fc := full.Data.(ArtifactContent)
+	if fc.Withheld || fc.EndLine != largeArtifactLines+1 || !strings.Contains(fc.Content, itoa(largeArtifactLines+1)+"\tline x") {
+		t.Fatalf("Full fetch = withheld %v, end %d; want the whole artifact", fc.Withheld, fc.EndLine)
+	}
+	if len(full.Warnings) == 0 {
+		t.Errorf("a large full fetch produced no warning")
+	}
+
+	ranged, err := svc.ReadArtifact(context.Background(), ReadArtifactReq{
+		DossierID: "dos_fake_id", ArtifactID: "art_evidence", Fragment: "L1-L600",
+	})
+	if err != nil {
+		t.Fatalf("ReadArtifact(range) error = %v", err)
+	}
+	if rc := ranged.Data.(ArtifactContent); rc.Withheld || rc.EndLine != largeArtifactLines+1 {
+		t.Fatalf("explicit range = withheld %v, end %d; an explicit range is always honoured", rc.Withheld, rc.EndLine)
+	}
+}
+
+func TestArtifactOutline(t *testing.T) {
+	tests := []struct {
+		name    string
+		art     Artifact
+		want    []string
+		notWant []string
+	}{
+		{
+			name: "markdown headings with line numbers, fenced headings skipped",
+			art:  Artifact{Type: ArtifactTypeDecisionEvidence, Content: "# Title\ntext\n```\n# not a heading\n```\n## Section\n"},
+			want: []string{"1\t# Title\n", "6\t## Section\n"}, notWant: []string{"not a heading"},
+		},
+		{
+			name: "compiled transcript outlined by turn headings only",
+			art:  Artifact{Type: ArtifactTypeTranscript, Content: "# Compiled Session Transcript\n## [1] user\nhi\n## [2] tool_result read\n# Heading inside tool output\n"},
+			want: []string{"2\t## [1] user\n", "4\t## [2] tool_result read\n"}, notWant: []string{"Compiled Session", "inside tool output"},
+		},
+		{
+			name: "no headings falls back to a preview of the first lines",
+			art:  Artifact{Type: ArtifactTypeDecisionEvidence, Content: numberedBody(30)},
+			want: []string{"first 20 of 30 lines", "20\tline x 20\n"}, notWant: []string{"line x 21"},
+		},
+		{
+			name: "long outlines are capped and say so",
+			art:  Artifact{Type: ArtifactTypeDecisionEvidence, Content: strings.Repeat("# h\n", outlineMaxEntries+5)},
+			want: []string{"(+5 more headings after line 100"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := artifactOutline(&tt.art)
+			for _, w := range tt.want {
+				if !strings.Contains(got, w) {
+					t.Errorf("outline missing %q:\n%s", w, got)
+				}
+			}
+			for _, nw := range tt.notWant {
+				if strings.Contains(got, nw) {
+					t.Errorf("outline contains %q:\n%s", nw, got)
+				}
+			}
+		})
+	}
+}
