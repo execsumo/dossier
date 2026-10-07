@@ -15,6 +15,10 @@ Dossier is a single binary that wears three faces — CLI, MCP-over-stdio server
 
 This is ports-and-adapters (hexagonal). It buys us the property the SPEC implicitly requires but never states: **CLI, MCP, and TUI must behave identically** (acceptance criteria are written once but must hold across surfaces). They behave identically because they call the same `core.Service` and render the same `Result` values.
 
+Not every operation is exposed on every surface. Where one is exposed, it goes through the same `core.Service` call. Known gaps:
+- `dossier export` (ADR 0017) is CLI and MCP only. There is no TUI action yet.
+- Handing a Dossier to a new agent session (`dossier open`, TUI `c`) is not exposed over MCP: an agent is already in a session (`internal/harness/launch.go`).
+
 ```
                  driving adapters (call into core)
         ┌──────────┬──────────┬──────────┬──────────┐

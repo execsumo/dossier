@@ -44,6 +44,9 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 2. **Dogfood data.** Build `main` on the primary-use machine so sessions start recording. Read `dossier stats` weekly. Collect 5–10 real cases for `tools/resumeeval` (see its README).
 3. **Eval knob default.** It is on for every machine that doesn't set it, including teammates'. Flip `defaultEvalEnabled` in `internal/config/config.go` when tracking no longer justifies the inference cost.
 
+**Accepted, ready to build**
+- **`dossier export`** ([ADR 0017](docs/adr/0017-dossier-export.md), SPEC §7.2 / §8.1 / §14.13). This writes one self-contained Markdown brief for a reader who doesn't run Dossier (e.g. an executive questioning it with their own AI) and excludes transcripts. Build `Service.Export` in core, add `ReadWorkingFile` to the `FileStore` port, then add the CLI and MCP adapters. No TUI yet.
+
 **Proposed, not started (decide with data from item 2)**
 4. **Mechanical turn checkpoint.** A `Stop` hook would record files edited and repo branch@commit per turn as audit events, and surface "since the last save" on resume. This targets stale saves, which the unsaved-session notice cannot see. `Stop` behavior is verified in `docs/harness-capabilities.md`.
 5. **Section-level `dossier_save` with a section-policy table.** Each section would be free, protected, schema-checked or machine-owned. Saves get cheaper and more frequent, untouched sections can't be rewritten, and the Deliverables / Delegation Contracts schema moves out of guide prose and into checks in code.

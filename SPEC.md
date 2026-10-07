@@ -366,6 +366,7 @@ Required event types:
 - `distilled_state_not_captured` (a boundary found nothing saved)
 - `session_ended` (true session end; carries `version` and `guide_hash`, ADR 0016)
 - `session_eval` (automatic session eval outcome; carries `version`, `guide_hash`, and an `eval` summary)
+- `exported` (a self-contained brief left the system; carries `revision`, `artifacts_included`, `files_included`, `output` basename; ADR 0017)
 
 Audit writes to per-author shards must be append-only; because they are single-writer, they do not conflict across machines.
 
@@ -485,6 +486,7 @@ dossier rename <slug-or-id> [<new-value>] [--title <title>|--slug <slug>] [--bas
 dossier recall <slug-or-id> [--json]
 dossier search <query> [--dossier <slug-or-id>] [--json]
 dossier artifact <slug-or-id> [<artifact-id>] [-L <a-b>] [--json]
+dossier export <slug-or-id> [-o <path>|-o -] [--force] [--json]
 dossier inbox list <slug-or-id> [--json]
 dossier inbox read <slug-or-id> <inbox-id> [--json]
 dossier inbox capture <slug-or-id> --source-kind <kind> (--excerpt <text>|--excerpt-file <path>) [--url <url>] [--confidence <0..1>] [--json]
@@ -572,6 +574,16 @@ dossier eval run --dossier <slug-or-id> --session <session-id> [--json]
 - With `--title <title>`, updates the human-readable title without moving the directory. With `--slug <slug>` (or a positional value), moves the complete `<slug>/` (or `archive/<slug>/`) directory in one same-parent filesystem rename; artifacts, files, conflicts, history, audit shards, and machine-local session stashes move together.
 - Rejects blank titles, malformed/reserved slugs or canonical slugs owned by another Dossier, occupied destination directories, and stale `--base-revision` values.
 - Omitting `--base-revision` performs an immediate recall and uses that revision for the optimistic-concurrency check.
+
+`dossier export` (ADR 0017)
+
+- Writes one self-contained Markdown brief for a reader who does not run Dossier, typically someone who will question it with their own AI assistant. There is one fixed shape, with no bundle or include/exclude options.
+- CLI and MCP only. There is no TUI action yet (ADR 0017 §7).
+- Contents in order: `# <name>` plus a header line (export date, last updated, status, lead, next action; no YAML frontmatter or revision hash); the fixed reader preamble from ADR 0017 §2; the Distilled State body verbatim; `## Supporting material`; `## Not included`.
+- Includes in full: every non-`transcript` artifact, keeping only the newest of each `(type, title, provenance.url)` group and listing the superseded IDs on it; and every text working file under `files/`. Excludes and lists: `transcript` artifacts, binary working files, `## Files` entries outside the Dossier. Never reads `inbox/`, `history/`, `audit/`, `conflicts/` or session stashes.
+- Warns about each home-directory absolute path in the output, unresolved conflicts on the Dossier, a whole-file token estimate above `token_limit`, and the count of exclusions. It never rewrites or trims content.
+- Default output is `~/Downloads/<slug>-export-<YYYY-MM-DD>.md` (home directory if there is no `~/Downloads`), the same for CLI and MCP whatever the working directory. A collision on the default path appends `-2`, `-3`, …. `-o -` writes to stdout with the summary on stderr. An explicit `-o` path that exists is refused without `--force`. Any path inside `DOSSIER_HOME` is rejected.
+- Appends an `exported` audit event. The Dossier revision does not change.
 
 `dossier recall`
 
@@ -718,12 +730,15 @@ Required tools:
 - `dossier_inbox` (list/read/capture routed intake)
 - `dossier_inbox_resolve` (absorb or dismiss without deleting)
 - `dossier_stats` (read-only session outcomes and eval scores by version; ADR 0016)
+- `dossier_export` (writes a self-contained brief for a non-Dossier reader; ADR 0017)
 
 > **Note on `dossier_conflicts` / `dossier_resolve_conflict` (P0-5):** `dossier_conflicts` without arguments returns the unresolved conflicts; with `conflict_id` it returns the same comparison as `dossier conflicts <id>` (shared, mine, diff). `dossier_resolve_conflict` takes `conflict_id` and `choice` (`keep_shared`, `restore_mine`, `keep_both`) and behaves exactly as `dossier resolve`; it returns the resulting revision. Error codes: `not_found`, `invalid_frontmatter`, `concurrent_edit`.
 
 > **Note on `dossier_artifact`:** it takes `dossier_id` + `artifact_id`, and optionally either a `fragment` (a citation fragment such as `"L42-L68"`) or `start_line`/`end_line`. Content is returned with absolute 1-indexed line numbers, so the span read is the span cited. An unranged fetch returns the whole artifact and warns past 500 lines rather than truncating. `dossier_artifacts` returns the same evidence index that `dossier_recall` now carries in `artifacts[]`: one entry per archived artifact with its type, line count, and whether the Distilled State cites it.
 
 > **Note on `dossier_update`:** it accepts `name`, `description`, `status`, `lead`, `interfaces`, `repos`, `next_action`, and priority fields, and routes them all through the single `Save` write path (so CLI/MCP/TUI behave identically and edits get optimistic-concurrency handling). Open questions are edited by replacing the Markdown body.
+>
+> **Note on `dossier_export`:** it takes `id` and optional `output_path`, `force`, and `inline`. It writes the file exactly as `dossier export` does, rejecting paths inside `DOSSIER_HOME` and existing files without `force`, and returns the path, revision, included/excluded items, token estimate, and warnings. The document itself is returned only with `inline: true`.
 >
 > **Note on `dossier_rename`:** it requires `id`, `base_revision`, and one of `new_slug`, `new_name`, or `new_title`. It can rename the canonical slug, the display title, or both. Slug changes preserve the immutable ID and atomically relocate the complete directory.
 
@@ -1284,6 +1299,20 @@ Checks:
 - A slug rename replaces the canonical slug; the old slug no longer resolves or appears in list search.
 - Invalid, reserved, occupied, duplicate, and stale-revision rename attempts leave the original path and frontmatter unchanged.
 - Team Sync follows directory renames by immutable ID, preserves machine-local per-Dossier sessions under the resulting slug, and never leaves duplicate directories after a divergent rename/edit merge.
+
+### 14.13 Export (ADR 0017)
+
+- CLI `dossier export` and MCP `dossier_export` route through one `Service.Export`. For the same Dossier, revision and date, both produce byte-identical documents.
+- The output contains no YAML frontmatter, contains the ADR 0017 reader preamble verbatim, and contains the Distilled State body byte-for-byte.
+- A Dossier with a `transcript` artifact exports without any of that transcript's content; the transcript's ID and title appear under `## Not included`.
+- Given three snapshots sharing `(type, title, provenance.url)`, only the newest is inlined, and its heading names the other two IDs.
+- A Markdown working file under `files/` is inlined in full. A binary file under `files/` is not inlined; it is listed with its size under `## Not included` and produces a warning.
+- Inlined content containing a triple-backtick fence round-trips intact: the enclosing fence is longer.
+- Content under `inbox/`, `history/`, `audit/` and `conflicts/` never appears in the output (fixture with sentinel strings in each).
+- A Distilled State containing `/home/<user>/…` produces a local-path warning, and the path is unchanged in the output.
+- An export over `token_limit` succeeds, warns with the estimate, and is not truncated.
+- With no output path, the file lands in `~/Downloads` (or home) regardless of working directory. A second same-day export gets a `-2` suffix and the first is untouched. An explicit existing output file is not overwritten without `--force`/`force`. An output path inside `DOSSIER_HOME` is rejected. Both leave no partial file behind.
+- A successful export appends one `exported` audit event and leaves the Dossier revision unchanged.
 
 ---
 
