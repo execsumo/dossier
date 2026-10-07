@@ -68,8 +68,9 @@ func TestLocateResolutionOrder(t *testing.T) {
 	l := New(home, []string{rootA, rootB, filepath.Join(rootA, "does-not-exist")})
 
 	// Scan hit, then remembered.
+	apiPath := resolvedPath(t, filepath.Join(rootA, "api"))
 	loc, err := l.Locate("github.com/acme/api")
-	if err != nil || loc.Path != resolvedPath(t, filepath.Join(rootA, "api")) || loc.Via != "scan" {
+	if err != nil || loc.Path != apiPath || loc.Via != "scan" {
 		t.Fatalf("scan: %+v %v", loc, err)
 	}
 	if _, err := os.Stat(filepath.Join(home, "local", "repo-paths.json")); err != nil {
@@ -101,7 +102,7 @@ func TestLocateResolutionOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	loc, err = l.Locate("github.com/acme/api")
-	if err != nil || loc.Stale != filepath.Join(rootA, "api") || loc.Path != "" {
+	if err != nil || loc.Stale != apiPath || loc.Path != "" {
 		t.Errorf("stale: %+v %v", loc, err)
 	}
 
