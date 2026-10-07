@@ -1301,6 +1301,20 @@ func (m *Model) applyFilters() {
 	m.clampKanbanCursor()
 }
 
+// clearSearch drops the search query and returns focus to the list.
+func (m *Model) clearSearch() {
+	m.searchInput.SetValue("")
+	m.searchQuery = core.Query{}
+	m.searchActive = false
+	m.searchInput.Blur()
+	m.applyFilters()
+	m.populateTableRows()
+	m.recalculateTableLayout()
+	m.table.SetCursor(0)
+	m.kanbanRow = 0
+	m.table.Focus()
+}
+
 func (m *Model) openSelectedDossier() tea.Cmd {
 	var item core.ListItem
 	var ok bool
@@ -1573,16 +1587,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// the key falls through to searchInput and is swallowed.
 				return m, tea.Quit
 			case "esc":
-				m.searchInput.SetValue("")
-				m.searchQuery = core.Query{}
-				m.searchActive = false
-				m.searchInput.Blur()
-				m.applyFilters()
-				m.populateTableRows()
-				m.recalculateTableLayout()
-				m.table.SetCursor(0)
-				m.kanbanRow = 0
-				m.table.Focus()
+				m.clearSearch()
 				return m, nil
 			case "enter":
 				// Enter commits the live query and returns focus to the list. This
@@ -1627,6 +1632,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.table.SetCursor(0)
 			m.kanbanRow = 0
 			return m, cmd
+		}
+
+		// A committed search (field no longer active) is dismissed by esc before
+		// esc takes on any view-specific meaning.
+		if msg.String() == "esc" && m.isListView() && !m.searchActive && !m.searchQuery.IsEmpty() {
+			m.clearSearch()
+			return m, nil
 		}
 
 		// View-specific key overrides

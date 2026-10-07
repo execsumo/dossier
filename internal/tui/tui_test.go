@@ -3505,3 +3505,23 @@ func TestRowBadgeMarksContractOnlyMatch(t *testing.T) {
 		t.Errorf("unfiltered badge = %q, want empty", got)
 	}
 }
+
+func TestEscClearsCommittedSearch(t *testing.T) {
+	for _, view := range []View{ViewDashboard, ViewKanban} {
+		store := newTestStore()
+		seedDossier(store, "one", "One Topic", core.StatusSpark)
+		m := boardModel(t, store, 120, 40)
+		m.currentView = view
+		m.listView = view
+		m, _ = press(t, m, "/")
+		m, _ = press(t, m, "o")
+		m, _ = press(t, m, "enter")
+		m, _ = press(t, m, "esc")
+		if !m.searchQuery.IsEmpty() || m.searchInput.Value() != "" || m.searchActive {
+			t.Fatalf("view %v: esc should clear the committed search", view)
+		}
+		if m.currentView != view {
+			t.Fatalf("view %v: first esc should only clear search, got view %v", view, m.currentView)
+		}
+	}
+}
