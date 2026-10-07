@@ -1,9 +1,11 @@
 # Dossier Distillation Guide
 *Principles for High-Signal, Operationally Complete Context Preservation*
 
-This guide defines the methodology for maintaining the Distilled State of a Dossier. Its objective is not maximum brevity. It is minimum total effort to understand, resume, decide, and act: preserve the complete operational signal while removing conversational residue and redundant narration. A longer coherent Dossier is cheaper than several terse documents that force a reader to reconstruct context or reconcile competing versions.
+This guide defines what a Dossier's Distilled State must contain and how to write it. Its objective is not maximum brevity. It is minimum total effort to understand, resume, decide, and act: preserve the complete operational signal while removing conversational residue and redundant narration. A longer coherent Dossier is cheaper than several terse documents that force a reader to reconstruct context or reconcile competing versions. The test of every save: a fresh agent holding only this Distilled State, and none of the conversation, can take the next step without asking what you meant.
 
-**The core contract:** the Distilled State is a *view*, not the record. The Archive holds the verbatim record; the Distilled State is the curated projection over it. Compression here is a rendering decision, never a destruction decision. Every compression you perform must leave behind a pointer that resolves back to the source—`dossier_artifact` fetches any cited artifact, and any cited line range within it. Compress hard; cite harder. Detail you elide without a resolvable citation is not compressed, it is lost.
+How and when to call the tools—saving, concurrency, polling, files, resuming—is covered by the Operating Instructions, delivered alongside this guide.
+
+**The core contract:** the Distilled State is a *view*, not the record. The Archive holds the verbatim record; the Distilled State is the curated projection over it. Compression here is a rendering decision, never a destruction decision. Every compression you perform must leave behind a pointer that resolves back to the source—`dossier_artifact` fetches any cited artifact, and any cited line range within it. Compress what has settled; cite what you compress. Detail you elide without a resolvable citation is not compressed, it is lost.
 
 ## 1. Signal Retention & Cognitive Efficiency
 
@@ -14,26 +16,27 @@ A world-class Dossier is complete enough to act from, structured enough to scan,
 - **Prune Mechanics, Preserve Meaning:** Consolidate the play-by-play into its net effect. Abstract *"I opened the file, scrolled, found the handler, and edited it"* into *"Patched the handler"*—but retain the handler's name, path, the change, and why it mattered.
 - **Retain Decision Context:** Keep the causal links a future reader needs: why a constraint exists, how one decision affects another, what completion means operationally, and which apparent contradiction is intentional.
 - **Never Compress These:** Reproduce verbatim, always. Identifiers and paths. Numbers, metrics, thresholds, versions, dates. Exact error text and status codes. Command lines and their flags. Config keys and values. API/function signatures. These are what a future reader needs to verify or re-run a decision, and they are precisely what paraphrase destroys. When unsure whether a value is material: keep it. Values are cheap; re-deriving them is not.
+- **Keep What Only the Conversation Knew:** The detail a new session loses first is the detail that never existed outside the conversation: corrections the user gave (*"don't mock the database"*), preferences, the scope of an approval (*"may push to `feat/x`; ask before merging"*), the request still in flight, the working hypothesis, and commitments made to the user. None of it is in the code or the Archive's small artifacts. Record it in `## Current State` (see §4), or propose it as a Constraint when it bounds the solution. A resumed session that repeats a behavior the user already corrected has failed, however good the rest of the state is.
 - **Encode the Negative Space (Anti-Goals):** Explicitly preserve abandoned trajectories. The knowledge of a failed experiment or rejected alternative is high-value context. Compress dead-ends into dense warnings rather than discarding them as noise.
 - **Retain Constraints as First-Class Signal:** Constraints define the feasible solution space. Record technical, commercial, legal, timing, budget, dependency, and authority boundaries; distinguish observed or decided constraints from assumptions. If a leader could alleviate one, name the decision-maker or relief path. Never silently remove a constraint—record its alleviation or invalidation as a Decision.
 
-## 2. Process & State Mechanics
+## 2. Provenance & Update Mechanics
 
-- **Elision Requires a Resolvable Pointer:** Every claim carries `[src:art_<id>]`, and every claim compressed from a *span* of a source carries the span: `[src:art_<id>#L42-L68]`. Line numbers address the artifact's own physical lines—the same coordinates `dossier_search` reports and `dossier_artifact` resolves. A citation whose range does not exist in the artifact is flagged by `dossier doctor`; a dangling pointer reads as evidence while being none.
+- **Elision Requires a Resolvable Pointer:** Every claim that has a source carries `[src:art_<id>]`, and every claim compressed from a *span* of a source carries the span: `[src:art_<id>#L42-L68]`. Line numbers address the artifact's own physical lines—the same coordinates `dossier_search` reports and `dossier_artifact` resolves. A citation whose range does not exist in the artifact is flagged by `dossier doctor`; a dangling pointer reads as evidence while being none.
+- **Tag What Cannot Be Cited:** Some claims have no artifact behind them: something a person said in conversation, a belief not yet checked, the in-flight execution state. Do not paper over that with a citation into the whole session transcript. Give the claim a role tag (§3)—`[stated]` with who said it, or `[assumed]`—so its standing is visible. `## Current State` and `## Next Steps` are working context and need no citations.
 - **Cite Narrowly:** Prefer a range over a whole artifact, and a small purpose-built artifact over a range into a large one. `[src:art_x]` pointing at a 9,000-line transcript technically satisfies provenance and practically communicates nothing.
 - **Archive First, Distill Second:** Save raw transcripts, code snapshots, and full threads as source artifacts in the Archive *before* referencing them in the Distilled State.
 - **Compress on a Delay:** Material from the current and immediately preceding session stays at low compression—concrete, specific, still carrying its working detail. Apply §1's full density discipline only once a topic has settled. Detail destroyed at first write is destroyed at the moment you are least able to judge what will matter; deferring the lossy step costs a few hundred tokens and preserves the ability to make that call correctly later.
-- **A Dossier Can Be Too Thin:** The token target is a ceiling, not a goal. Under-citation is the more common failure: if the Archive holds evidence the Distilled State never points at, the curated view has drifted off its own record. `dossier_recall` returns the evidence index and warns about uncited artifacts—treat that warning as a defect, not noise.
+- **Durable Sections vs Working Sections:** Objective through Findings, Evidence, and Files hold the consolidated truth of the topic: no narration, no history of how it was reached. `## Current State` and `## Next Steps` hold working context and are expected to churn every save. "Compress on a Delay" applies to both: settled truth moves into the durable sections at full density; unsettled detail stays concrete where it is.
+- **Update, Don't Rewrite:** Most saves change a few sections. Edit those; carry every other section over unchanged, word for word. Rewriting an untouched section re-paraphrases it, and paraphrase of a paraphrase is how preserved values erode across sessions. When you do need to re-distill a section, work from its cited sources, not from the previous distilled wording.
+- **Retire, Don't Erase:** Superseded content leaves the Distilled State only by being consolidated, and the revision history keeps every prior version. A finished Next Step becomes its outcome—a Finding or a line in Current State—then leaves the list. An answered Open Question becomes a Finding carrying its answer. When either settles something binding, it belongs in Decisions, which is protected: propose it in its own save rather than folding it into a routine one. A superseded Finding is replaced, and the replacement says what it overturned when the old belief would otherwise be re-derived. A dead end stays, as a `[rejected]` or `[attempted]` entry.
+- **A Dossier Can Be Too Thin:** The token target (`token_limit`) is a ceiling, not a goal. Under-citation is the more common failure: if the Archive holds evidence the Distilled State never points at, the curated view has drifted off its own record. `dossier_recall` returns the evidence index and warns about uncited artifacts—treat that warning as a defect, not noise.
+- **Never Silently Truncate:** Never cut content to meet the token target. If the state exceeds it, warn the user and propose what could be consolidated; the decision to drop signal is theirs.
 - **No Conversational Noise (Prune Mechanics, Retain Trajectories):** Eliminate greetings, pleasantries, tool-call mechanics, and verbose restatements. However, compress (do not delete) the conclusions of dead-end investigative paths so future resumption avoids repeating mistakes.
-- **Durable State Only:** The Distilled State must represent the current, clean, consolidated truth of the topic.
+- **Protected Work Definition:** Objective, Done When, Validation, Constraints, and Decisions change only by decision, never as editorial cleanup. Routine saves leave them byte-for-byte unchanged; a proposed change goes in its own save, where it becomes a conflict for a human to accept or reject (see the Operating Instructions).
 - **References vs Active Monitors:** Distinguish between *navigational* external pointers and *live* context streams that must be polled. Both use the same canonical Markdown link line:
   `- [<kind>: <label>](<URL>) — <purpose or description>.`
   Use `kind` values such as `comms`, `ticket`, `document`, or `other`; the kind is intentionally tool-agnostic. Put ordinary pointers in `## References`; put live streams that require resumption polling in `## Active Monitors`. A monitor is not duplicated in both sections. A URL alone is not evidence: when external content supports a claim, capture it as an Archive artifact and cite it with `[src:art_id]`.
-- **Keep Context Current:** Maintain the session's active Dossier using a best-effort approach each turn. Save state on lifecycle events (session end, `/clear`, `/exit`, pre-compaction).
-- **Protected work definition:** Agent saves may freely update Situation, Findings, Open Questions, Current State, and Next Steps. Never silently change Objective, Done When, Validation, Constraints, or Decisions. Keep routine updates and any protected-section proposal in separate saves; a protected-section change is preserved as a whole-save `agent_proposal` conflict for human review, not applied. Ask a human to accept or reject it through the normal conflict-resolution flow.
-- **Never Silently Truncate:** Never truncate the Distilled State to meet arbitrary token limits. If approaching limits, warn the user.
-- **Optimistic Concurrency & Disambiguation:** Concurrent edits produce conflict files. Prompt the user for ambiguous link targets and manual merge conflict resolution. Never rely on last-write-wins.
-- **Degrade Visibly:** If a harness fails to capture transcripts or lifecycle hooks, warn the user explicitly. Never silently ignore failures.
 
 ## 3. Role Tags
 
@@ -43,10 +46,11 @@ Identical text means different things in different positions: an *intention* is 
 - `[attempted]` — tried; outcome recorded alongside.
 - `[decided]` — settled and binding until explicitly revisited.
 - `[proposed]` — on the table, not agreed.
+- `[stated]` — asserted by a person (a requirement, a fact about their world, a preference) and not independently verified. Name who: `[stated] (By: <name>)`. Distinct from the agent's own inference.
 - `[assumed]` — believed but unverified. Carries the highest re-check priority on resumption.
 - `[rejected]` — considered and ruled out. Always retain the reason.
 
-`[observed] Lock contention at 200ms timeout` and `[assumed] Lock contention at 200ms timeout` are the same nine tokens and completely different facts.
+`[observed] Lock contention at 200ms timeout` and `[assumed] Lock contention at 200ms timeout` differ by one word and are completely different facts.
 
 ## 4. Structure of the Distilled State
 
@@ -103,7 +107,13 @@ Unresolved questions that materially affect the topic or next move.
 - [<kind>: <label>](<URL>) — <reason to poll>. (Last polled: <YYYY-MM-DD>)
 
 ## Current State
-Immediate execution context. Active files, blockers, or configurations.
+The most perishable section: where the work stands right now, written so a fresh session can pick it up mid-stride. Open with an as-of stamp so a reader can tell when it has gone stale.
+- As of: <YYYY-MM-DD>, <locator: repo branch@commit, document version, environment>.
+- In flight: <the latest request being worked and how far it got; any half-applied or uncommitted change>.
+- Working hypothesis: <what is currently believed and why, if an investigation is open>.
+- Active context: <files, blockers, configurations that matter now>.
+- Working agreements: <corrections, preferences, and approvals the user gave in conversation, each with its scope; commitments made to the user>.
+Omit a bullet that does not apply; never omit the as-of stamp.
 
 ## Deliverables
 *Conditional*—use only when two or more contributions combine into the Dossier's shared outcome. A single-deliverable Dossier uses the top-level Objective / Done When / Validation directly and does not wrap them in a redundant Deliverables section.
@@ -124,7 +134,7 @@ Immediate execution context. Active files, blockers, or configurations.
 - Return Expectations: [decided|proposed] <The status, validation result, output/evidence, and decisions the owner returns.>
 
 ## Next Steps
-Immediate required actions. Must align with `next_action` and the `## Open Questions` section in the Distilled State body. On every explicit save of active work, keep `status` and the machine-visible `next_action` baton current; the body carries the supporting context for the next person or timezone.
+Immediate required actions, in order, each concrete enough to start without re-deriving it. Must align with `next_action` and the `## Open Questions` section in the Distilled State body. On every explicit save of active work, keep `status` and the machine-visible `next_action` baton current; the body carries the supporting context for the next person or timezone.
 ```
 
 ### Work-shape rules
@@ -168,6 +178,12 @@ Small artifacts captured at decision time beat large ones captured at session en
 Every line is terse and every line is cited, so this passes a mechanical provenance check. It is still a failure: the values are gone (which model? what timeout? which tests?), the rejected alternative is gone, and all three citations point at one 9,000-line transcript, so nothing can be recovered by following them.
 
 ### GOOD DISTILLATION (Lossless, High Density, Recoverable)
+> - **Objective:** Billing charges every concurrent usage event exactly once under the `usage-tier` model.
+> - **Done When:** `TestConcurrentBilling` passes at production lock settings; no double-charge or missed-charge rows in the 2026-06-20 load-test replay.
+> - **Validation:** `go test ./internal/billing/... -run TestConcurrentBilling -count=20` green; replay diff report shows 0 mismatched rows.
+> - **Constraints:**
+>   - Lock overhead must stay under 100ms at p50; checkout SLO. [src:art_01jz8pm_alignment#L30-L34]
+>   - [assumed] No schema migration this release; relief path: the billing lead can approve one.
 > - **Situation:** Enforcing `usage-tier` billing calculation under high concurrency. [src:art_01jz8initial_bug#L1-L40]
 > - **Decisions:**
 >   - [2026-06-14] [decided] Migrated billing model from flat-tier to usage-tier. (By: Herwin). Rationale: Mitigates billing leakage during concurrent user actions. [src:art_01jz8pm_alignment#L12-L28]
@@ -179,12 +195,31 @@ Every line is terse and every line is cited, so this passes a mechanical provena
 >   - `art_01jz8redis_eval` (decision_evidence, 88 lines): Redis lock latency benchmark. Key spans: L44-L61 p50/p99 table.
 >   - `art_01jz8test_results` (decision_evidence, 210 lines): concurrency suite output. Key spans: L102-L118 timeout sweep.
 >   - `art_01jz8session` (transcript, 9,140 lines): full session capture; background only.
+> - **Open Questions:**
+>   - Does a 500ms lock timeout breach the checkout SLO under production load?
 > - **References:**
 >   - [ticket: PROJ-123](https://jira.example.com/browse/PROJ-123) — Pricing migration work.
 >   - [document: Pricing launch plan](https://confluence.example.com/display/PRICING/Launch+plan) — Current rollout plan.
 > - **Active Monitors:**
 >   - [comms: #pricing-bug](https://slack.com/...) — Ongoing discussion regarding usage-tier lock timeouts. (Last polled: 2026-06-14)
-> - **Current State:** Lock timeout increased to 500ms in `internal/billing/lock.go`; local suite green.
-> - **Next Steps:** Merge pricing patch; verify the load-test assumption against production telemetry.
+> - **Current State:**
+>   - As of: 2026-06-14, `github.com/acme/api` branch `fix/billing-lock` @ `4e1c9a2`.
+>   - In flight: lock timeout raised to 500ms in `internal/billing/lock.go`; local suite green; not yet pushed.
+>   - Working agreements: Herwin approved pushing to `fix/billing-lock`; ask before merging to `main`. Use the real Postgres test container, not mocks (correction given 2026-06-14).
+> - **Next Steps:**
+>   1. Push `fix/billing-lock` and open the PR.
+>   2. Pull p50/p99 lock-wait from production telemetry to check the load-test assumption and answer the SLO question.
 
-The good version is longer than the thin one. That is correct. It is longer because it kept the values, kept the rejected path, marked what is assumed rather than observed, and pointed each claim at a span someone can actually open.
+The good version is longer than the thin one. That is correct. It is longer because it kept the values, kept the rejected path, marked what is assumed rather than observed, stamped the perishable state with when and where it was true, carried the user's corrections forward, and pointed each sourced claim at a span someone can actually open.
+
+## 8. Before You Save
+
+Run this check on every save. Each question names a failure this guide exists to prevent.
+
+1. **Cold start:** Could a fresh agent with only this Distilled State take the first Next Step without asking what anything means?
+2. **Values:** Did every identifier, number, path, command, and error string you touched survive verbatim?
+3. **Standing:** Is every claim either cited to a span or tagged for what it is (`[stated]`, `[assumed]`, `[proposed]`)?
+4. **Negative space:** Is every abandoned path from this session recorded with its reason?
+5. **Conversation-only context:** Are the user's corrections, preferences, and approval scopes from this session in Current State, with a fresh as-of stamp?
+6. **Untouched sections:** Did sections you meant to leave alone come through unchanged, and protected sections byte-for-byte?
+7. **Baton:** Do `status` and `next_action` match `## Next Steps`?
