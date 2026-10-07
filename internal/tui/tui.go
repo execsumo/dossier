@@ -37,6 +37,9 @@ const (
 	// screens those fields used to have.
 	ViewEdit
 	ViewLinkInput
+	// ViewLinkAdd is the form opened from ViewLinks to record a URL under
+	// ## References.
+	ViewLinkAdd
 	ViewLinkSelector
 	ViewMergeSelector
 	ViewMergeConflictResolver
@@ -287,6 +290,13 @@ type linkConfirmResultMsg struct {
 	err       error
 	result    core.Result
 }
+type linkAddResultMsg struct {
+	requestID   uint64
+	err         error
+	warnings    []core.Warning
+	nextActions []core.NextAction
+	targetID    string
+}
 type mergeResultMsg struct {
 	requestID uint64
 	err       error
@@ -471,6 +481,8 @@ type Model struct {
 
 	// Link view state
 	linkTextInput   textinput.Model
+	linkAddInputs   [linkAddFieldCount]textinput.Model
+	linkAddField    int
 	linkContent     string
 	linkSuggestions []core.Suggestion
 	linkCursor      int
@@ -1642,7 +1654,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// View-specific key overrides
-		if msg.String() == "?" && (m.isListView() || m.currentView == ViewDetail || (isOverlayView(m.currentView) && m.currentView != ViewLinkInput && m.currentView != ViewEdit && m.currentView != ViewRenameSlug)) {
+		if msg.String() == "?" && (m.isListView() || m.currentView == ViewDetail || (isOverlayView(m.currentView) && m.currentView != ViewLinkInput && m.currentView != ViewLinkAdd && m.currentView != ViewEdit && m.currentView != ViewRenameSlug)) {
 			m.toggleHelp()
 			return m, nil
 		}
@@ -1850,8 +1862,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "enter":
 				return m, m.openSelectedExternalLink()
+			case "a":
+				m.startLinkAdd()
+				return m, nil
 			}
 			return m, nil
+
+		case ViewLinkAdd:
+			return m.updateLinkAdd(msg)
 
 		case ViewContracts:
 			switch msg.String() {
@@ -1915,19 +1933,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		case "H":
+		case "h":
 			if m.isListView() || m.currentView == ViewDetail {
 				m.openHealth()
 				return m, nil
 			}
-		case "ctrl+r":
-			m.loading = true
-			m.err = nil
-			if m.recallResult.Frontmatter.ID != "" &&
-				(m.currentView == ViewDetail || (m.hasOverlay() && m.overlayBase == ViewDetail)) {
-				return m, m.recallDossierCmd(m.recallResult.Frontmatter.ID)
-			}
-			return m, m.listDossiersCmd()
 		case "esc", "backspace", "left":
 			switch m.currentView {
 			case ViewDetail:
@@ -2393,6 +2403,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			return m, m.recallDossierCmd(msg.targetID)
 		}
+
+	case linkAddResultMsg:
+		if !m.acceptsRequest(msg.requestID) || msg.targetID != m.recallResult.Frontmatter.ID {
+			return m, nil
+		}
+		m.loading = false
+		m.applyResultStatus(msg.warnings, msg.nextActions)
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.err = nil
+		m.popOverlay() // back to the links list; the recall below refreshes it
+		return m, m.recallDossierCmd(msg.targetID)
 
 	case mutationResultMsg:
 		if !m.acceptsRequest(msg.requestID) || (m.targetID != "" && msg.targetID != m.targetID) {
@@ -3563,6 +3587,12 @@ func (m Model) renderNormalView() string {
 		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — %s", subheadline, modalTitle(ViewLinkInput))))
 		sb.WriteString("\n\n")
 		sb.WriteString(m.renderLinkInput())
+		sb.WriteString("\n")
+
+	case ViewLinkAdd:
+		sb.WriteString(subtitleStyle.Render(fmt.Sprintf(" %s — %s", subheadline, modalTitle(ViewLinkAdd))))
+		sb.WriteString("\n\n")
+		sb.WriteString(m.renderLinkAdd())
 		sb.WriteString("\n")
 
 	case ViewLinkSelector:

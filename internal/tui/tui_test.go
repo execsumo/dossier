@@ -2719,14 +2719,14 @@ func TestTUI_FooterSequenceConsistency(t *testing.T) {
 	assertOrdered("dashboard", dashView, []string{"/ search", "f filters", "v view", "q quit", "? more help"})
 	assertAbsent("dashboard", dashView, []string{"s stage", "p priority", "l lead", "n next action", "↑/↓", "enter:", "esc:"})
 	// The health report is occasional: extended help only, never the footer.
-	assertAbsent("dashboard", dashView, []string{"H health"})
+	assertAbsent("dashboard", dashView, []string{"h health"})
 	var fullHelp strings.Builder
 	for _, column := range m.helpKeyMap(ViewDashboard).FullHelp() {
 		for _, b := range column {
 			fullHelp.WriteString(b.Help().Key + " " + b.Help().Desc + "\n")
 		}
 	}
-	if !strings.Contains(fullHelp.String(), "H health") {
+	if !strings.Contains(fullHelp.String(), "h health") {
 		t.Errorf("extended help should list the health report, got:\n%s", fullHelp.String())
 	}
 
@@ -2762,7 +2762,7 @@ func TestModalChromeUsesStandardTitlesAndMinimalFooters(t *testing.T) {
 	}{
 		{ViewLeadSelector, "Filter Dossiers"},
 		{ViewEdit, "Edit Dossier"},
-		{ViewLinkInput, "Add Link"},
+		{ViewLinkInput, "Attach Content"},
 		{ViewLinkSelector, "Choose Link Target"},
 		{ViewMergeSelector, "Merge Dossiers"},
 		{ViewMergeConflictResolver, "Resolve Merge Conflict"},

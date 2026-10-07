@@ -65,7 +65,7 @@ func conflictOverlayPanelWidth(screenWidth int) int {
 
 func isOverlayView(v View) bool {
 	switch v {
-	case ViewLeadSelector, ViewEdit, ViewLinkInput, ViewLinkSelector, ViewMergeSelector, ViewMergeConflictResolver, ViewRenameSlug, ViewArtifactIndex, ViewArtifactContent, ViewLinks, ViewContracts, ViewConflicts, ViewHealth:
+	case ViewLeadSelector, ViewEdit, ViewLinkInput, ViewLinkAdd, ViewLinkSelector, ViewMergeSelector, ViewMergeConflictResolver, ViewRenameSlug, ViewArtifactIndex, ViewArtifactContent, ViewLinks, ViewContracts, ViewConflicts, ViewHealth:
 		return true
 	default:
 		return false
@@ -226,6 +226,8 @@ func compactModalFooter(v View) string {
 		text = "enter apply · ←/→ column"
 	case ViewLinkInput:
 		text = "enter find target"
+	case ViewLinkAdd:
+		text = "enter save · tab next"
 	case ViewLinkSelector:
 		text = "enter choose target"
 	case ViewMergeSelector:
@@ -239,7 +241,7 @@ func compactModalFooter(v View) string {
 	case ViewArtifactIndex:
 		text = "enter view artifact"
 	case ViewLinks:
-		text = "enter open link"
+		text = "enter open link · a add"
 	case ViewContracts, ViewHealth:
 		text = "↑/↓ scroll"
 	case ViewConflicts:
@@ -269,7 +271,9 @@ func modalTitle(v View) string {
 	case ViewLeadSelector:
 		return "Filter Dossiers"
 	case ViewLinkInput:
-		return "Add Link"
+		return "Attach Content"
+	case ViewLinkAdd:
+		return "Add Reference"
 	case ViewLinkSelector:
 		return "Choose Link Target"
 	case ViewMergeSelector:
@@ -327,6 +331,8 @@ func (m Model) renderOverlayContent(v View) string {
 		return m.renderFilterOverlay()
 	case ViewLinkInput:
 		return m.renderLinkInput()
+	case ViewLinkAdd:
+		return m.renderLinkAdd()
 	case ViewLinkSelector:
 		return m.renderLinkSelector()
 	case ViewMergeSelector:

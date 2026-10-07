@@ -145,3 +145,51 @@ func TestFilterOverlayUsesSharedModalNavigation(t *testing.T) {
 		t.Fatalf("closing filter overlay = view %v, stack %d; want ViewDashboard, 0", m.currentView, len(m.overlayStack))
 	}
 }
+
+func TestLinksOverlayAddsReference(t *testing.T) {
+	store := newTestStore()
+	seedDossier(store, "dos1", "Pricing Model", core.StatusReview, func(fm *core.Frontmatter) {})
+	store.dossiers["dos1"].DistilledState.Body = "# Pricing Model\n\n## Current State\nUnderway.\n"
+
+	m := detailModel(t, store, "dos1", 100, 30)
+	m, _ = press(t, m, "l")
+	m, _ = press(t, m, "a")
+	if m.currentView != ViewLinkAdd || len(m.overlayStack) != 2 {
+		t.Fatalf("add form state = view %v, stack %d; want ViewLinkAdd, 2", m.currentView, len(m.overlayStack))
+	}
+	// "k" and "j" must be typed into the field, not treated as navigation.
+	m, _ = press(t, m, "https://example.test/kj")
+	m, _ = press(t, m, "tab")
+	m, _ = press(t, m, "Spec")
+	m, cmd := press(t, m, "enter")
+	if cmd == nil {
+		t.Fatal("enter should save the reference")
+	}
+	updated, cmd := m.Update(cmd())
+	m = updated.(Model)
+	if m.currentView != ViewLinks || len(m.overlayStack) != 1 {
+		t.Fatalf("after save = view %v, stack %d; want ViewLinks, 1", m.currentView, len(m.overlayStack))
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(Model)
+	if m.currentView != ViewLinks {
+		t.Fatalf("recall refresh changed view to %v", m.currentView)
+	}
+	refs := m.recallResult.References
+	if len(refs) != 1 || refs[0].URL != "https://example.test/kj" || refs[0].Label != "Spec" {
+		t.Fatalf("references after add = %+v", refs)
+	}
+	if !strings.Contains(stripANSI(m.View()), "Spec") {
+		t.Fatalf("links overlay does not show the new reference:\n%s", stripANSI(m.View()))
+	}
+
+	// A rejected URL keeps the form open and surfaces the error.
+	m, _ = press(t, m, "a")
+	m, _ = press(t, m, "not a url")
+	m, cmd = press(t, m, "enter")
+	updated, _ = m.Update(cmd())
+	m = updated.(Model)
+	if m.currentView != ViewLinkAdd || m.err == nil {
+		t.Fatalf("invalid URL: view %v err %v; want form open with an error", m.currentView, m.err)
+	}
+}

@@ -67,7 +67,7 @@ func TestHealthKeyOpensScrollableDoctorOverlay(t *testing.T) {
 	m.healthSummary = core.HealthSummary{}
 	m.healthReport = core.DoctorReport{}
 	m.width, m.height = 100, 30
-	m, _ = press(t, m, "H")
+	m, _ = press(t, m, "h")
 	if m.currentView != ViewHealth || !m.hasOverlay() {
 		t.Fatalf("H opened view %v with overlay=%v", m.currentView, m.hasOverlay())
 	}
@@ -88,7 +88,7 @@ func TestHealthCheckDoesNotFloodStatusArea(t *testing.T) {
 	if strings.Contains(got, "missing artifact") || strings.Contains(got, "more status message") {
 		t.Fatalf("doctor findings leaked into the dashboard status area:\n%s", got)
 	}
-	if !strings.Contains(got, "Store · 50 issues · H for details") {
+	if !strings.Contains(got, "Store · 50 issues · h for details") {
 		t.Fatalf("footer does not point at the health overlay:\n%s", got)
 	}
 }

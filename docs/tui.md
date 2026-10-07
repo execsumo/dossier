@@ -203,6 +203,5 @@ screen height, cursor visibility, and reachable exit/save actions.
   covered at `40x10`.
 - Detail metadata now follows the dashboard order and includes the token
   estimate; ownerless work is labeled `Unassigned`.
-- Watcher errors are surfaced, bursts are coalesced, manual refresh is
-  available with `ctrl+r`, and model-owned watcher cleanup is available through
+- Watcher errors are surfaced, bursts are coalesced, and model-owned watcher cleanup is available through
   `Model.Close`.

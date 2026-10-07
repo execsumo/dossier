@@ -302,7 +302,7 @@ Why each is a port:
 
 ### Routing-card list views (D5)
 
-`ListReq.Include` opts into parsed `monitors` and/or `references` on each list item. The default path remains frontmatter-only, preserving the scan budget; only matched Dossiers are opened when a routing view is requested. Parsing reuses `core.ParseExternalLinks`. `Service.MonitorPolled` changes the monitor's polling date through `Save` with the revision just read, so audit, validation, and concurrency behavior remain shared across CLI and MCP.
+`ListReq.Include` opts into parsed `monitors` and/or `references` on each list item. The default path remains frontmatter-only, preserving the scan budget; only matched Dossiers are opened when a routing view is requested. Parsing reuses `core.ParseExternalLinks`. `Service.MonitorPolled` changes the monitor's polling date through `Save` with the revision just read, so audit, validation, and concurrency behavior remain shared across CLI and MCP. `Service.AddReference` appends a canonical `- [kind: Label](url) — description` item under `## References` (creating the section if absent, rejecting duplicate or non-http(s) URLs) through the same Save path; the TUI Links overlay reaches it with `a`. It is not yet exposed through the CLI or MCP.
 
 ### Structured meeting interfaces
 
