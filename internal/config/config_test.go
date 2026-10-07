@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"dossier/internal/core"
 )
 
 func TestAuthorNormalization(t *testing.T) {
@@ -465,5 +467,52 @@ func TestEvalEffort(t *testing.T) {
 	}
 	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "eval.effort") {
 		t.Fatalf("an invalid effort must be rejected, got %v", err)
+	}
+}
+
+func TestSaveNudgeTurns(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		want    int
+		wantErr bool
+	}{
+		{"absent uses default", "author: alice\n", core.DefaultSaveNudgeTurns, false},
+		{"explicit value", "author: alice\nsave_nudge_turns: 5\n", 5, false},
+		{"zero turns it off", "author: alice\nsave_nudge_turns: 0\n", 0, false},
+		{"negative rejected", "author: alice\nsave_nudge_turns: -1\n", 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(tt.yaml), 0644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected an error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := cfg.ToCoreConfig().SaveNudgeTurns; got != tt.want {
+				t.Fatalf("SaveNudgeTurns = %d, want %d", got, tt.want)
+			}
+			// An explicit 0 must survive a save round-trip, or "off" would
+			// silently turn back into the default.
+			if err := cfg.Save(path); err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+			again, err := Load(path)
+			if err != nil {
+				t.Fatalf("reload: %v", err)
+			}
+			if got := again.ToCoreConfig().SaveNudgeTurns; got != tt.want {
+				t.Fatalf("after round-trip SaveNudgeTurns = %d, want %d", got, tt.want)
+			}
+		})
 	}
 }

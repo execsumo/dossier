@@ -157,13 +157,13 @@ func TestUnsavedSessions(t *testing.T) {
 			want: map[string]int{},
 		},
 		{
-			name: "unrelated Distilled State save does not clear it",
+			name: "any later Distilled State save clears it",
 			run: func(h *unsavedHarness) {
 				h.bind("sess_a")
 				h.boundary("sess_a")
 				h.saveState("# Recovery\n\n## Situation\nAnother session's own work.")
 			},
-			want: map[string]int{"sess_a": 1},
+			want: map[string]int{},
 		},
 		{
 			name: "no transcript captured: listed, then cleared by any body change",
@@ -278,16 +278,22 @@ func TestUnsavedSessions(t *testing.T) {
 	}
 }
 
-func TestUnsavedSessionsNoticeNamesSessionAndTranscript(t *testing.T) {
+// TestUnsavedSessionsNoticeNamesSessionNotTranscript guards the notice as a
+// fact rather than a work order: naming the transcript artifact invited agents
+// to load whole transcripts at session start.
+func TestUnsavedSessionsNoticeNamesSessionNotTranscript(t *testing.T) {
 	h := newUnsavedHarness(t)
 	h.bind("sess_a")
 	h.boundary("sess_a")
 	got, _ := h.svc.UnsavedSessions("dos_fake_id")
 	notice := h.svc.UnsavedSessionsNotice("dos_fake_id", "Recovery")
-	for _, want := range []string{"Dossier Recovery", "1 session(s)", got[0].TranscriptArtifactIDs[0], "session sess_a", "2026-06-14", "by Alice", "predates this work"} {
+	for _, want := range []string{"Dossier Recovery", "1 session(s)", "session sess_a", "2026-06-14", "by Alice", "predates this work"} {
 		if !strings.Contains(notice, want) {
 			t.Errorf("notice %q missing %q", notice, want)
 		}
+	}
+	if id := got[0].TranscriptArtifactIDs[0]; strings.Contains(notice, id) || strings.Contains(notice, "art_") {
+		t.Errorf("notice %q names a transcript artifact", notice)
 	}
 }
 
@@ -395,7 +401,7 @@ func TestUnsavedNoticeSeparatesOtherAuthors(t *testing.T) {
 		t.Fatalf("bob SessionEnd: %v", err)
 	}
 	bobOnly := h.svc.UnsavedSessionsNotice("dos_fake_id", "Recovery")
-	for _, want := range []string{"1 session(s) by other authors ended without saving", "Bob (1)", "theirs to recover"} {
+	for _, want := range []string{"1 session(s) by other authors ended without saving", "Bob (1)"} {
 		if !strings.Contains(bobOnly, want) {
 			t.Errorf("notice %q lacks %q", bobOnly, want)
 		}

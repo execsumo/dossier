@@ -29,9 +29,10 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 - **Pi: supported through Dossier's own extension** (ADR 0009). Session identity and lifecycle bridging work. One known gap, from a code read not yet confirmed in a live Pi session: the CLI cannot update an existing Dossier's Distilled State, so a Pi agent cannot save mid-session. See `docs/harness-capabilities.md` §2.
 - **Session switcher over herdr (ADR 0014) and repo identity per machine (ADR 0015): shipped** (PRs #31, #32).
 - **`dossier export` (ADR 0017): shipped 2026-10-07 in v0.5.0.** CLI `dossier export` and MCP `dossier_export` write one self-contained Markdown brief for a reader who does not run Dossier. `Service.Export` is pure; `internal/exportout` owns the file I/O both adapters share. No TUI action yet.
+- **Saving (B29): shipped 2026-10-07.** Saving is the user's job: `/save-dossier` before `/clear` or exit. A Claude Code `Stop` hook asks the agent once to save after `save_nudge_turns` (default 3) turns of unsaved work. Unsaved-session recovery was dropped. Large unranged `dossier_artifact` fetches return an outline instead of the content. Verified live: Sonnet saves on the nudge, Haiku tends to dismiss it (`docs/harness-capabilities.md` §3). `tools/contextdiag` diagnoses heavy session starts; the 200–250k-start fix still needs confirming on the work machine with it.
 - **Continuity and measurement: shipped 2026-10-07** (PRs #32, #33).
   - **Guide/instructions split.** `assets/guide.md` covers Distilled State content only: a dated Current State that carries the user's corrections and approval scope, `[stated]` for claims with no source, update-in-place rules, and a pre-save checklist. `assets/instructions.md` covers tool protocol, including the On Resume check. SessionStart sends both.
-  - **Unsaved-session recovery notice.** Derived from the audit log. It clears once the Distilled State cites the transcript. Other authors' sessions are attributed to them, never offered for recovery.
+  - **Unsaved-session notice.** Derived from the audit log. Since B29 it is a one-line fact (no transcript ids) that clears with the next save; nothing reconstructs the session.
   - **`tools/resumeeval`.** An offline A/B harness for guide versions on fixed cases.
   - **Session outcomes by version + automatic session evals** (ADR 0016, B28).
     - `session_ended` records the version, guide hash, and the session's model and effort.
@@ -46,20 +47,13 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 3. **Eval knob default.** It is on for every machine that doesn't set it, including teammates'. Flip `defaultEvalEnabled` in `internal/config/config.go` when tracking no longer justifies the inference cost.
 
 **Proposed, not started (decide with data from item 2)**
-4. **Mechanical turn checkpoint.** A `Stop` hook would record files edited and repo branch@commit per turn as audit events, and surface "since the last save" on resume. This targets stale saves, which the unsaved-session notice cannot see. `Stop` behavior is verified in `docs/harness-capabilities.md`.
+4. **Mechanical turn checkpoint, audit half.** The `Stop` hook now exists for the save checkpoint (B29). The remaining idea: have it also record files edited and repo branch@commit per turn as audit events, and surface "since the last save" on resume. This targets stale saves, which the unsaved-session notice cannot see. `Stop` behavior is verified in `docs/harness-capabilities.md`.
 5. **Section-level `dossier_save` with a section-policy table.** Each section would be free, protected, schema-checked or machine-owned. Saves get cheaper and more frequent, untouched sections can't be rewritten, and the Deliverables / Delegation Contracts schema moves out of guide prose and into checks in code.
 
 **Export follow-ups** (from review; none blocks use)
 - `doctor` does not detect duplicate or path-like artifact IDs. Export guards against both, but nothing reports them.
 - Export reads a whole binary file in `files/` just to classify it, and creates files with mode 0644 regardless of umask.
 - No TUI action for export yet (see `ARCHITECTURE.md` surface gaps).
-
-**Unprocessed-session recovery: remaining pieces** (discovery is built)
-- **Bounded Archive reads: shipped on `fix/bounded-artifact-reads`, not live-confirmed.** Some `c` launches started at 200–250k tokens. The suspected cause was On Resume step 5, which told the agent to read unsaved-session transcripts whole; one was 548 KB / 11k lines. Step 5 now says to recover in spans and to ask first if recovery needs more than a few. `dossier_artifact` also withholds an unranged fetch over 500 lines / 32 KB and returns an outline unless `full: true` is passed (SPEC §8 note). Confirm on the work machine with `tools/contextdiag`.
-- **Recovery by subagent (proposed).** Make recovery explicit and user-triggered. A subagent pages the transcript and returns only a distillation, so the raw session never enters the main context.
-6. A `doctor` advisory and a TUI marker. Discovery is agent-facing only so far.
-7. Marking recovered content as recovered in the audit trail.
-8. A transcript excluded from sync as oversized leaves the notice naming an artifact that is missing on other machines. Surface that case explicitly.
 
 **Open questions**
 - Which session id Cursor, Codex and Antigravity report through herdr. Unchecked; the in-memory launched map covers it meanwhile.

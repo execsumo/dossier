@@ -167,10 +167,12 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 	startCmd := execCmd + " session-start"
 	endCmd := execCmd + " session-end"
 	preCompactCmd := execCmd + " pre-compaction"
+	stopCmd := execCmd + " stop"
 
 	hooksOk := isHookConfigured(hooksMap["SessionStart"], startCmd) &&
 		isHookConfigured(hooksMap["SessionEnd"], endCmd) &&
-		isHookConfigured(hooksMap["PreCompact"], preCompactCmd)
+		isHookConfigured(hooksMap["PreCompact"], preCompactCmd) &&
+		isHookConfigured(hooksMap["Stop"], stopCmd)
 
 	// Migration: older versions mistakenly wrote the dossier MCP entry into the
 	// hooks file (settings.json). MCP servers belong in ~/.claude.json; strip any
@@ -250,7 +252,14 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 	sparkSkillPath := filepath.Join(home, ".claude", "skills", "spark", "SKILL.md")
 	sparkSkillOk := managedAssetInstalled(sparkSkillPath, sparkSkillContent)
 
-	if hooksOk && mcpOk && !staleMCPInHooks && hasSkill && delegateSkillOk && sparkSkillOk {
+	saveSkillContent, err := assets.FS.ReadFile("save-dossier-skill.md")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded save-dossier skill asset: %w", err)
+	}
+	saveSkillPath := filepath.Join(home, ".claude", "skills", "save-dossier", "SKILL.md")
+	saveSkillOk := managedAssetInstalled(saveSkillPath, saveSkillContent)
+
+	if hooksOk && mcpOk && !staleMCPInHooks && hasSkill && delegateSkillOk && sparkSkillOk && saveSkillOk {
 		return nil
 	}
 
@@ -297,6 +306,7 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 			hooksMap["SessionStart"] = updateHookArray(hooksMap["SessionStart"], startCmd, "hook session-start")
 			hooksMap["SessionEnd"] = updateHookArray(hooksMap["SessionEnd"], endCmd, "hook session-end")
 			hooksMap["PreCompact"] = updateHookArray(hooksMap["PreCompact"], preCompactCmd, "hook pre-compaction")
+			hooksMap["Stop"] = updateHookArray(hooksMap["Stop"], stopCmd, "hook stop")
 			hooksConfigMap["hooks"] = hooksMap
 		}
 
@@ -378,6 +388,11 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 			return fmt.Errorf("failed to install spark skill: %w", err)
 		}
 	}
+	if !saveSkillOk {
+		if err := installManagedAsset(saveSkillPath, saveSkillContent, timestamp); err != nil {
+			return fmt.Errorf("failed to install save-dossier skill: %w", err)
+		}
+	}
 
 	return nil
 }
@@ -388,6 +403,7 @@ func isDossierHookCommand(command string) bool {
 		" hook session-start",
 		" hook session-end",
 		" hook pre-compaction",
+		" hook stop",
 	} {
 		if strings.HasSuffix(command, suffix) {
 			return true
@@ -465,7 +481,7 @@ func removeDossierConfigMap(config map[string]any) bool {
 	}
 	if hooks, ok := config["hooks"].(map[string]any); ok {
 		removed := false
-		for _, name := range []string{"SessionStart", "SessionEnd", "PreCompact"} {
+		for _, name := range []string{"SessionStart", "SessionEnd", "PreCompact", "Stop"} {
 			if cleaned, found := removeDossierHooks(hooks[name]); found {
 				if arr, ok := cleaned.([]any); ok && len(arr) == 0 {
 					delete(hooks, name)
@@ -574,6 +590,11 @@ func (c *ClaudeCodeHarness) Uninstall(opts core.InstallOpts) error {
 	if err != nil {
 		return fmt.Errorf("failed to read embedded spark skill asset: %w", err)
 	}
+	savePath := filepath.Join(home, ".claude", "skills", "save-dossier", "SKILL.md")
+	saveContent, err := assets.FS.ReadFile("save-dossier-skill.md")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded save-dossier skill asset: %w", err)
+	}
 
 	configChange := false
 	for _, path := range []string{claudeJSONPath, settingsPath} {
@@ -590,6 +611,7 @@ func (c *ClaudeCodeHarness) Uninstall(opts core.InstallOpts) error {
 	}{
 		{delegatePath, delegateContent},
 		{sparkPath, sparkContent},
+		{savePath, saveContent},
 	} {
 		if existing, readErr := os.ReadFile(item.path); readErr == nil {
 			if !bytes.Equal(existing, item.content) {
@@ -623,7 +645,10 @@ func (c *ClaudeCodeHarness) Uninstall(opts core.InstallOpts) error {
 	if err := removeManagedAsset(delegatePath, delegateContent); err != nil {
 		return err
 	}
-	return removeManagedAsset(sparkPath, sparkContent)
+	if err := removeManagedAsset(sparkPath, sparkContent); err != nil {
+		return err
+	}
+	return removeManagedAsset(savePath, saveContent)
 }
 
 // ResolveTranscript attempts to read the transcript file either from the provided path or by finding the file named <sessionID>.jsonl under ~/.claude/projects.

@@ -26,6 +26,9 @@ type Config struct {
 	Version string
 	// Eval configures automatic session evals (ADR 0016).
 	Eval EvalConfig
+	// SaveNudgeTurns is how many user turns of work the Stop hook lets pass
+	// without a save before asking the agent to save. Zero disables it.
+	SaveNudgeTurns int
 }
 
 // EvalConfig is the knob for automatic session evals. They spend model
