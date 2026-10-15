@@ -273,6 +273,9 @@ func (s *Service) InstallHarness(ctx context.Context, req InstallHarnessReq) (Re
 				caps = postCaps
 			}
 			report := newHarnessReport(h.Name(), caps)
+			// Capabilities may already work while a requested migration was skipped.
+			// Do not tell the user there is nothing further to install.
+			report.IntegrationComplete = false
 			report.Notes = append(report.Notes, harnessAdvisories(h.Name(), caps)...)
 			var warnings []Warning
 			for _, note := range report.Notes {

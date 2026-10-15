@@ -199,8 +199,8 @@ This is a code-read finding, not yet confirmed in a live Pi session. The CLI is 
 
 - **MCP Path:** Stdio-based server registered globally in `~/.claude.json` under `"mcpServers"` or locally in a project's `.mcp.json`.
 - **Hooks:** Lifecycle hooks trigger commands. The standard output of the `SessionStart` hook is directly injected into Claude Code's active context window. The `PreCompact` hook triggers just before history truncation.
-- **Hook payloads do not carry distilled state (verified).** `SessionEnd`/`PreCompact` deliver `session_id`, `hook_event_name`, and `transcript_path` — there is no field through which the agent's curated state could arrive, and a hook cannot invoke the agent to produce one. `Service.SessionEnd` therefore archives the transcript and leaves the Distilled State untouched unless the session already saved it. An earlier reading of this table assumed the boundary could perform "a final `Save` of the session's active Dossier context"; it cannot, and the code no longer implies it does. The `distilled_state` field the hook handler decodes remains for harnesses that can supply one; none in the registry does today. Consequence: eager `dossier_save` during the session is the only path to the Distilled State, which is why `assets/instructions.md` states that as a load-bearing rule, and why the boundary emits a visible warning when a session persisted nothing.
-  - **Unverified (review 2026-09-18):** whether that warning is *seen* in Claude Code. `dossier hook session-end` prints it to stdout (`internal/cli/cli.go:1344`) from a hook that runs while the session is closing, when there is no turn left to inject into. Until a live session shows the text somewhere a user looks, treat it as recorded (in the audit log, `distilled_state_not_captured`) rather than visible. Pi surfaces hook failures with `ctx.ui.notify`, but a warning printed by a successful hook is a different path, also unverified.
+- **Hook payloads do not carry distilled state (verified).** `SessionEnd`/`PreCompact` deliver `session_id`, `hook_event_name`, and `transcript_path` — there is no field through which the agent's curated state could arrive, and a hook cannot invoke the agent to produce one. `Service.SessionEnd` therefore archives the transcript and leaves the Distilled State untouched unless the session already saved it. An earlier reading of this table assumed the boundary could perform "a final `Save` of the session's active Dossier context"; it cannot, and the code no longer implies it does. The `distilled_state` field the hook handler decodes remains for harnesses that can supply one; none in the registry does today. Consequence: eager `dossier_save` during the session is the only path to the Distilled State, which is why `assets/instructions.md` states that as a load-bearing rule, and why the boundary records a warning when a session persisted nothing.
+  - **Documented output contract (2026-10-14; not live-tested):** `dossier hook session-end` prints the warning to stdout in the `hookCmd` session-end branch (`internal/cli/cli.go`). The current [Claude Code hooks reference](https://code.claude.com/docs/en/hooks.md) says successful hook stdout goes to the debug log, except for named events that do not include SessionEnd. Therefore this is recorded (`distilled_state_not_captured` in the audit log), not a guaranteed user-visible notice. SessionEnd also discards JSON output fields and has a shared default 1.5-second budget; the installer sets no explicit timeout. Exit, `/clear`, `/resume`, and timeout behavior still need a live isolated test. See [the investigation](repair-item5-finding.md); no hook behavior changed. Pi surfaces hook failures with `ctx.ui.notify`, but successful-hook warning visibility is a different path and remains unverified.
 - **Session ID:** A stable UUID is passed in the JSON payload on `stdin` to any hook handler. (Note: Previously, this session ID was only available to hooks and was not automatically resolved by MCP adapters; the addition of env-var resolution closes this gap).
 
 ### Headless runs (D8, verified 2026-10-01)
@@ -218,10 +218,10 @@ SessionStart pull or sync-health reporting.
 
 This verifies Dossier's launch and payload construction, not a live API-backed
 Claude `-p` turn. The installed CLI help was inspected; a production model call
-was not made. SessionEnd with no save remains intentionally visible as a
-warning and `distilled_state_not_captured` audit event; Claude's display of
-SessionEnd stdout remains unverified (see below), so operators should not treat
-that hook output as a guaranteed user-visible notice.
+was not made. SessionEnd with no save emits a stdout warning and a
+`distilled_state_not_captured` audit event. Claude Code documents successful
+SessionEnd stdout as debug-log-only (see above); operators should not treat
+that hook output as a user-visible notice.
 
 ### Stop hook and resume source (verified 2026-10-07, Claude Code 2.1.292)
 

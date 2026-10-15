@@ -469,12 +469,9 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 			addIssue("Dossier %s has invalid frontmatter: %v", fm.ID, err)
 		}
 
-		if hasRoster && fm.Lead != "" {
-			leadView := s.displayLead(roster, hasRoster, fm.Lead)
-			if leadView.Former {
-				addAdvisory(fmt.Sprintf("Dossier %s lead %q is a former team member", fm.ID, leadView.DisplayName))
-			} else if _, ok, _ := roster.ResolvePerson(fm.Lead); !ok || !roster.Has(fm.Lead) {
-				addAdvisory(fmt.Sprintf("Dossier %s lead %q is not a member of the team roster", fm.ID, fm.Lead))
+		if hasRoster && strings.TrimSpace(fm.Lead) != "" {
+			if msg := roster.storedLeadAdvisory(fm.Slug, fm.Lead); msg != "" {
+				addAdvisory(fmt.Sprintf("Dossier %s %s", fm.ID, msg))
 			}
 		}
 
@@ -507,9 +504,26 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 			artifactLines[art.ID] = lineCount
 		}
 
+		// Bound citations by the content the artifact fetch actually serves, not
+		// the recorded lines: metadata, which an outside edit can leave stale.
+		// Only cited artifacts are read, each once; a disagreement is advisory.
+		contentLines := map[string]int{}
 		for _, issue := range validateDistilledStateProvenance(d.DistilledState.Body, fm.ID, func(artifactID string) (int, bool) {
-			lineCount, ok := artifactLines[artifactID]
-			return lineCount, ok
+			recorded, ok := artifactLines[artifactID]
+			if !ok {
+				return 0, false
+			}
+			if n, seen := contentLines[artifactID]; seen {
+				return n, true
+			}
+			actual := recorded
+			if art, err := s.store.ReadArtifact(fm.ID, artifactID); err != nil {
+				addAdvisory(fmt.Sprintf("Dossier %s artifact %s could not be read to check citations against its content (%v); checked against its recorded lines: %d instead.", fm.ID, artifactID, err, recorded))
+			} else if actual = artifactLineCount(art.Content); actual != recorded {
+				addAdvisory(fmt.Sprintf("Dossier %s artifact %s records lines: %d but its content has %d line(s) (numbered after the frontmatter, as `dossier artifact %s %s` prints them). The recorded line count is stale; citations are checked against the content.", fm.ID, artifactID, recorded, actual, fm.Slug, artifactID))
+			}
+			contentLines[artifactID] = actual
+			return actual, true
 		}) {
 			addIssue("%s", issue)
 		}
@@ -525,7 +539,7 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 			} else {
 				missing, unindexed := filesIndexIssues(d.DistilledState.Body, files)
 				for _, path := range missing {
-					addIssue("Dossier %s lists %s under ## Files but it does not exist", fm.ID, path)
+					addIssue("Dossier %s lists %s under ## Files but it does not exist. Restore the file, or update or remove the entry with dossier_save.", fm.ID, path)
 				}
 				if len(unindexed) > 0 {
 					addAdvisory(unindexedFilesAdvisory(fm.ID, unindexed))
@@ -557,6 +571,30 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 		report.ConflictsFound = len(conflicts)
 		for _, c := range conflicts {
 			addIssue("Unresolved conflict %s for dossier %s", c.ID, c.DossierID)
+		}
+	}
+
+	// A machine-local binding whose Dossier is gone (a folder removed by hand)
+	// is reported, never removed: the remedy is the user's call.
+	if bindingStore, ok := s.store.(SessionBindingStore); ok {
+		bindings, err := bindingStore.ListSessionBindings()
+		if err != nil {
+			addAdvisory(fmt.Sprintf("Session bindings could not be listed: %v", err))
+		}
+		known := make(map[string]bool, len(fms))
+		for _, fm := range fms {
+			known[fm.ID] = true
+		}
+		for _, b := range bindings {
+			if b.DossierID == "" || known[b.DossierID] {
+				continue
+			}
+			if _, _, err := s.store.Read(b.DossierID); err == nil {
+				continue
+			}
+			addAdvisory(fmt.Sprintf(
+				"Session %q is bound to dossier %s, which does not exist. Restore that Dossier, rebind the session with `dossier switch <slug-or-id> --session %s`, or after inspection remove only the machine-local binding sessions/%s.json.",
+				b.SessionBindingID, b.DossierID, b.SessionBindingID, b.SessionBindingID))
 		}
 	}
 

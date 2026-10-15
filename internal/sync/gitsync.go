@@ -95,7 +95,8 @@ type SyncReport struct {
 	// Conflicts lists both-modified files: remote won the working tree, the local
 	// version is captured for the caller to route into conflict machinery.
 	Conflicts []ConflictRecord
-	// Excluded lists oversized files refused from the commit.
+	// Excluded lists files refused from the commit: oversized files, and
+	// ignored files an older build already committed (their edits stay local).
 	Excluded []ExcludedFile
 	// Ahead / Behind counts versus the remote after sync.
 	Ahead  int
@@ -124,7 +125,8 @@ type ConflictRecord struct {
 	RemoteRevision string
 }
 
-// ExcludedFile describes an oversized file refused from the commit.
+// ExcludedFile describes a file refused from the commit. Size is 0 for an
+// ignored file withheld for that reason rather than for its size.
 type ExcludedFile struct {
 	Path    string
 	Size    int64

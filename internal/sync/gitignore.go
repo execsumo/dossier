@@ -26,9 +26,15 @@ import (
 // Root entries are anchored with a leading "/" so per-slug subdirectories of the
 // same name are unaffected; "*/sessions/" matches exactly one level down, which
 // is every live dossier slug; done dossiers sit under archive/ and get their own entries.
+// "/config.yaml*" is anchored for the same reason: a deliverable named
+// config.yaml under <slug>/files/ is shared work and must keep syncing.
+//
+// Adding an entry here does not by itself untrack a file an older build
+// already committed; sync does that (see ignored.go).
 var defaultGitignoreEntries = []string{
 	"# Dossier sync — machine-local, never committed (managed by internal/sync)",
 	"/config.yaml",
+	"/config.yaml*", // config backups, e.g. config.yaml.bak from config.Migrate
 	"/credentials",
 	"/sessions/",          // root session bindings
 	"*/sessions/",         // per-slug raw session stash — write-only, never citable
@@ -44,6 +50,8 @@ var defaultGitignoreEntries = []string{
 	".sync.lock",
 	".syncstate.json",
 	"*.swp",
+	"*.bak",     // tool and editor backups, at any depth
+	".DS_Store", // macOS Finder metadata, at any depth
 }
 
 // EnsureGitignore writes the default machine-local exclusion set to

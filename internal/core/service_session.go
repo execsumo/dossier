@@ -196,6 +196,16 @@ func (s *Service) Archive(ctx context.Context, req ArchiveReq) (Result, error) {
 		return Result{}, err
 	}
 
+	// Read bindings before mutating so corrupt local metadata cannot leave a
+	// seemingly successful archive with dangling active sessions.
+	var bindings []SessionBinding
+	if sessions, ok := s.store.(SessionBindingStore); ok {
+		bindings, err = sessions.ListSessionBindings()
+		if err != nil {
+			return Result{}, err
+		}
+	}
+
 	d.Frontmatter.Status = StatusDone
 
 	newRev, err := s.store.Write(d, rev)
@@ -213,9 +223,20 @@ func (s *Service) Archive(ctx context.Context, req ArchiveReq) (Result, error) {
 		AfterRevision:  string(newRev),
 	})
 
+	var warnings []Warning
+	for _, binding := range bindings {
+		if binding.DossierID != d.Frontmatter.ID {
+			continue
+		}
+		if err := s.store.ClearSessionBinding(binding.SessionBindingID); err != nil {
+			warnings = append(warnings, Warning(fmt.Sprintf("Dossier archived, but session %q could not be unbound: %v; retry dossier archive %s", binding.SessionBindingID, err, d.Frontmatter.Slug)))
+		}
+	}
+
 	return Result{
-		OK:   true,
-		Data: newRev,
+		OK:       true,
+		Data:     newRev,
+		Warnings: warnings,
 	}, nil
 }
 

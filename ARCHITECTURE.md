@@ -15,6 +15,13 @@ Dossier is a single binary that wears three faces — CLI, MCP-over-stdio server
 
 This is ports-and-adapters (hexagonal). It buys us the property the SPEC implicitly requires but never states: **CLI, MCP, and TUI must behave identically** (acceptance criteria are written once but must hold across surfaces). They behave identically because they call the same `core.Service` and render the same `Result` values.
 
+`Service.Archive` preserves the complete Dossier under `archive/` and clears
+machine-local bindings to its immutable ID through the optional
+`SessionBindingStore` port. Binding cleanup failures are returned as warnings;
+retrying archive is safe. Doctor uses the same bulk-read port to report orphaned
+or corrupt bindings. Advisory lock files retain stable identities after unlock
+and are not garbage-collected while other writers may still reference them.
+
 Not every operation is exposed on every surface. Where one is exposed, it goes through the same `core.Service` call. Known gaps:
 - `dossier export` (ADR 0017) is CLI and MCP only. There is no TUI action yet; when added it must call `Service.Export` and `internal/exportout`. `Service.Export` writes nothing: `internal/exportout.Run` resolves the path, writes the file atomically, then calls `Service.RecordExport` so the `exported` audit event only ever names an export that actually left.
 - Handing a Dossier to a new agent session (`dossier open`, TUI `c`) is not exposed over MCP: an agent is already in a session (`internal/harness/launch.go`).
@@ -82,7 +89,8 @@ dossier/
     store/               # driven adapter: filesystem (implements core.Store)
       fsstore.go         # layout, read/write, atomic write protocol (§5)
       auditlog.go        # append-only JSONL with O_APPEND + lock
-      lock.go            # per-dossier advisory file lock
+      lock.go            # per-dossier advisory file lock; stable files retained after unlock
+      session_bindings.go # bulk binding read for archive cleanup and doctor orphan checks
       ids.go             # ULID generation; slug generation + collision suffix
     evaluator/           # driven adapter (implements core.Evaluator): isolated `claude -p` calls + detached spawn
     search/              # driven adapter (implements core.Searcher)
@@ -105,7 +113,8 @@ dossier/
       credentials.go     # PAT resolution (~/.dossier/credentials 0600, `gh auth token` fallback) + auth state; ErrNoCredentials for http(s)
       transport.go       # git HTTP(S) client with a 10 s connect/TLS timeout (no overall cap)
       state.go           # .syncstate.json: last attempt / last successful pull & push / last error / auth state
-      gitignore.go       # machine-local exclusion set (config.yaml, sessions/, context/, local/, raw artifacts, inbox/) — B13/B19
+      gitignore.go       # machine-local exclusion set (root config.yaml*, .DS_Store, *.bak, sessions/, context/, local/, raw artifacts, inbox/) — B13/B19
+      ignored.go         # untrack managed local paths without deleting local bytes; preserve them across pulls
       adapter.go         # maps GitSync's internal types → core.Sync* DTOs (keeps core pure)
     exportout/           # adapter-side half of export (I/O): default ~/Downloads path, -2/-3 suffix, no-clobber/--force, DOSSIER_HOME guard, atomic write, audit call; shared by CLI and MCP
     config/              # config.yaml load/save/defaults (incl. open_with and team.remote / team.branch)

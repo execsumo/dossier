@@ -51,17 +51,15 @@ func (s *Service) normalizeLeadUpdate(updates map[string]any) (map[string]any, e
 	if !hasRoster || strings.TrimSpace(lead) == "" {
 		return updates, nil
 	}
-	username, resolved, candidates := roster.ResolvePerson(lead)
-	if !resolved {
-		if len(candidates) > 1 {
-			return updates, NewError(ErrAmbiguousTarget, fmt.Sprintf("lead %q is ambiguous; candidates: %s", lead, strings.Join(candidates, ", ")))
-		}
+	standing, username, candidates := roster.classifyLead(lead)
+	switch standing {
+	case leadAmbiguous:
+		return updates, NewError(ErrAmbiguousTarget, fmt.Sprintf("lead %q is ambiguous; candidates: %s", lead, strings.Join(candidates, ", ")))
+	case leadUnknown:
 		return updates, NewError(ErrInvalidFrontmatter, fmt.Sprintf("unknown team member %q", lead))
-	}
-	if !roster.Has(username) {
+	case leadFormer:
 		return updates, NewError(ErrInvalidFrontmatter, fmt.Sprintf("lead %q is a former team member and cannot receive new assignments", lead))
-	}
-	if roster.Kind(username) == "agent" {
+	case leadAgent:
 		return updates, NewError(ErrInvalidFrontmatter, fmt.Sprintf("lead %q is an agent; agents may own work only through a Delegation Contract", lead))
 	}
 	copy := make(map[string]any, len(updates))

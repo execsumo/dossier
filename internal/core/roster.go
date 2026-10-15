@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -198,6 +199,60 @@ func (l leadScope) matches(storedLead string) bool {
 		return l.literal != "" && NormalizeUsername(storedLead) == l.literal
 	}
 	return NormalizeUsername(storedLead) == l.username
+}
+
+// leadStanding is how a lead value stands against the roster under the
+// assignment rules (B17 canonical username, B19 no agent leads).
+type leadStanding int
+
+const (
+	leadAssignable leadStanding = iota // a current human member
+	leadUnknown
+	leadAmbiguous
+	leadFormer
+	leadAgent
+)
+
+// classifyLead is the single roster rule for leads. The write path uses it to
+// accept or refuse an assignment and doctor uses it to judge stored values, so
+// the two cannot disagree about who may lead.
+func (r Roster) classifyLead(value string) (standing leadStanding, username string, candidates []string) {
+	username, ok, candidates := r.ResolvePerson(value)
+	switch {
+	case !ok && len(candidates) > 1:
+		return leadAmbiguous, "", candidates
+	case !ok:
+		return leadUnknown, "", nil
+	case !r.Has(username):
+		return leadFormer, username, nil
+	case r.Kind(username) == "agent":
+		return leadAgent, username, nil
+	}
+	return leadAssignable, username, nil
+}
+
+// storedLeadAdvisory explains a stored lead that assigning it again would
+// refuse or rewrite, with the command that fixes it. It returns "" for a lead
+// already stored as a current human member's username (case and domain
+// variants normalize to the same username and are left alone).
+func (r Roster) storedLeadAdvisory(slug, stored string) string {
+	fix := fmt.Sprintf("dossier lead %s <username>", slug)
+	standing, username, candidates := r.classifyLead(stored)
+	switch standing {
+	case leadAmbiguous:
+		return fmt.Sprintf("lead %q matches more than one team member: %s. Pick one: %s", stored, strings.Join(candidates, ", "), fix)
+	case leadUnknown:
+		return fmt.Sprintf("lead %q is not a member of the team roster. Assign a current member: %s", stored, fix)
+	case leadFormer:
+		return fmt.Sprintf("lead %q is a former team member (%s). Reassign to a current member: %s", stored, r.DisplayName(username), fix)
+	case leadAgent:
+		return fmt.Sprintf("lead %q is an agent (%s); agents may own work only through a Delegation Contract. Assign a human lead: %s", stored, r.DisplayName(username), fix)
+	}
+	if NormalizeUsername(stored) != username {
+		return fmt.Sprintf("lead %q is not stored as a roster username; it resolves to %s (%s), and lead filters such as `ls --lead %s` miss it. Store the username: dossier lead %s %s",
+			stored, r.DisplayName(username), username, username, slug, username)
+	}
+	return ""
 }
 
 // ResolvePerson resolves a username, display name, or unique display-name

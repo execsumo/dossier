@@ -191,6 +191,53 @@ func TestDoctorFlagsUnresolvableLineRange(t *testing.T) {
 	}
 }
 
+// TestDoctorBoundsCitationsByArtifactContent: the artifact fetch path bounds a
+// range by the artifact's actual content, so doctor must too. Recorded `lines:`
+// metadata that disagrees with the content (here 40 vs 3) must neither hide a
+// citation that cannot be followed nor go unreported itself.
+func TestDoctorBoundsCitationsByArtifactContent(t *testing.T) {
+	now := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
+	fakeStore := newLocalFakeStore()
+	fakeStore.dossiers["dos_stale"] = &Dossier{
+		Frontmatter: Frontmatter{
+			ID: "dos_stale", Name: "Stale", Slug: "stale",
+			CreatedAt: now, UpdatedAt: now, Status: StatusActive, Priority: PriorityLow,
+		},
+		DistilledState: DistilledState{Body: "# Stale\n\n## Findings\n- [observed] A claim. [src:art_stale#L10-L12]\n- [observed] Uncited range. [src:art_fine#L1]"},
+	}
+	fakeStore.artifacts["dos_stale"] = []Artifact{
+		{ID: "art_stale", DossierID: "dos_stale", Type: ArtifactTypeDecisionEvidence, Title: "Stale",
+			CapturedAt: now, RefreshedAt: now, Provenance: Provenance{Origin: "unit test"},
+			ContentFormat: ContentFormatText, Content: "b1\nb2\nb3\n", Lines: 40},
+		{ID: "art_fine", DossierID: "dos_stale", Type: ArtifactTypeDecisionEvidence, Title: "Fine",
+			CapturedAt: now, RefreshedAt: now, Provenance: Provenance{Origin: "unit test"},
+			ContentFormat: ContentFormatText, Content: "a1\n", Lines: 1},
+	}
+	svc := NewService(fakeStore, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: now}, Config{}, nil)
+	res, err := svc.Doctor(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := warningsText(res.Warnings)
+	if res.OK {
+		t.Fatalf("a citation past the artifact's content must fail doctor:\n%s", joined)
+	}
+	for _, want := range []string{
+		"cites art_stale#L10-L12 but the artifact has only 3 line(s)",
+		"artifact art_stale records lines: 40 but its content has 3 line(s)",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q in:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "art_fine") {
+		t.Fatalf("an artifact whose metadata matches its content must be silent:\n%s", joined)
+	}
+	if got := fakeStore.dossiers["dos_stale"].DistilledState.Body; !strings.Contains(got, "#L10-L12") {
+		t.Fatalf("doctor must not edit the Distilled State: %q", got)
+	}
+}
+
 func TestDoctorIgnoresUncitedEvidence(t *testing.T) {
 	now := time.Date(2026, 6, 14, 12, 0, 0, 0, time.UTC)
 	fakeStore := newLocalFakeStore()

@@ -111,4 +111,26 @@ func TestDoctorChecksFilesIndex(t *testing.T) {
 	if contains(res, "## Files") {
 		t.Fatalf("a consistent index must be silent: %v", res.Warnings)
 	}
+
+	// Actionable wording: a missing entry says how to fix it, and an unlisted
+	// file gets the exact entry format to add.
+	res = build("# D\n\n## Files\n- `files/gone.pptx`: x\n", nil)
+	if !contains(res, "Restore the file, or update or remove the entry with dossier_save") {
+		t.Fatalf("missing-file issue must name the fix: %v", res.Warnings)
+	}
+	res = build("# D\n", []WorkingFile{{Path: "files/loose.html"}})
+	if !contains(res, "- `files/<name>` (<kind>): <what it is>; the path must be in backticks to count as listed") {
+		t.Fatalf("unlisted-file advisory must show the entry format: %v", res.Warnings)
+	}
+
+	// The backticked entry is the only recognized form (ParseFilesIndex is
+	// canonical). A bare path stays unlisted, and the advisory says why.
+	res = build("# D\n\n## Files\n- files/plan.md (md): plan\n", []WorkingFile{{Path: "files/plan.md"}})
+	if !contains(res, "1 file(s) in files/ not listed under ## Files in the Distilled State: files/plan.md") ||
+		!contains(res, "the path must be in backticks to count as listed") {
+		t.Fatalf("a bare-path entry must stay unlisted with the expected form explained: %v", res.Warnings)
+	}
+	if !res.OK {
+		t.Fatalf("index advisories are not store damage: %v", res.Warnings)
+	}
 }

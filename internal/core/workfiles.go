@@ -138,6 +138,6 @@ func unindexedFilesAdvisory(dossierID string, unindexed []string) string {
 		suffix = fmt.Sprintf(" (+%d more)", len(unindexed)-5)
 	}
 	return fmt.Sprintf(
-		"Dossier %s has %d file(s) in files/ not listed under ## Files in the Distilled State: %s%s. List them so the next session can find the work.",
+		"Dossier %s has %d file(s) in files/ not listed under ## Files in the Distilled State: %s%s. List them so the next session can find the work, one line each in the form - `files/<name>` (<kind>): <what it is>; the path must be in backticks to count as listed.",
 		dossierID, len(unindexed), strings.Join(shown, ", "), suffix)
 }
