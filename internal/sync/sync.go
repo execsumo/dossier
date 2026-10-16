@@ -310,11 +310,19 @@ func (g *GitSync) syncWithCtx(ctx context.Context) (SyncReport, error) {
 	return report, nil
 }
 
-// commitLocal stages tracked changes (excluding oversized + gitignored files),
-// commits them with an author-summary message, and returns the new HEAD hash
+// commitLocal stages tracked changes (excluding oversized + gitignored files;
+// ignored files an older build committed are removed from the index, kept on
+// disk, and reported in the excluded list), commits them with an author-summary message, and returns the new HEAD hash
 // string, the commit message, and any oversized files refused. Returns
 // ("", "", nil, nil) when there is nothing to commit.
 func (g *GitSync) commitLocal(repo *git.Repository, wt *git.Worktree) (string, string, []ExcludedFile, error) {
+	ignored := managedLocalMatcher()
+	// Drop machine-local files an older build committed (or staged) from the
+	// index before reading status, so none of their content can reach this
+	// commit.
+	if err := untrackIgnored(repo, ignored); err != nil {
+		return "", "", nil, err
+	}
 	status, err := wt.Status()
 	if err != nil {
 		return "", "", nil, fmt.Errorf("status: %w", err)
@@ -322,8 +330,17 @@ func (g *GitSync) commitLocal(repo *git.Repository, wt *git.Worktree) (string, s
 
 	var excluded []ExcludedFile
 	var stagedSlugs []string
-	for path := range status {
+	for path, fs := range status {
 		full := filepath.Join(g.cfg.StoreDir, path)
+		if ignored(path) {
+			// Only a removal from the index can show up here: the file was in
+			// HEAD and untrackIgnored just dropped it. Commit the removal.
+			if fs.Staging == git.Deleted {
+				excluded = append(excluded, ExcludedFile{Path: path, Warning: untrackedWarning(path)})
+				stagedSlugs = append(stagedSlugs, topSlug(path))
+			}
+			continue
+		}
 		if sz, err := os.Stat(full); err == nil && sz.Size() > MaxFileSizeBytes {
 			excluded = append(excluded, ExcludedFile{
 				Path: path,

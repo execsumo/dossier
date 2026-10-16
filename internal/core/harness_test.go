@@ -317,6 +317,20 @@ func TestInstallHarnessReportsSkippedAsWarningNotFailure(t *testing.T) {
 	}
 }
 
+func TestSkippedInstallDoesNotClaimIntegrationComplete(t *testing.T) {
+	h := &stubHarness{name: "claude-code", caps: Capabilities{
+		Installed: true, SessionIdentity: true, MCP: true, SessionStartHook: true,
+		SessionEndHook: true, PreCompactionHook: true, TranscriptCapture: true,
+	}, installFail: ErrInstallSkipped}
+	res, err := serviceWithHarnesses(t, h).InstallHarness(context.Background(), InstallHarnessReq{Name: "claude-code"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Data.(HarnessReport).IntegrationComplete {
+		t.Fatal("skipped migration must not say nothing further to install")
+	}
+}
+
 func TestInitReportsSkippedAsWarningNotFailure(t *testing.T) {
 	pi := &stubHarness{name: "pi", caps: Capabilities{Installed: true}, installFail: ErrInstallSkipped}
 	svc := serviceWithHarnesses(t, pi)

@@ -39,6 +39,28 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
     - `dossier stats --by version|guide|model|effort|eval` reports the results.
     - Each saved session gets a detached three-call eval. The `eval:` knob in `config.yaml` controls it: on by default, model and effort configurable.
 
+## Working-tree repairs (2026-10-14, not released)
+
+- Harness install now reports skipped confirmation instead of claiming success;
+  the quoted stale Stop-hook removal is covered for backup and idempotence.
+- `archive` / `done` clear matching local session bindings while preserving the
+  Dossier; stable advisory lock files remain intentionally. Doctor reports
+  orphaned bindings without deleting them.
+- Doctor and lead assignment share roster classification; legacy display-name
+  leads get a canonical-username repair command, never automatic reassignment.
+  Doctor's file-index and citation warnings explain the repair and content-line
+  numbering; citation bounds use actual artifact content, not stale metadata.
+- Team Sync excludes root config variants, Finder metadata, and backups;
+  upgraded sync untracks older published copies without deleting local bytes.
+  Historical exposure remains, and older clients can reintroduce the files.
+- Reproduction commands and limitations: `docs/repair-item2-evidence.md`,
+  `docs/repair-item1-evidence.md`,
+  `docs/repair-items3-6-evidence.md`, `docs/repair-item4-evidence.md`, and
+  `docs/repair-item5-finding.md`.
+- SessionEnd stdout visibility is documented as debug-log-only by current Claude
+  Code docs; actual UI/timeout behavior still needs the isolated live test in
+  the item 5 finding. No hook behavior was changed for that investigation.
+
 ## What remains
 
 **Owner-gated**
@@ -58,7 +80,7 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 **Open questions**
 - Which session id Cursor, Codex and Antigravity report through herdr. Unchecked; the in-memory launched map covers it meanwhile.
 - Whether `open_layout: workspace` (TUI and agent side by side per Dossier) is worth adding.
-- Whether Claude Code reads a bare `AGENTS.md`, and whether SessionEnd hook stdout reaches the user.
+- Whether Claude Code reads a bare `AGENTS.md`. SessionEnd stdout is documented as debug-log-only; live UI and timeout verification remain open (`docs/repair-item5-finding.md`).
 - Eval coverage of large sessions: transcripts over 400 KB are skipped. If `dossier stats` shows this often, add chunked probe extraction.
 
 **Watch items** (no action until triggered)

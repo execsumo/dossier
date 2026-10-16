@@ -29,7 +29,7 @@ Already have a local Dossier store and want to share it? You turn that store int
 
 - **Everything syncs.** Every live and archived Dossier, plus their history, conflicts, artifacts and audit trail, goes into the repo. There is no per-Dossier private setting. If some Dossiers are personal, keep them out of this store (archive or move them first, or use a separate `DOSSIER_HOME` for them).
 - **Anyone with access to the repo can read all of it.** Repo access is the permission model.
-- **Some things stay on your machine:** `config.yaml`, session bindings, raw per-Dossier session captures and generated context. Artifacts over 100 MB are skipped with a warning.
+- **Some things stay on your machine:** root `config.yaml` and `config.yaml*` variants, `.DS_Store`, `*.bak` backups, session bindings, raw per-Dossier session captures and generated context. Artifacts over 100 MB are skipped with a warning.
 - **Optional backup:** `cp -r ~/.dossier ~/.dossier.bak`. Nothing is deleted, but publishing can't be undone.
 
 **Steps:**
@@ -47,7 +47,7 @@ Already have a local Dossier store and want to share it? You turn that store int
 5. **Check the list and confirm.** Dossier checks that the repo is empty, then lists every Dossier it will publish. Type `y` to continue. Use `-y` to skip the prompt, for example in a script.
 6. **Done.** Your store is pushed, you're the team manager, and the repo address is saved in your local `config.yaml`.
 7. **Invite teammates.** Follow the "Manager checklist for a new teammate" below for each person. Only the manager can add or remove roster members; anyone else running `team add` or `team remove` is refused with a message naming the manager.
-8. **Assign work.** Set a Dossier's lead with `dossier lead <slug> <username>` (or `dossier promote … --lead <username>`). The lead must be a current roster member, and the roster username always works. Delegation Contracts name their owner inside the Dossier (`### <task> — owner: <name>`).
+8. **Assign work.** Set a Dossier's lead with `dossier lead <slug> <username>` (or `dossier promote … --lead <username>`). The lead must be a current human roster member; their username is the unambiguous choice. A unique display name or prefix is accepted and stored as the username; ambiguous names require a choice. Doctor identifies older display-name values and gives the command to canonicalize them, without editing them. Delegation Contracts name their owner inside the Dossier (`### <task> — owner: <name>`).
 
 If `create` fails (repo not empty, no access, no network), it says why. Fix the cause and run the same command again.
 
@@ -132,11 +132,21 @@ Both perspectives are preserved — neither is silently overwritten. If you and 
 
 Some things are yours alone and **never travel** to the shared store:
 
-- **Your local settings** (`config.yaml`) — your machine's install details.
+- **Your local settings** (root `config.yaml` and `config.yaml*` variants) — your machine's install details and their backups.
+- **Finder metadata and backups** (`.DS_Store` and `*.bak`, at any depth). A shared deliverable named `files/config.yaml` is not excluded just because it has that name.
 - **Your local session list** — which topic each of your sessions is looking at.
 - **Your locally generated context** — the helper notes Dossier writes for your machine.
 
 These are specific to your computer, so sharing them would overwrite someone else's setup. They stay put, by design.
+
+**Already published backups or Finder files?** Upgrade every teammate before the
+cleanup sync. The upgraded sync removes managed local files from Git's index
+without deleting their local bytes; the next successful push removes their
+current remote copies. Older commits still contain them. An older client can
+publish them again, and a new join still receives whatever is in the remote tip
+until an upgraded client has cleaned it. Assess any exposed content and rotate
+sensitive values; history rewriting is a separate, owner-approved operation.
+No history is rewritten automatically.
 
 ~~Everything that's **about the topics themselves** — your distilled notes, the captured source material, your per-topic session captures, and the audit trail — does sync, so the team sees it.~~ **Actual:** your raw per-topic session captures do **not** sync (`*/sessions/`, `internal/sync/gitignore.go:36`). What does sync:
 

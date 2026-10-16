@@ -599,6 +599,9 @@ func NewRootCmd() *cobra.Command {
 				return
 			}
 
+			for _, warning := range res.Warnings {
+				fmt.Printf("Warning: %s\n", warning)
+			}
 			fmt.Printf("Dossier archived successfully. New revision: %s\n", res.Data.(core.Revision))
 		},
 	}
@@ -627,6 +630,9 @@ func NewRootCmd() *cobra.Command {
 				return
 			}
 
+			for _, warning := range res.Warnings {
+				fmt.Printf("Warning: %s\n", warning)
+			}
 			fmt.Printf("Dossier marked done successfully. New revision: %s\n", res.Data.(core.Revision))
 		},
 	}

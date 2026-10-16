@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
 // mergeResult is the outcome of the pull/merge phase.
@@ -80,10 +81,46 @@ func (g *GitSync) pullRemoteWins(ctx context.Context, repo *git.Repository, wt *
 // ffToRemote performs a true fast-forward: moves the current branch ref to
 // remoteHash and syncs the working tree + index to it (no new commit).
 func ffToRemote(repo *git.Repository, wt *git.Worktree, cfg Config, remoteHash plumbing.Hash) error {
+	// A checkout writes and deletes tracked paths, so an older build's commit
+	// that still carries an ignored file (or a teammate's removal of one) would
+	// replace or delete this machine's copy. Record those paths first.
+	ignored := managedLocalMatcher()
+	fromTree := &object.Tree{}
+	if h, err := headHash(repo); err == nil {
+		if c, err := repo.CommitObject(h); err == nil {
+			if t, err := c.Tree(); err == nil {
+				fromTree = t
+			}
+		}
+	}
+	remoteCommit, err := repo.CommitObject(remoteHash)
+	if err != nil {
+		return fmt.Errorf("remote commit %s: %w", remoteHash, err)
+	}
+	toTree, err := remoteCommit.Tree()
+	if err != nil {
+		return fmt.Errorf("remote tree: %w", err)
+	}
+	restoreIgnored, err := preserveIgnoredLocal(cfg.StoreDir, ignored, fromTree, toTree)
+	if err != nil {
+		return err
+	}
+
 	branchRefName := headBranchRefName(repo)
 	if err := repo.Storer.SetReference(plumbing.NewHashReference(branchRefName, remoteHash)); err != nil {
 		return fmt.Errorf("set branch ref: %w", err)
 	}
+	checkoutErr := checkoutPreservingMachineLocal(wt, cfg, branchRefName)
+	if err := restoreIgnored(); err != nil {
+		if checkoutErr != nil {
+			return fmt.Errorf("%w; %v", checkoutErr, err)
+		}
+		return err
+	}
+	return checkoutErr
+}
+
+func checkoutPreservingMachineLocal(wt *git.Worktree, cfg Config, branchRefName plumbing.ReferenceName) error {
 	// go-git's Force checkout removes working-tree files that are absent from the
 	// target tree — including untracked/gitignored ones. The machine-local files
 	// (config.yaml, root sessions/, context/, sync state) are gitignored and thus

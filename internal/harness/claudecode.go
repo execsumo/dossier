@@ -278,10 +278,17 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 	}
 
 	if !opts.YesToAll {
-		stat, _ := os.Stdin.Stat()
-		if (stat.Mode() & os.ModeCharDevice) == 0 {
-			// Not a terminal, abort interactive prompt
-			return nil
+		// Writing nothing without consent is right (B7/B8); reporting that as
+		// success is not. Return ErrInstallSkipped, as Pi and Uninstall do, so
+		// the CLI warns and exits non-zero instead of leaving e.g. a stale
+		// Stop hook in place behind an apparently successful install.
+		pending := ""
+		if staleStopHook {
+			pending = fmt.Sprintf("; the stale Dossier Stop hook in %s was left in place", hooksPath)
+		}
+		stat, err := os.Stdin.Stat()
+		if err != nil || (stat.Mode()&os.ModeCharDevice) == 0 {
+			return fmt.Errorf("%w: no terminal to confirm on; re-run with --yes to apply%s", core.ErrInstallSkipped, pending)
 		}
 
 		fmt.Printf("Configure Claude Code integration (hooks + MCP server)? [y/N]: ")
@@ -289,7 +296,7 @@ func (c *ClaudeCodeHarness) Install(opts core.InstallOpts) error {
 		_, _ = fmt.Scanln(&response)
 		response = strings.ToLower(strings.TrimSpace(response))
 		if response != "y" && response != "yes" {
-			return nil
+			return fmt.Errorf("%w: user declined%s", core.ErrInstallSkipped, pending)
 		}
 	}
 

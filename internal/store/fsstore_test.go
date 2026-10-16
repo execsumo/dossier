@@ -847,8 +847,9 @@ func TestFSStoreListArtifactsStreamCountsLegacyLinesWithoutMutation(t *testing.T
 		t.Fatal("ListArtifacts mutated immutable legacy artifact metadata")
 	}
 
-	// Doctor must consume the streamed metadata count for citation ranges,
-	// rather than reading the huge body again or treating missing lines as 0.
+	// Doctor must bound citation ranges by the body's real line count, never
+	// treating missing lines metadata as 0. (It reads cited artifacts once to
+	// check that count against the content.)
 	if err := store.AppendAudit(dossier.Frontmatter.ID, core.AuditEvent{
 		TS: now, Event: core.AuditEventCreate, DossierID: dossier.Frontmatter.ID,
 	}); err != nil {
@@ -914,6 +915,77 @@ func TestFSStoreLegacyLineCountMakesDoctorRejectOutOfRange(t *testing.T) {
 	}
 	if result.OK || !strings.Contains(strings.Join(warningsAsStrings(result.Warnings), "\n"), "has only 2 line(s)") {
 		t.Fatalf("Doctor() did not reject range past streamed legacy count: ok=%v warnings=%v", result.OK, result.Warnings)
+	}
+}
+
+// TestFSStoreDoctorBoundsCitationByContentNotStaleMetadata: an artifact whose
+// recorded lines: disagrees with its body (stale metadata) must be bounds-checked
+// against the body, which is what `dossier artifact -L` serves. The count is
+// body lines only: the on-disk file is longer because of its frontmatter.
+func TestFSStoreDoctorBoundsCitationByContentNotStaleMetadata(t *testing.T) {
+	tempHome := t.TempDir()
+	store := NewFSStore(tempHome)
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	now := time.Now().Truncate(time.Second)
+	dossier := &core.Dossier{
+		Frontmatter: core.Frontmatter{
+			ID: "dos_stale_lines", Name: "Stale Lines", Slug: "stale-lines",
+			CreatedAt: now, UpdatedAt: now, Status: core.StatusActive, Priority: core.PriorityHigh,
+		},
+		DistilledState: core.DistilledState{Body: "## Findings\n- [observed] last body line. [src:art_stale_lines#L3]\n- [observed] past the body. [src:art_stale_lines#L10-L12]"},
+	}
+	if _, err := store.Write(dossier, ""); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	artifact := &core.Artifact{
+		ID: "art_stale_lines", Type: core.ArtifactTypeDecisionEvidence, Title: "Three lines",
+		ContentFormat: core.ContentFormatText, Content: "b1\nb2\nb3\n",
+		Provenance: core.Provenance{Origin: "stale fixture"}, CapturedAt: now, RefreshedAt: now,
+	}
+	if err := store.WriteArtifact(dossier.Frontmatter.ID, artifact); err != nil {
+		t.Fatalf("WriteArtifact() error = %v", err)
+	}
+	artifactPath := filepath.Join(tempHome, dossier.Frontmatter.Slug, "artifacts", artifact.ID+".txt")
+	data, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	stale := strings.Replace(string(data), "lines: 3\n", "lines: 40\n", 1)
+	if stale == string(data) {
+		t.Fatal("fixture did not change lines metadata")
+	}
+	if err := os.Chmod(artifactPath, 0644); err != nil {
+		t.Fatalf("Chmod writable fixture: %v", err)
+	}
+	if err := os.WriteFile(artifactPath, []byte(stale), 0444); err != nil {
+		t.Fatalf("write stale fixture: %v", err)
+	}
+	if onDisk := strings.Count(stale, "\n"); onDisk <= 3 {
+		t.Fatalf("fixture must carry frontmatter lines on disk, got %d lines", onDisk)
+	}
+	if err := store.AppendAudit(dossier.Frontmatter.ID, core.AuditEvent{
+		TS: now, Event: core.AuditEventCreate, DossierID: dossier.Frontmatter.ID,
+	}); err != nil {
+		t.Fatalf("AppendAudit() error = %v", err)
+	}
+
+	svc := core.NewService(store, nil, nil, nil, nil, core.Config{DossierHome: tempHome}, nil)
+	result, err := svc.Doctor(context.Background())
+	if err != nil {
+		t.Fatalf("Doctor() error = %v", err)
+	}
+	joined := strings.Join(warningsAsStrings(result.Warnings), "\n")
+	if result.OK || !strings.Contains(joined, "has only 3 line(s)") || !strings.Contains(joined, "records lines: 40 but its content has 3 line(s)") {
+		t.Fatalf("Doctor() trusted stale lines metadata: ok=%v warnings=%v", result.OK, result.Warnings)
+	}
+	if strings.Contains(joined, "#L3 ") {
+		t.Fatalf("the last body line is citable; only the range past it may be flagged: %v", result.Warnings)
+	}
+	after, err := os.ReadFile(artifactPath)
+	if err != nil || string(after) != stale {
+		t.Fatalf("Doctor() must not rewrite the artifact: err=%v", err)
 	}
 }
 

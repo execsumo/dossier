@@ -118,6 +118,12 @@ type Store interface {
 	StaleContextAssets() []string
 }
 
+// SessionBindingStore is an optional bulk-read capability used by archive and
+// doctor to clear completed work's bindings and report missing Dossier targets.
+type SessionBindingStore interface {
+	ListSessionBindings() ([]SessionBinding, error)
+}
+
 // DossierScanner is an optional bulk-read capability for use-cases that need
 // every Distilled State body. It lets a filesystem store parse each dossier
 // once without forcing the N+1 List-then-Read pattern. The callback keeps

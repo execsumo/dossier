@@ -104,7 +104,7 @@ func validateDistilledStateProvenance(body string, dossierID string, info Artifa
 			}
 			if ref.HasRange && (ref.StartLine > lineCount || ref.EndLine > lineCount) {
 				issues = append(issues, fmt.Sprintf(
-					"Dossier %s line %d cites %s#%s but the artifact has only %d line(s)",
+					"Dossier %s line %d cites %s#%s but the artifact has only %d line(s) of content (counted after its frontmatter, as `dossier artifact` numbers them); fix the range or the citation",
 					dossierID, n, artifactID, formatLineRange(ref), lineCount))
 			}
 		}

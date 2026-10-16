@@ -46,6 +46,8 @@ func (g *GitSync) remoteWinsMerge(repo *git.Repository, wt *git.Worktree, local,
 		return nil, fmt.Errorf("remote tree: %w", err)
 	}
 
+	ignored := managedLocalMatcher()
+
 	plans := dossierRenamePlans(baseTree, localTree, remoteTree)
 	if err := prepareWorkingTreeRenames(g.cfg.StoreDir, plans); err != nil {
 		return nil, err
@@ -93,6 +95,11 @@ func (g *GitSync) remoteWinsMerge(repo *git.Repository, wt *git.Worktree, local,
 	// that path, and deleting its mapped target would erase the renamed dossier.
 	for sourcePath := range remotePaths {
 		destinationPath := logicalRenamePath(sourcePath, plans)
+		if ignored(sourcePath) || ignored(destinationPath) {
+			// Machine-local: a remote copy (or removal) from an older build
+			// never replaces this machine's file, and is not staged below.
+			continue
+		}
 		plan, hasPlan := renamePlanForPath(sourcePath, plans)
 		if entry, err := remoteTree.FindEntry(sourcePath); err == nil && entry != nil && !entry.Hash.IsZero() {
 			var planPtr *dossierRenamePlan
@@ -110,8 +117,10 @@ func (g *GitSync) remoteWinsMerge(repo *git.Repository, wt *git.Worktree, local,
 		}
 	}
 
-	// Stage the remote landings (respects .gitignore — machine-local files stay out).
-	if err := wt.AddWithOptions(&git.AddOptions{All: true}); err != nil {
+	// Stage the remote landings. AddOptions{All: true} would also stage edits
+	// to machine-local files an older build tracked, republishing them, so
+	// stage path by path and skip the managed machine-local set.
+	if err := stageExceptIgnored(wt, ignored); err != nil {
 		return nil, fmt.Errorf("stage merged: %w", err)
 	}
 
@@ -125,6 +134,25 @@ func (g *GitSync) remoteWinsMerge(repo *git.Repository, wt *git.Worktree, local,
 		return nil, fmt.Errorf("merge commit: %w", err)
 	}
 	return conflicts, nil
+}
+
+// stageExceptIgnored stages every working-tree change outside the managed
+// machine-local set. Untracked files the .gitignore excludes never appear in
+// Status, as before.
+func stageExceptIgnored(wt *git.Worktree, ignored func(string) bool) error {
+	status, err := wt.Status()
+	if err != nil {
+		return err
+	}
+	for path, fs := range status {
+		if ignored(path) || (fs.Worktree == git.Unmodified && fs.Staging == git.Unmodified) {
+			continue
+		}
+		if _, err := wt.Add(path); err != nil {
+			return fmt.Errorf("stage %s: %w", path, err)
+		}
+	}
+	return nil
 }
 
 // diffTree returns the file changes from a -> b, tolerating nil inputs.

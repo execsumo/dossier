@@ -92,6 +92,14 @@ dossier open payments-migration         # launch an agent on it
 
 Run `dossier --help` for the full list.
 
+To retire a Dossier safely, run `dossier archive <slug>` (or `dossier done <slug>`).
+It moves the complete Dossier into `archive/`, preserves its history, and clears
+local session bindings pointing at it. There is no native delete command.
+`dossier doctor` reports bindings whose Dossier is missing: restore the Dossier,
+or inspect and remove only the named file in the store's `sessions/` directory.
+Empty `.locks/*.lock` files are persistent advisory-lock identities, not active
+locks; do not unlink them while Dossier processes may be running.
+
 ## Team Sync
 
 Share a store with your colleagues through a private GitHub repo — Dossier handles the plumbing.
