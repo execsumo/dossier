@@ -180,37 +180,42 @@ each Dossier workspace (so no extra sync/health tickers or sync-lock contention)
    one pane), runs `herdr workspace rename $HERDR_WORKSPACE_ID dossier`. A TUI opened as a tab
    or split in a workspace that holds other work leaves that workspace's name alone.
    Best-effort and silent: a failed get or rename is cosmetic.
-2. **First session on a Dossier** (`c` with no live agent): if no workspace already carries
-   the slug as its label (`herdr workspace list`, ignoring the hub), it runs
-   `herdr workspace create --cwd <launch dir> --label <slug> --focus`, then
-   `herdr pane run <root_pane> "exec …"`. If one does, the launch is a tab in it (item 3).
-   Matching by label, not by a live agent, covers the ~4 s before herdr detects a fresh agent
-   and a TUI restart for harnesses that report no session id; without it a quick `C`, or a
-   `c` after a restart, would create a second workspace with the same name. The slug is unique, so the sidebar shows the hub
-   plus one entry per Dossier that has an agent. The explicit label does not depend on the
-   launch dir, which is the repo name when ADR 0015 resolves a repo.
+2. **First session on a Dossier** (`c` with no live agent): it runs
+   `herdr workspace list` and reuses a workspace whose `tokens.dossier_id` equals the
+   Dossier's stable ID, ignoring the hub. If none matches, it runs
+   `herdr workspace create --cwd <launch dir> --label <slug> --focus`, then reports the
+   stable token with `herdr workspace report-metadata <workspace_id> --source dossier
+   --token dossier_id=<DossierID>` before running `herdr pane run <root_pane> "exec …"`.
+   Token matching (not mutable labels) covers the ~4 s before herdr detects a fresh agent
+   and TUI restarts without accidentally reusing another store's same-slug workspace. A
+   pre-existing untagged workspace is not adopted; this avoids ambiguous cross-store
+   routing. The explicit label does not depend on the launch dir, which is the repo name
+   when ADR 0015 resolves a repo.
 3. **Second session on the same Dossier** (`C`): a tab in that Dossier's existing workspace
    (`herdr tab create --workspace <ws> …`), where `<ws>` is the `workspace_id` of the
-   Dossier's most recently active live agent, else the workspace labelled with the slug. The hub workspace is never used as a target,
-   even if a pre-amendment agent lives there; a new workspace is created instead.
+   Dossier's most recently active live agent, else the workspace carrying its stable token.
+   The hub workspace is never used as a target, even if a pre-amendment agent lives there;
+   a new workspace is created instead.
 4. **`c` on a Dossier that already has a live agent** is unchanged: `herdr agent focus`, which
    now moves between workspaces. `]`/`[` and the badges are unchanged.
-5. The workspace lookup happens inside the launch command with a fresh `agent list`. Nothing
-   is persisted, so there is still no registry.
+5. The metadata lookup happens inside the launch command with a fresh `workspace list`.
+   Herdr metadata is display-only and the workspace association is not written to Dossier
+   files, so there is still no local registry.
 
 **Verified 2026-10-22 (herdr 0.9.5).** `workspace create --cwd --label --no-focus` returns
 `.result.root_pane.pane_id` and `.result.workspace.workspace_id`. A `--label` survived a `cd`
-in the pane. A workspace closed itself when its only shell exited (docs: "closing a
-workspace's last tab also closes the workspace"), which is what `exec` gives on agent exit.
-Also verified live with a real `claude` launch: the label held for 16 s; `agent focus`
-moves between workspaces; `C` adds a tab with both agents listed under their own session ids;
-herdr lists a fresh agent about 4 s after launch (the workspace exists after ~2 s); two
-back-to-back launches with no agent listed yet produced one workspace with two tabs.
-The label match trusts a mutable label: a workspace you rename by hand is not found, and a
-workspace of yours that happens to carry a Dossier's slug receives its tabs. Dossier serializes
-its own herdr launches in-process to avoid two simultaneous `c`/`C` requests both missing the
-label and creating duplicate workspaces; independent Dossier TUI processes do not share this
-lock.
+in the pane. `workspace report-metadata --source dossier --token dossier_id=<id>` makes the
+token visible in both `workspace list` and `workspace get`; this was checked against a
+throwaway workspace, which was then closed. A workspace closed itself when its only shell
+exited (docs: "closing a workspace's last tab also closes the workspace"), which is what
+`exec` gives on agent exit. Also verified live with a real `claude` launch: the label held
+for 16 s; `agent focus` moves between workspaces; `C` adds a tab with both agents listed under
+their own session ids; herdr lists a fresh agent about 4 s after launch (the workspace exists
+after ~2 s); two back-to-back launches with no agent listed yet produced one workspace with
+two tabs. Token-based reuse avoids routing to another store's workspace just because its
+mutable label happens to match. Dossier serializes its own herdr launches in-process to avoid
+two simultaneous `c`/`C` requests both missing the token and creating duplicate workspaces;
+independent Dossier TUI processes do not share this lock.
 
 **Consequences.** The sidebar grows by one entry per active Dossier. herdr's workspace
 shortcuts become the way to jump back to the hub; Dossier does not edit `config.toml` or add a

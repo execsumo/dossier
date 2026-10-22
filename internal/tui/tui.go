@@ -1142,6 +1142,7 @@ func (m Model) openInAgent(t targetDossier) (tea.Model, tea.Cmd) {
 	}
 	plan, err := m.planOpenWith(m.openWith, harness.LaunchRequest{
 		SessionID:  sessionID,
+		DossierID:  t.id,
 		DossierDir: dir,
 		Name:       t.name,
 		Slug:       slug,
