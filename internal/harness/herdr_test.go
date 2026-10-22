@@ -34,37 +34,79 @@ func stubHerdr(t *testing.T, fn func(args ...string) ([]byte, error)) {
 	herdrRun = fn
 }
 
-func TestLaunchInHerdrTab(t *testing.T) {
-	t.Setenv("HERDR_WORKSPACE_ID", "w1")
+func TestLaunchInHerdr(t *testing.T) {
+	t.Setenv("HERDR_WORKSPACE_ID", "hub")
 	var calls [][]string
 	stubHerdr(t, func(args ...string) ([]byte, error) {
 		calls = append(calls, args)
-		if args[0] == "tab" {
-			return []byte(`{"result":{"root_pane":{"pane_id":"w1:p4"},"tab":{"tab_id":"w1:t2"}}}`), nil
+		if args[0] == "workspace" || args[0] == "tab" {
+			return []byte(`{"result":{"root_pane":{"pane_id":"w1:p4"},"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"w1:t2"}}}`), nil
 		}
 		return []byte(`{}`), nil
 	})
 	plan := HandoffPlan{Bin: "claude", Args: []string{"x"}, Dir: "/d", Slug: "my-dossier"}
-	pane, err := LaunchInHerdrTab(plan)
+
+	// No existing workspace: a new one is created and labelled with the slug.
+	pane, err := LaunchInHerdr(plan, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if pane != "w1:p4" {
 		t.Errorf("pane = %q, want w1:p4", pane)
 	}
-	// No workspace or tab rename: the workspace belongs to the Dossier TUI and
-	// the new tab is labelled at creation.
 	want := [][]string{
-		{"tab", "create", "--workspace", "w1", "--cwd", "/d", "--label", "my-dossier", "--focus"},
+		{"workspace", "create", "--cwd", "/d", "--label", "my-dossier", "--focus"},
 		{"pane", "run", "w1:p4", "exec claude x"},
 	}
 	if !reflect.DeepEqual(calls, want) {
 		t.Errorf("calls = %v, want %v", calls, want)
 	}
 
+	// The Dossier already has a workspace: the second session is a tab in it.
+	calls = nil
+	if _, err := LaunchInHerdr(plan, "w9"); err != nil {
+		t.Fatal(err)
+	}
+	want = [][]string{
+		{"tab", "create", "--workspace", "w9", "--cwd", "/d", "--label", "my-dossier", "--focus"},
+		{"pane", "run", "w1:p4", "exec claude x"},
+	}
+	if !reflect.DeepEqual(calls, want) {
+		t.Errorf("calls = %v, want %v", calls, want)
+	}
+
+	// The hub is never a target, even if an old-model agent lives there.
+	calls = nil
+	if _, err := LaunchInHerdr(plan, "hub"); err != nil {
+		t.Fatal(err)
+	}
+	if calls[0][0] != "workspace" {
+		t.Errorf("hub workspace was used as a target: %v", calls[0])
+	}
+
 	stubHerdr(t, func(args ...string) ([]byte, error) { return []byte(`{}`), nil })
-	if _, err := LaunchInHerdrTab(plan); err == nil {
-		t.Error("expected an error when tab create returns no pane id")
+	if _, err := LaunchInHerdr(plan, ""); err == nil {
+		t.Error("expected an error when create returns no pane id")
+	}
+}
+
+func TestLabelHerdrHub(t *testing.T) {
+	var calls [][]string
+	stubHerdr(t, func(args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		return []byte(`{}`), nil
+	})
+	t.Setenv("HERDR_WORKSPACE_ID", "")
+	if err := LabelHerdrHub(); err != nil || len(calls) != 0 {
+		t.Fatalf("outside a workspace it must be a no-op: err=%v calls=%v", err, calls)
+	}
+	t.Setenv("HERDR_WORKSPACE_ID", "w88")
+	if err := LabelHerdrHub(); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"workspace", "rename", "w88", "dossier"}}
+	if !reflect.DeepEqual(calls, want) {
+		t.Errorf("calls = %v, want %v", calls, want)
 	}
 }
 

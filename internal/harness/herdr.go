@@ -73,16 +73,40 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// LaunchInHerdrTab opens the handoff in a new herdr tab in the caller's
-// workspace, labelled with the Dossier slug, and focuses it (ADR 0014). It
-// returns the new pane id once the command has been typed into the tab's shell;
-// the agent's lifetime is herdr's concern, not the caller's.
-func LaunchInHerdrTab(plan HandoffPlan) (string, error) {
-	args := []string{"tab", "create"}
-	if ws := os.Getenv("HERDR_WORKSPACE_ID"); ws != "" {
-		args = append(args, "--workspace", ws)
+// HubLabel is the name the Dossier TUI gives its own herdr workspace, so the
+// hub is findable in herdr's sidebar next to one workspace per Dossier.
+const HubLabel = "dossier"
+
+// LabelHerdrHub names the caller's workspace (the one hosting the TUI) HubLabel.
+// herdr derives workspace names from the working directory, which collides
+// across repos; an explicit label does not. It is a no-op outside a workspace.
+func LabelHerdrHub() error {
+	ws := os.Getenv("HERDR_WORKSPACE_ID")
+	if ws == "" {
+		return nil
 	}
-	args = append(args, "--cwd", plan.Dir)
+	_, err := herdrRun("workspace", "rename", ws, HubLabel)
+	return err
+}
+
+// LaunchInHerdr opens the handoff in herdr and focuses it (ADR 0014, amended
+// for workspace-per-Dossier). With no workspace it creates one labelled with the
+// Dossier slug, so each Dossier is a separate entry in herdr's sidebar. With
+// workspaceID it adds a tab to that Dossier's existing workspace, which is how a
+// second session on one Dossier is opened. The hub (the caller's own workspace)
+// is never a target: it belongs to the TUI. It returns the new pane id once the
+// command has been typed into the shell; the agent's lifetime is herdr's concern,
+// not the caller's.
+func LaunchInHerdr(plan HandoffPlan, workspaceID string) (string, error) {
+	if workspaceID == os.Getenv("HERDR_WORKSPACE_ID") {
+		workspaceID = ""
+	}
+	var args []string
+	if workspaceID == "" {
+		args = []string{"workspace", "create", "--cwd", plan.Dir}
+	} else {
+		args = []string{"tab", "create", "--workspace", workspaceID, "--cwd", plan.Dir}
+	}
 	if plan.Slug != "" {
 		args = append(args, "--label", plan.Slug)
 	}
@@ -99,7 +123,7 @@ func LaunchInHerdrTab(plan HandoffPlan) (string, error) {
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(out, &resp); err != nil || resp.Result.RootPane.PaneID == "" {
-		return "", fmt.Errorf("herdr tab create returned no pane id (output: %q)", strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("herdr %s create returned no pane id (output: %q)", args[0], strings.TrimSpace(string(out)))
 	}
 	paneID := resp.Result.RootPane.PaneID
 	if _, err := herdrRun("pane", "run", paneID, plan.ShellLine()); err != nil {

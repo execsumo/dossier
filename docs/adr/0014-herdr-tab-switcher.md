@@ -5,6 +5,9 @@ Accepted (2026-10-06). **Implemented 2026-10-06** (`internal/harness/herdr.go`, 
 and replaces the herdr right-split launch (HANDOFF, 2026-09-30). Behaviour outside herdr is
 unchanged.
 
+**Amended 2026-10-22: workspace per Dossier** (see [Amendment](#amendment-2026-10-22-workspace-per-dossier)).
+It supersedes "tabs in the TUI's workspace" and the "No workspace rename" rule below.
+
 ## Context
 ADR 0006 gave the TUI a `c` key that mints a session id, binds it, and launches an agent.
 Inside herdr (`HERDR_ENV=1`), the agent opens in a split to the right of the TUI. Each
@@ -160,3 +163,42 @@ in this change, as SPEC already exempts it for the split launch. A later
    precedence rule; a poll failure keeps dimmed badges and shows one warning.
 4. Manual, in real herdr: open two Dossiers, return to the TUI tab, see two badges, press `c`
    on the first and land in its tab, `/exit` it, and see the tab close and the badge clear.
+
+## Amendment 2026-10-22: workspace per Dossier
+
+**Why.** herdr names workspaces from the working directory, so several workspaces end up with
+the same name (the owner had three called `g-unit`). Once every agent opened as a tab in the
+TUI's workspace, the TUI's workspace kept a repo-derived name and nothing in herdr's sidebar
+said which workspace was Dossier. This is the "one workspace per Dossier" alternative that
+this ADR deferred as `open_layout: workspace`; it is now the behaviour, without a TUI in
+each Dossier workspace (so no extra sync/health tickers or sync-lock contention).
+
+**Decision.**
+1. **Hub.** The TUI's own workspace is the hub. On startup, and again before every launch
+   (so it recovers if herdr re-derived the name), it runs
+   `herdr workspace rename $HERDR_WORKSPACE_ID dossier`. Best-effort and silent: a failed
+   rename is cosmetic.
+2. **First session on a Dossier** (`c` with no live agent):
+   `herdr workspace create --cwd <launch dir> --label <slug> --focus`, then
+   `herdr pane run <root_pane> "exec …"`. The slug is unique, so the sidebar shows the hub
+   plus one entry per Dossier that has an agent. The explicit label does not depend on the
+   launch dir, which is the repo name when ADR 0015 resolves a repo.
+3. **Second session on the same Dossier** (`C`): a tab in that Dossier's existing workspace
+   (`herdr tab create --workspace <ws> …`), where `<ws>` is the `workspace_id` of the
+   Dossier's most recently active live agent. The hub workspace is never used as a target,
+   even if a pre-amendment agent lives there; a new workspace is created instead.
+4. **`c` on a Dossier that already has a live agent** is unchanged: `herdr agent focus`, which
+   now moves between workspaces. `]`/`[` and the badges are unchanged.
+5. The workspace lookup happens inside the launch command with a fresh `agent list`. Nothing
+   is persisted, so there is still no registry.
+
+**Verified 2026-10-22 (herdr 0.9.5).** `workspace create --cwd --label --no-focus` returns
+`.result.root_pane.pane_id` and `.result.workspace.workspace_id`. A `--label` survived a `cd`
+in the pane. A workspace closed itself when its only shell exited (docs: "closing a
+workspace's last tab also closes the workspace"), which is what `exec` gives on agent exit.
+Not verified live: `agent focus` crossing workspaces; the existing facts only record
+crossing tabs.
+
+**Consequences.** The sidebar grows by one entry per active Dossier. herdr's workspace
+shortcuts become the way to jump back to the hub; Dossier does not edit `config.toml` or add a
+key binding. The brief is no longer beside the agent (the TUI is in the hub).

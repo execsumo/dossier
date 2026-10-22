@@ -129,7 +129,7 @@ type HandoffPlan struct {
 	Args      []string
 	Dir       string
 	Env       []string
-	// Slug names the Dossier; herdr launches use it to label the workspace and tab.
+	// Slug names the Dossier; herdr launches use it to label the Dossier's workspace (or tab).
 	Slug string
 }
 

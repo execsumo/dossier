@@ -2021,18 +2021,23 @@ func (s *claudeSpy) install(m Model) Model {
 
 // herdrSpy stubs the herdr seams so the switcher can be driven without herdr.
 type herdrSpy struct {
-	agents    []harness.HerdrAgent
-	listErr   error
-	launched  []harness.HandoffPlan
-	launchErr error
-	focused   []string
+	agents   []harness.HerdrAgent
+	listErr  error
+	launched []harness.HandoffPlan
+	// workspaces records the workspace each launch targeted ("" = create one).
+	workspaces []string
+	hubLabels  int
+	launchErr  error
+	focused    []string
 }
 
 func (h *herdrSpy) install(m Model) Model {
 	m.inHerdr = func() bool { return true }
 	m.listHerdrAgents = func() ([]harness.HerdrAgent, error) { return h.agents, h.listErr }
-	m.launchInHerdr = func(p harness.HandoffPlan) (string, error) {
+	m.labelHerdrHub = func() error { h.hubLabels++; return nil }
+	m.launchInHerdr = func(p harness.HandoffPlan, workspace string) (string, error) {
 		h.launched = append(h.launched, p)
+		h.workspaces = append(h.workspaces, workspace)
 		if h.launchErr != nil {
 			return "", h.launchErr
 		}
@@ -2082,7 +2087,10 @@ func TestOpenInClaudeInHerdrOpensTab(t *testing.T) {
 		t.Fatalf("msg=%T launched=%d exec calls=%d; want herdr launch only", msg, len(h.launched), spy.calls)
 	}
 	if h.launched[0].Slug != "project-alpha" {
-		t.Errorf("tab should be labelled with the slug, got %q", h.launched[0].Slug)
+		t.Errorf("workspace should be labelled with the slug, got %q", h.launched[0].Slug)
+	}
+	if !reflect.DeepEqual(h.workspaces, []string{""}) || h.hubLabels != 1 {
+		t.Errorf("workspaces=%q hubLabels=%d; want a new workspace and the hub relabelled once", h.workspaces, h.hubLabels)
 	}
 	if len(store.bindings) != 1 {
 		t.Errorf("expected one session binding, got %v", store.bindings)
@@ -2145,6 +2153,7 @@ func TestHerdrSwitcherFocusesExistingAgent(t *testing.T) {
 		herdrAgent("w1:p3", "sess-new", "working", 20),
 		herdrAgent("w1:p4", "unbound", "blocked", 30),
 	}
+	h.agents[0].WorkspaceID, h.agents[1].WorkspaceID, h.agents[2].WorkspaceID = "w2", "w3", "w4"
 
 	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
 	m = newM.(Model)
@@ -2161,11 +2170,15 @@ func TestHerdrSwitcherFocusesExistingAgent(t *testing.T) {
 		t.Errorf("focused=%v launched=%d bindings=%d; want focus only, no new binding", h.focused, len(h.launched), len(store.bindings))
 	}
 
-	// C ignores the live agent and opens a second session.
+	// C ignores the live agent and opens a second session as a tab in the
+	// Dossier's own workspace (that of its most recently active agent).
 	newM, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("C")})
 	m = newM.(Model)
 	if _, ok := runCmd(t, cmd).(herdrLaunchMsg); !ok || len(h.launched) != 1 || len(store.bindings) != 3 {
 		t.Errorf("C should open a new tab with a new binding: launched=%d bindings=%d", len(h.launched), len(store.bindings))
+	}
+	if !reflect.DeepEqual(h.workspaces, []string{"w3"}) {
+		t.Errorf("C should target the Dossier's workspace w3, got %q", h.workspaces)
 	}
 
 	// A herdr list failure warns and opens a new session rather than doing nothing.
@@ -2177,6 +2190,20 @@ func TestHerdrSwitcherFocusesExistingAgent(t *testing.T) {
 	m = newM.(Model)
 	if _, ok := runCmd(t, cmd).(herdrLaunchMsg); !ok || len(m.warnings) == 0 || !strings.Contains(string(m.warnings[0]), "socket gone") {
 		t.Errorf("expected a visible warning and a launch, got warnings=%v", m.warnings)
+	}
+}
+
+func TestInitLabelsHerdrHub(t *testing.T) {
+	m := claudeTestModel(t, newTestStore())
+	h := &herdrSpy{}
+	m = h.install(m)
+	cmd := m.labelHubCmd()
+	if cmd == nil {
+		t.Fatal("expected a label command inside herdr")
+	}
+	cmd()
+	if h.hubLabels != 1 {
+		t.Errorf("hubLabels = %d, want 1", h.hubLabels)
 	}
 }
 

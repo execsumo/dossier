@@ -124,6 +124,41 @@ func (m Model) pickHerdrAgentCmd(t targetDossier) tea.Cmd {
 	}
 }
 
+// labelHubCmd names the TUI's own herdr workspace so the hub is identifiable in
+// herdr's sidebar. It is best-effort and silent: a missing label is cosmetic.
+func (m Model) labelHubCmd() tea.Cmd {
+	label := m.labelHerdrHub
+	if label == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		_ = label()
+		return nil
+	}
+}
+
+// dossierWorkspaceFinder returns a lookup from a Dossier id to the herdr
+// workspace of its most recently active live agent, or "" when it has none (the
+// launch then creates a workspace). The lookup runs inside the launch command,
+// off the Update goroutine, with a fresh agent list.
+func (m Model) dossierWorkspaceFinder() func(dossierID string) string {
+	list, svc, launched := m.listHerdrAgents, m.svc, m.launchedSnapshot()
+	return func(dossierID string) string {
+		if list == nil {
+			return ""
+		}
+		agents, bound, err := fetchAgents(list, svc)
+		if err != nil {
+			return ""
+		}
+		matches := harness.MatchHerdrAgents(agents, bound, launched)[dossierID]
+		if len(matches) == 0 {
+			return ""
+		}
+		return harness.MostRecentAgent(matches).WorkspaceID
+	}
+}
+
 // cycleAgent focuses the agent of the next (or previous) Dossier in list order
 // that has one, starting from the selected Dossier.
 func (m Model) cycleAgent(forward bool) (tea.Model, tea.Cmd) {
