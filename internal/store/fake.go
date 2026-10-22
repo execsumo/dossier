@@ -65,6 +65,16 @@ func (f *FakeStore) AppendTeamAudit(event core.AuditEvent) error {
 	return nil
 }
 
+func (f *FakeStore) TeamJoinAuthors() ([]string, error) {
+	var authors []string
+	for _, event := range f.TeamAudits {
+		if event.Event == "team_created" || event.Event == "team_joined" {
+			authors = append(authors, event.Author)
+		}
+	}
+	return authors, nil
+}
+
 func (f *FakeStore) SnapshotRoster() (core.RosterSnapshot, error) {
 	if f.Roster == nil || (f.Roster.Manager == "" && len(f.Roster.Members) == 0 && len(f.Roster.Former) == 0) {
 		return core.RosterSnapshot{}, nil

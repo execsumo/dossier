@@ -59,6 +59,13 @@ type RosterAuditStore interface {
 	AppendTeamAudit(AuditEvent) error
 }
 
+// TeamJoinReader lists the authors who have a team_created or team_joined
+// record in the synced team-audit shards, so doctor can compare them with the
+// roster.
+type TeamJoinReader interface {
+	TeamJoinAuthors() ([]string, error)
+}
+
 type RosterRollbackStore interface {
 	RosterStore
 	SnapshotRoster() (RosterSnapshot, error)

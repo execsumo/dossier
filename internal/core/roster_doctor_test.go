@@ -131,3 +131,66 @@ func TestDoctorLeadAdvisoryMatchesAssignmentRules(t *testing.T) {
 		})
 	}
 }
+
+// joinReaderStore adds the team-audit join records doctor reads to the roster
+// test store.
+type joinReaderStore struct {
+	*rosterTestStore
+	joined []string
+}
+
+func (s *joinReaderStore) TeamJoinAuthors() ([]string, error) { return s.joined, nil }
+
+// TestDoctorFlagsJoinedLoginMissingFromRoster is the Geoff case: the roster lists
+// geoffclawson, but the Mac login that joined is gclawson. Both sides are
+// flagged, so the manager can correct the roster.
+func TestDoctorFlagsJoinedLoginMissingFromRoster(t *testing.T) {
+	store := &joinReaderStore{
+		rosterTestStore: &rosterTestStore{
+			localFakeStore: newLocalFakeStore(),
+			roster: Roster{Manager: "hgill", Members: map[string]string{
+				"hgill": "Herwin Gill", "geoffclawson": "Geoff Clawson",
+			}},
+		},
+		joined: []string{"hgill", "gclawson"},
+	}
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()}, Config{Author: "hgill"}, nil)
+	res, err := svc.Doctor(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text []string
+	for _, w := range res.Warnings {
+		text = append(text, string(w))
+	}
+	joined := strings.Join(text, "\n")
+	for _, want := range []string{"gclawson joined the team store, but is not on the roster", "geoffclawson is on the roster but has not joined"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q in warnings:\n%s", want, joined)
+		}
+	}
+}
+
+// TestDoctorJoinCheckQuietWhenRosterMatchesJoins confirms a clean team produces
+// no join advisories.
+func TestDoctorJoinCheckQuietWhenRosterMatchesJoins(t *testing.T) {
+	store := &joinReaderStore{
+		rosterTestStore: &rosterTestStore{
+			localFakeStore: newLocalFakeStore(),
+			roster: Roster{Manager: "hgill", Members: map[string]string{
+				"hgill": "Herwin Gill", "gclawson": "Geoff Clawson",
+			}},
+		},
+		joined: []string{"hgill", "gclawson"},
+	}
+	svc := NewService(store, &mockSearcher{}, &mockTokenizer{}, &mockHarnessRegistry{}, &mockClock{now: time.Now()}, Config{Author: "hgill"}, nil)
+	res, err := svc.Doctor(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range res.Warnings {
+		if strings.Contains(string(w), "roster") && (strings.Contains(string(w), "joined the team store") || strings.Contains(string(w), "has not joined")) {
+			t.Fatalf("unexpected join advisory: %s", w)
+		}
+	}
+}

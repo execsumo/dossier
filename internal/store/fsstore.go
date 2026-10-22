@@ -142,6 +142,28 @@ func (s *FSStore) AppendTeamAudit(event core.AuditEvent) error {
 	return AppendAuditLine(filepath.Join(dir, SanitizeAuthorString(author)+".log"), event)
 }
 
+// TeamJoinAuthors returns the author of every team_created or team_joined
+// record across the synced team-audit shards.
+func (s *FSStore) TeamJoinAuthors() ([]string, error) {
+	paths, err := filepath.Glob(filepath.Join(s.dossierHome, "team-audit", "*.log"))
+	if err != nil {
+		return nil, err
+	}
+	var authors []string
+	for _, path := range paths {
+		entries, err := ReadAuditEntries(path)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if entry.Event == "team_created" || entry.Event == "team_joined" {
+				authors = append(authors, entry.Author)
+			}
+		}
+	}
+	return authors, nil
+}
+
 // ReadRoster reads the synced team roster. An absent file is an empty roster.
 func (s *FSStore) ReadRoster() (*core.Roster, error) {
 	path := filepath.Join(s.dossierHome, "team.yaml")

@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNormalizeUsername(t *testing.T) {
 	tests := []struct {
@@ -66,6 +69,43 @@ func TestRosterResolvePerson(t *testing.T) {
 			for i := range candidates {
 				if candidates[i] != tt.candidates[i] {
 					t.Errorf("candidate %d = %q, want %q", i, candidates[i], tt.candidates[i])
+				}
+			}
+		})
+	}
+}
+
+// TestJoinMismatchAdvisories is the pure form of the join check. A recorded
+// login that is not a current human member is flagged; so is a current human
+// member with no record. Agents are not expected to join from a Mac login.
+func TestJoinMismatchAdvisories(t *testing.T) {
+	roster := Roster{
+		Manager: "hgill",
+		Members: map[string]string{"hgill": "Herwin Gill", "geoffclawson": "Geoff Clawson", "sitroom": "Sit Room"},
+		Former:  map[string]string{"olduser": "Old User"},
+		Kinds:   map[string]string{"sitroom": "agent"},
+	}
+	cases := []struct {
+		name   string
+		joined []string
+		want   []string // substrings, one per expected advisory
+	}{
+		{name: "matching login is quiet", joined: []string{"hgill", "geoffclawson", "sitroom"}},
+		{name: "login not on roster", joined: []string{"hgill", "gclawson", "geoffclawson", "sitroom"}, want: []string{"gclawson joined the team store"}},
+		{name: "roster member never joined", joined: []string{"hgill", "sitroom"}, want: []string{"geoffclawson is on the roster but has not joined"}},
+		{name: "domain-prefixed login normalizes", joined: []string{`ACME\Hgill`, "geoffclawson", "sitroom"}},
+		{name: "former member joining is flagged", joined: []string{"hgill", "geoffclawson", "sitroom", "olduser"}, want: []string{"olduser joined the team store"}},
+		{name: "agent without record is not flagged", joined: []string{"hgill", "geoffclawson"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := roster.JoinMismatchAdvisories(tc.joined)
+			if len(got) != len(tc.want) {
+				t.Fatalf("advisories = %v, want %d matching %v", got, len(tc.want), tc.want)
+			}
+			for i, w := range tc.want {
+				if !strings.Contains(got[i], w) {
+					t.Fatalf("advisory %d = %q, want it to contain %q", i, got[i], w)
 				}
 			}
 		})

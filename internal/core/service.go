@@ -457,6 +457,18 @@ func (s *Service) Doctor(ctx context.Context) (Result, error) {
 		warnings = append(warnings, Warning(msg))
 	}
 
+	if hasRoster {
+		if reader, ok := s.store.(TeamJoinReader); ok {
+			joined, err := reader.TeamJoinAuthors()
+			if err != nil {
+				addAdvisory(fmt.Sprintf("Team join records could not be read: %v", err))
+			}
+			for _, msg := range roster.JoinMismatchAdvisories(joined) {
+				addAdvisory(msg)
+			}
+		}
+	}
+
 	fms, err := s.store.List("all")
 	if err != nil {
 		addIssue("Failed to list dossiers: %v", err)
