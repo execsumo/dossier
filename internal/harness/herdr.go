@@ -112,17 +112,50 @@ func LabelHerdrHub() error {
 	return err
 }
 
+// findHerdrWorkspace returns the id of the first workspace labelled label,
+// skipping skip (the hub). Any failure reports "not found": the caller then
+// creates a workspace, which is the safe default.
+func findHerdrWorkspace(label, skip string) string {
+	out, err := herdrRun("workspace", "list")
+	if err != nil {
+		return ""
+	}
+	var resp struct {
+		Result struct {
+			Workspaces []struct {
+				ID    string `json:"workspace_id"`
+				Label string `json:"label"`
+			} `json:"workspaces"`
+		} `json:"result"`
+	}
+	if json.Unmarshal(out, &resp) != nil {
+		return ""
+	}
+	for _, w := range resp.Result.Workspaces {
+		if w.Label == label && w.ID != skip {
+			return w.ID
+		}
+	}
+	return ""
+}
+
 // LaunchInHerdr opens the handoff in herdr and focuses it (ADR 0014, amended
-// for workspace-per-Dossier). With no workspace it creates one labelled with the
-// Dossier slug, so each Dossier is a separate entry in herdr's sidebar. With
-// workspaceID it adds a tab to that Dossier's existing workspace, which is how a
-// second session on one Dossier is opened. The hub (the caller's own workspace)
-// is never a target: it belongs to the TUI. It returns the new pane id once the
-// command has been typed into the shell; the agent's lifetime is herdr's concern,
-// not the caller's.
+// for workspace-per-Dossier). Each Dossier gets one workspace labelled with its
+// slug, so a launch first reuses a workspace that already carries the slug and
+// adds a tab to it; only when there is none does it create one. Matching by
+// label, not by a live agent, keeps this correct in the seconds before herdr
+// detects a fresh agent and after the TUI restarts. workspaceID, when set, names
+// the Dossier's workspace directly (the workspace of its live agent) and skips
+// the label lookup. The hub (the caller's own workspace) is never a target: it
+// belongs to the TUI. It returns the new pane id once the command has been typed
+// into the shell; the agent's lifetime is herdr's concern, not the caller's.
 func LaunchInHerdr(plan HandoffPlan, workspaceID string) (string, error) {
-	if workspaceID == os.Getenv("HERDR_WORKSPACE_ID") {
+	hub := os.Getenv("HERDR_WORKSPACE_ID")
+	if workspaceID == hub {
 		workspaceID = ""
+	}
+	if workspaceID == "" && plan.Slug != "" {
+		workspaceID = findHerdrWorkspace(plan.Slug, hub)
 	}
 	var args []string
 	if workspaceID == "" {

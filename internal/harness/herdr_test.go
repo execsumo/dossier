@@ -38,52 +38,58 @@ func stubHerdr(t *testing.T, fn func(args ...string) ([]byte, error)) {
 func TestLaunchInHerdr(t *testing.T) {
 	t.Setenv("HERDR_WORKSPACE_ID", "hub")
 	var calls [][]string
+	workspaces := `{"result":{"workspaces":[{"workspace_id":"hub","label":"my-dossier"},{"workspace_id":"w5","label":"other"}]}}`
+	var listErr error
 	stubHerdr(t, func(args ...string) ([]byte, error) {
 		calls = append(calls, args)
-		if args[0] == "workspace" || args[0] == "tab" {
+		switch {
+		case args[0] == "workspace" && args[1] == "list":
+			return []byte(workspaces), listErr
+		case args[0] == "workspace" || args[0] == "tab":
 			return []byte(`{"result":{"root_pane":{"pane_id":"w1:p4"},"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"w1:t2"}}}`), nil
 		}
 		return []byte(`{}`), nil
 	})
 	plan := HandoffPlan{Bin: "claude", Args: []string{"x"}, Dir: "/d", Slug: "my-dossier"}
+	list := []string{"workspace", "list"}
+	run := []string{"pane", "run", "w1:p4", "exec claude x"}
+	createWS := []string{"workspace", "create", "--cwd", "/d", "--label", "my-dossier", "--focus"}
+	tabIn := func(ws string) []string {
+		return []string{"tab", "create", "--workspace", ws, "--cwd", "/d", "--label", "my-dossier", "--focus"}
+	}
+	check := func(name string, workspaceID string, want ...[]string) {
+		t.Helper()
+		calls = nil
+		pane, err := LaunchInHerdr(plan, workspaceID)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if pane != "w1:p4" {
+			t.Errorf("%s: pane = %q, want w1:p4", name, pane)
+		}
+		if !reflect.DeepEqual(calls, want) {
+			t.Errorf("%s: calls = %v, want %v", name, calls, want)
+		}
+	}
 
-	// No existing workspace: a new one is created and labelled with the slug.
-	pane, err := LaunchInHerdr(plan, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pane != "w1:p4" {
-		t.Errorf("pane = %q, want w1:p4", pane)
-	}
-	want := [][]string{
-		{"workspace", "create", "--cwd", "/d", "--label", "my-dossier", "--focus"},
-		{"pane", "run", "w1:p4", "exec claude x"},
-	}
-	if !reflect.DeepEqual(calls, want) {
-		t.Errorf("calls = %v, want %v", calls, want)
-	}
+	// No workspace carries the slug (the hub's matching label doesn't count):
+	// a new one is created and labelled.
+	check("no match", "", list, createWS, run)
 
-	// The Dossier already has a workspace: the second session is a tab in it.
-	calls = nil
-	if _, err := LaunchInHerdr(plan, "w9"); err != nil {
-		t.Fatal(err)
-	}
-	want = [][]string{
-		{"tab", "create", "--workspace", "w9", "--cwd", "/d", "--label", "my-dossier", "--focus"},
-		{"pane", "run", "w1:p4", "exec claude x"},
-	}
-	if !reflect.DeepEqual(calls, want) {
-		t.Errorf("calls = %v, want %v", calls, want)
-	}
+	// A workspace already carries the slug, e.g. before herdr has detected the
+	// agent in it or after a TUI restart: the new session is a tab in it.
+	workspaces = `{"result":{"workspaces":[{"workspace_id":"w5","label":"other"},{"workspace_id":"w9","label":"my-dossier"}]}}`
+	check("label match", "", list, tabIn("w9"), run)
+
+	// An explicit workspace (its live agent's) skips the lookup.
+	check("explicit workspace", "w7", tabIn("w7"), run)
 
 	// The hub is never a target, even if an old-model agent lives there.
-	calls = nil
-	if _, err := LaunchInHerdr(plan, "hub"); err != nil {
-		t.Fatal(err)
-	}
-	if calls[0][0] != "workspace" {
-		t.Errorf("hub workspace was used as a target: %v", calls[0])
-	}
+	check("hub as target", "hub", list, tabIn("w9"), run)
+
+	// A failed lookup falls back to creating a workspace, not to an error.
+	listErr = fmt.Errorf("socket gone")
+	check("list failure", "", list, createWS, run)
 
 	stubHerdr(t, func(args ...string) ([]byte, error) { return []byte(`{}`), nil })
 	if _, err := LaunchInHerdr(plan, ""); err == nil {
