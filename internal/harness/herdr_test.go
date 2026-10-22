@@ -1,7 +1,9 @@
 package harness
 
 import (
+	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 )
 
@@ -34,37 +36,194 @@ func stubHerdr(t *testing.T, fn func(args ...string) ([]byte, error)) {
 	herdrRun = fn
 }
 
-func TestLaunchInHerdrTab(t *testing.T) {
-	t.Setenv("HERDR_WORKSPACE_ID", "w1")
+func TestLaunchInHerdr(t *testing.T) {
+	t.Setenv("HERDR_WORKSPACE_ID", "hub")
 	var calls [][]string
+	workspaces := `{"result":{"workspaces":[{"workspace_id":"hub","tokens":{"dossier_id":"dos_1"}},{"workspace_id":"w5","tokens":{"dossier_id":"dos_other"}}]}}`
+	var listErr error
 	stubHerdr(t, func(args ...string) ([]byte, error) {
 		calls = append(calls, args)
-		if args[0] == "tab" {
-			return []byte(`{"result":{"root_pane":{"pane_id":"w1:p4"},"tab":{"tab_id":"w1:t2"}}}`), nil
+		switch {
+		case args[0] == "workspace" && args[1] == "list":
+			return []byte(workspaces), listErr
+		case args[0] == "workspace" && args[1] == "create":
+			return []byte(`{"result":{"root_pane":{"pane_id":"w1:p4"}}}`), nil
+		case args[0] == "tab" && args[1] == "create":
+			return []byte(`{"result":{"root_pane":{"pane_id":"w1:p4"}}}`), nil
+		case args[0] == "workspace" && args[1] == "report-metadata":
+			return []byte(`{}`), nil
+		default:
+			return []byte(`{}`), nil
 		}
-		return []byte(`{}`), nil
 	})
-	plan := HandoffPlan{Bin: "claude", Args: []string{"x"}, Dir: "/d", Slug: "my-dossier"}
-	pane, err := LaunchInHerdrTab(plan)
-	if err != nil {
-		t.Fatal(err)
+	plan := HandoffPlan{DossierID: "dos_1", Bin: "claude", Args: []string{"x"}, Dir: "/d", Slug: "my-dossier"}
+	list := []string{"workspace", "list"}
+	run := []string{"pane", "run", "w1:p4", "exec claude x"}
+	createWS := []string{"workspace", "create", "--cwd", "/d", "--label", "my-dossier", "--focus"}
+	tabIn := func(ws string) []string {
+		return []string{"tab", "create", "--workspace", ws, "--cwd", "/d", "--label", "my-dossier", "--focus"}
 	}
-	if pane != "w1:p4" {
-		t.Errorf("pane = %q, want w1:p4", pane)
-	}
-	// No workspace or tab rename: the workspace belongs to the Dossier TUI and
-	// the new tab is labelled at creation.
-	want := [][]string{
-		{"tab", "create", "--workspace", "w1", "--cwd", "/d", "--label", "my-dossier", "--focus"},
-		{"pane", "run", "w1:p4", "exec claude x"},
-	}
-	if !reflect.DeepEqual(calls, want) {
-		t.Errorf("calls = %v, want %v", calls, want)
+	tag := []string{"workspace", "report-metadata", "w1", "--source", "dossier", "--token", "dossier_id=dos_1"}
+	check := func(name string, workspaceID string, want ...[]string) {
+		t.Helper()
+		calls = nil
+		pane, err := LaunchInHerdr(plan, workspaceID)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if pane != "w1:p4" {
+			t.Errorf("%s: pane = %q, want w1:p4", name, pane)
+		}
+		if !reflect.DeepEqual(calls, want) {
+			t.Errorf("%s: calls = %v, want %v", name, calls, want)
+		}
 	}
 
+	check("no match", "", list, createWS, tag, run)
+	workspaces = `{"result":{"workspaces":[{"workspace_id":"w5","tokens":{"dossier_id":"dos_other"}},{"workspace_id":"w9","tokens":{"dossier_id":"dos_1"}}]}}`
+	check("stable metadata match", "", list, tabIn("w9"), run)
+	workspaces = `{"result":{"workspaces":[{"workspace_id":"w9","label":"my-dossier","tokens":{"dossier_id":"dos_2"}}]}}`
+	check("different Dossier ID despite same possibility of label", "", list, createWS, tag, run)
+	check("explicit workspace", "w7", tabIn("w7"), run)
+	check("hub as target", "hub", list, createWS, tag, run)
+	listErr = fmt.Errorf("socket gone")
+	check("list failure", "", list, createWS, tag, run)
+
 	stubHerdr(t, func(args ...string) ([]byte, error) { return []byte(`{}`), nil })
-	if _, err := LaunchInHerdrTab(plan); err == nil {
-		t.Error("expected an error when tab create returns no pane id")
+	if _, err := LaunchInHerdr(plan, ""); err == nil {
+		t.Error("expected an error when create returns no pane id")
+	}
+
+	calls = nil
+	stubHerdr(t, func(args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		switch {
+		case reflect.DeepEqual(args, []string{"workspace", "list"}):
+			return []byte(`{"result":{"workspaces":[]}}`), nil
+		case args[0] == "workspace" && args[1] == "create":
+			return []byte(`{"result":{"root_pane":{"pane_id":"w1:p1"}}}`), nil
+		case args[0] == "workspace" && args[1] == "report-metadata":
+			return nil, fmt.Errorf("metadata unavailable")
+		default:
+			return []byte(`{}`), nil
+		}
+	})
+	if _, err := LaunchInHerdr(plan, ""); err == nil {
+		t.Fatal("expected metadata tagging failure to be returned")
+	}
+	if len(calls) != 3 || calls[2][1] != "report-metadata" {
+		t.Errorf("metadata failure should stop before pane run; calls = %v", calls)
+	}
+}
+
+func TestLaunchInHerdrSerializesWorkspaceReuse(t *testing.T) {
+	t.Setenv("HERDR_WORKSPACE_ID", "hub")
+	var created bool
+	var calls [][]string
+	stubHerdr(t, func(args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		switch {
+		case reflect.DeepEqual(args, []string{"workspace", "list"}):
+			if created {
+				return []byte(`{"result":{"workspaces":[{"workspace_id":"w1","tokens":{"dossier_id":"dos_1"}}]}}`), nil
+			}
+			return []byte(`{"result":{"workspaces":[]}}`), nil
+		case args[0] == "workspace" && args[1] == "create":
+			created = true
+			return []byte(`{"result":{"root_pane":{"pane_id":"w1:p1"}}}`), nil
+		case args[0] == "tab" && args[1] == "create":
+			return []byte(`{"result":{"root_pane":{"pane_id":"w1:p2"}}}`), nil
+		default:
+			return []byte(`{}`), nil
+		}
+	})
+
+	plan := HandoffPlan{DossierID: "dos_1", Bin: "claude", Args: []string{"x"}, Dir: "/d", Slug: "same-dossier"}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := LaunchInHerdr(plan, "")
+			results <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	for err := range results {
+		if err != nil {
+			t.Errorf("LaunchInHerdr: %v", err)
+		}
+	}
+
+	creates, tabs := 0, 0
+	for _, args := range calls {
+		if len(args) > 1 && args[1] == "create" {
+			if args[0] == "workspace" {
+				creates++
+			} else if args[0] == "tab" {
+				tabs++
+			}
+		}
+	}
+	if creates != 1 || tabs != 1 {
+		t.Errorf("workspace creates=%d tab creates=%d; want one each (calls: %v)", creates, tabs, calls)
+	}
+}
+
+func TestLabelHerdrHub(t *testing.T) {
+	count := func(value any) string {
+		if value == nil {
+			return "null"
+		}
+		return fmt.Sprint(value)
+	}
+	workspace := func(id, label string, tabs, panes any) []byte {
+		return []byte(fmt.Sprintf(`{"result":{"workspace":{"workspace_id":%q,"label":%q,"tab_count":%s,"pane_count":%s}}}`, id, label, count(tabs), count(panes)))
+	}
+	var calls [][]string
+	var reply []byte
+	stubHerdr(t, func(args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		return reply, nil
+	})
+
+	t.Setenv("HERDR_WORKSPACE_ID", "")
+	if err := LabelHerdrHub(); err != nil || len(calls) != 0 {
+		t.Fatalf("outside a workspace it must be a no-op: err=%v calls=%v", err, calls)
+	}
+
+	t.Setenv("HERDR_WORKSPACE_ID", "w88")
+	rename := [][]string{{"workspace", "get", "w88"}, {"workspace", "rename", "w88", "dossier"}}
+	getOnly := [][]string{{"workspace", "get", "w88"}}
+	for _, tc := range []struct {
+		name  string
+		reply []byte
+		want  [][]string
+	}{
+		{"only the TUI", workspace("w88", "g-unit", 1, 1), rename},
+		{"TUI is one of several tabs", workspace("w88", "g-unit", 2, 1), getOnly},
+		{"TUI is split with another pane", workspace("w88", "g-unit", 1, 2), getOnly},
+		{"already named", workspace("w88", "dossier", 1, 1), getOnly},
+		{"missing pane count", workspace("w88", "g-unit", 1, nil), getOnly},
+		{"workspace id mismatch", workspace("w89", "g-unit", 1, 1), getOnly},
+	} {
+		calls, reply = nil, tc.reply
+		if err := LabelHerdrHub(); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if !reflect.DeepEqual(calls, tc.want) {
+			t.Errorf("%s: calls = %v, want %v", tc.name, calls, tc.want)
+		}
+	}
+
+	calls, reply = nil, []byte(`not json`)
+	if err := LabelHerdrHub(); err == nil {
+		t.Error("expected an error for unparseable output")
 	}
 }
 

@@ -539,7 +539,8 @@ type Model struct {
 	planOpenWith               func(string, harness.LaunchRequest) (harness.HandoffPlan, error)
 	execProcess                func(*exec.Cmd, tea.ExecCallback) tea.Cmd
 	inHerdr                    func() bool
-	launchInHerdr              func(harness.HandoffPlan) (string, error)
+	launchInHerdr              func(harness.HandoffPlan, string) (string, error)
+	labelHerdrHub              func() error
 	listHerdrAgents            func() ([]harness.HerdrAgent, error)
 	focusHerdrAgent            func(string) error
 	openURL                    func(string) tea.Cmd
@@ -688,7 +689,8 @@ func NewModelWithOpenWith(svc *core.Service, openWith string) Model {
 		},
 		execProcess:     tea.ExecProcess,
 		inHerdr:         harness.InHerdr,
-		launchInHerdr:   harness.LaunchInHerdrTab,
+		launchInHerdr:   harness.LaunchInHerdr,
+		labelHerdrHub:   harness.LabelHerdrHub,
 		listHerdrAgents: harness.ListHerdrAgents,
 		focusHerdrAgent: harness.FocusHerdrAgent,
 		herdrLaunched:   map[string]herdrLaunch{},
@@ -791,7 +793,7 @@ func (m *Model) ensureWatch(path string) {
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.listDossiersCmd(), m.healthCmd(), healthTick(), waitForUpdate(m.updateChan)}
 	if m.inHerdr() {
-		cmds = append(cmds, m.agentPollCmd(), agentPollTick())
+		cmds = append(cmds, m.agentPollCmd(), agentPollTick(), m.labelHubCmd())
 	}
 	return tea.Batch(cmds...)
 }
@@ -1140,6 +1142,7 @@ func (m Model) openInAgent(t targetDossier) (tea.Model, tea.Cmd) {
 	}
 	plan, err := m.planOpenWith(m.openWith, harness.LaunchRequest{
 		SessionID:  sessionID,
+		DossierID:  t.id,
 		DossierDir: dir,
 		Name:       t.name,
 		Slug:       slug,
@@ -1165,13 +1168,17 @@ func (m Model) openInAgent(t targetDossier) (tea.Model, tea.Cmd) {
 
 	id, fromView := t.id, m.currentView
 	if m.inHerdr() {
-		// Inside herdr the agent gets its own tab and the TUI keeps running as the
-		// switcher (ADR 0014). If herdr can't do it, fall back to taking over this
-		// terminal (see herdrLaunchMsg) rather than leaving a binding for a
-		// session that never starts.
-		launch := m.launchInHerdr
+		// Inside herdr the agent gets its own workspace (or a tab in the Dossier's
+		// existing one) and the TUI keeps running as the hub (ADR 0014). If herdr
+		// can't do it, fall back to taking over this terminal (see herdrLaunchMsg)
+		// rather than leaving a binding for a session that never starts.
+		launch, label := m.launchInHerdr, m.labelHerdrHub
+		workspace := m.dossierWorkspaceFinder()
 		return m, func() tea.Msg {
-			paneID, err := launch(plan)
+			if label != nil {
+				_ = label() // best-effort: recovers the hub name if herdr re-derived it
+			}
+			paneID, err := launch(plan, workspace(id))
 			return herdrLaunchMsg{err: err, paneID: paneID, plan: plan, id: id, fromView: fromView}
 		}
 	}
@@ -2595,7 +2602,7 @@ type editorFinishedMsg struct {
 }
 
 // herdrOpenedNotice is informational, not a problem, so it clears itself.
-const herdrOpenedNotice = "opened the agent in a new herdr tab"
+const herdrOpenedNotice = "opened the agent in herdr"
 
 // noticeDuration is how long a transient notice stays in the status area.
 const noticeDuration = 5 * time.Second

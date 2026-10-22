@@ -12,11 +12,11 @@ import (
 	"dossier/internal/core"
 )
 
-// ClaudeBinEnv overrides the Claude Code executable used for a dossier handoff.
+// ClaudeBinEnv overrides the Claude Code executable used for a Dossier handoff.
 // It exists so a non-PATH install (or a test) can point at an exact binary.
 const ClaudeBinEnv = "DOSSIER_CLAUDE_BIN"
 
-// CursorBinEnv overrides the Cursor Agent executable used for a dossier handoff.
+// CursorBinEnv overrides the Cursor Agent executable used for a Dossier handoff.
 const CursorBinEnv = "DOSSIER_CURSOR_BIN"
 
 const DefaultOpenWith = "claude-code"
@@ -25,6 +25,7 @@ const DefaultOpenWith = "claude-code"
 // handoff. The profile supplies the agent-specific command and arguments.
 type LaunchRequest struct {
 	SessionID  string
+	DossierID  string
 	DossierDir string
 	Name       string
 	Slug       string
@@ -125,11 +126,12 @@ func NormalizeOpenWith(name string) (string, error) {
 // running anything.
 type HandoffPlan struct {
 	SessionID string
+	DossierID string
 	Bin       string
 	Args      []string
 	Dir       string
 	Env       []string
-	// Slug names the Dossier; herdr launches use it to label the workspace and tab.
+	// Slug names the Dossier; herdr launches use it to label the Dossier's workspace (or tab).
 	Slug string
 }
 
@@ -147,49 +149,51 @@ func PlanOpenWith(name string, req LaunchRequest) (HandoffPlan, error) {
 		return HandoffPlan{}, fmt.Errorf("launch dossier directory must not be empty")
 	}
 
+	var plan HandoffPlan
 	switch canonical {
 	case "claude-code":
 		bin, err := ClaudeBin()
 		if err != nil {
 			return HandoffPlan{}, err
 		}
-		plan := applyRepos(PlanClaudeHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug), req, true)
+		plan = applyRepos(PlanClaudeHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug), req, true)
 		if req.Headless {
 			plan.Args = append([]string{"--print"}, plan.Args...)
 			plan.Env = []string{"DOSSIER_LEAN_SESSION_START=1"}
 		}
-		return plan, nil
 	case "cursor":
 		bin, err := CursorBin()
 		if err != nil {
 			return HandoffPlan{}, err
 		}
-		return applyRepos(PlanCursorHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug), req, false), nil
+		plan = applyRepos(PlanCursorHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug), req, false)
 	case "codex":
 		bin, err := pathBin("codex", "Codex")
 		if err != nil {
 			return HandoffPlan{}, err
 		}
-		return applyRepos(PlanPromptHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug, genericLaunchEnv(req.SessionID)), req, false), nil
+		plan = applyRepos(PlanPromptHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug, genericLaunchEnv(req.SessionID)), req, false)
 	case "pi":
 		bin, err := pathBin("pi", "Pi")
 		if err != nil {
 			return HandoffPlan{}, err
 		}
-		return applyRepos(PlanPromptHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug, []string{
+		plan = applyRepos(PlanPromptHandoff(bin, req.SessionID, req.DossierDir, req.Name, req.Slug, []string{
 			"PI_SESSION_ID=",
 			"PI_SESSION_FILE=",
 			"CLAUDE_CODE_SESSION_ID=",
-		}), req, false), nil
+		}), req, false)
 	case "antigravity":
 		bin, err := pathBin("agy", "Antigravity (agy)")
 		if err != nil {
 			return HandoffPlan{}, err
 		}
-		return applyRepos(PlanPromptHandoffWithPrefix(bin, []string{"--prompt-interactive"}, req.SessionID, req.DossierDir, req.Name, req.Slug, genericLaunchEnv(req.SessionID)), req, false), nil
+		plan = applyRepos(PlanPromptHandoffWithPrefix(bin, []string{"--prompt-interactive"}, req.SessionID, req.DossierDir, req.Name, req.Slug, genericLaunchEnv(req.SessionID)), req, false)
 	default:
 		return HandoffPlan{}, fmt.Errorf("open_with profile %q is not implemented", canonical)
 	}
+	plan.DossierID = req.DossierID
+	return plan, nil
 }
 
 // PlanClaudeHandoff builds the launch for a Claude Code session that should come

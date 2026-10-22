@@ -1,6 +1,6 @@
 # Dossier / chainlink — Handoff
 
-> Updated: 2026-10-07
+> Updated: 2026-10-22
 > Purpose: the entry point for any agent picking up work. Read this first. It covers current
 > status and what remains. History lives in git, `BUILD-DECISIONS.md`, the ADRs, and
 > `docs/history/`. The pre-2026-10-07 handoff, with the full dated status log and the D1–D11
@@ -19,7 +19,7 @@
 Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `PRD.md`/`PRFAQ.md`/`VISION.md`.
 `docs/history/` is design rationale only. Never resolve current behavior from it.
 
-## Status (2026-10-07)
+## Status (2026-10-22)
 
 - **Core product: shipped.** Every SPEC milestone is implemented across CLI, MCP and the Bubble Tea TUI, in one Go binary with files as the source of truth.
 - **Team Sync (B12, ADR 0005): built and sandbox-validated, not live-validated.**
@@ -28,6 +28,7 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
   - Not done: live-GitHub validation (Part D, SPEC §14.11) and the two-colleague pilot (Part E). Both need the owner.
 - **Pi: supported through Dossier's own extension** (ADR 0009). Session identity and lifecycle bridging work. One known gap, from a code read not yet confirmed in a live Pi session: the CLI cannot update an existing Dossier's Distilled State, so a Pi agent cannot save mid-session. See `docs/harness-capabilities.md` §2.
 - **Session switcher over herdr (ADR 0014) and repo identity per machine (ADR 0015): shipped** (PRs #31, #32).
+- **Workspace per Dossier over herdr (ADR 0014 amendment, 2026-10-22): implemented on branch `feat/herdr-workspace-per-dossier`, not yet merged.** `c` opens the agent in a workspace labelled with the slug; the TUI's workspace is renamed `dossier` only if the TUI is all it holds; `C` adds a tab to the Dossier's workspace. Reuse is keyed by a stable `dossier_id` Herdr metadata token, not the mutable slug label; a fresh disposable-workspace check confirmed `workspace list` and `workspace get` expose the token, and the probe workspace was closed. Also verified against a live herdr with a real `claude` launch: label stability, `agent focus` across workspaces, `C` as a tab, hub rename guard, and in-process reuse for back-to-back launches. Not run: `c` from the TUI itself. Dossier does not edit herdr's `config.toml`; jump back to the hub with herdr's own workspace shortcuts.
 - **`dossier export` (ADR 0017): shipped 2026-10-07 in v0.5.0.** CLI `dossier export` and MCP `dossier_export` write one self-contained Markdown brief for a reader who does not run Dossier. `Service.Export` is pure; `internal/exportout` owns the file I/O both adapters share. No TUI action yet.
 - **Saving (B29): shipped 2026-10-07.** Saving is the user's job: `/save-dossier` before `/clear` or exit. Unsaved-session recovery was dropped. Large unranged `dossier_artifact` fetches return an outline instead of the content. A Claude Code `Stop`-hook checkpoint that nudged the agent to save after a few turns of unsaved work shipped the same day, then was removed the same day: it fired on every turn of every bound session and was too much friction in ordinary conversation (live-tested at 3 turns, then 10, before being dropped outright rather than retuned again — `docs/harness-capabilities.md` §3 keeps the verified Stop-hook behavior for if this is reconsidered). `ClaudeCodeHarness.Install` migrates the Stop hook off an install that already has it; re-run `dossier harness install claude-code` to pick that up. `tools/contextdiag` diagnoses heavy session starts; the 200–250k-start fix still needs confirming on the work machine with it.
 - **Continuity and measurement: shipped 2026-10-07** (PRs #32, #33).
