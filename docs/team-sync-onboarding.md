@@ -61,6 +61,8 @@ If `create` fails (repo not empty, no access, no network), it says why. Fix the 
 
 ## Joining the team store
 
+Don't run `dossier init` before joining. `team join` sets up your `~/.dossier` workspace and the Claude Code integration itself. If you already ran `init`, move the folder aside (`mv ~/.dossier ~/.dossier.bak`), then join.
+
 ```text
 dossier team join <link>
 ```

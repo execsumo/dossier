@@ -27,6 +27,11 @@ dossier init
 
 No Homebrew? Grab a binary from the [Releases page](https://github.com/execsumo/dossier/releases), make it executable, and run `./dossier init`.
 
+**Which command to run:**
+
+- **Using Dossier on your own:** run `dossier init`.
+- **Joining a team's shared store:** run `dossier team join <repo-url>` instead. Don't run `init` first. Join sets up `~/.dossier` and the Claude Code integration itself. If you already ran `init`, move `~/.dossier` aside (`mv ~/.dossier ~/.dossier.bak`) and then run `join`.
+
 **Windows (PowerShell)**
 
 ```powershell
