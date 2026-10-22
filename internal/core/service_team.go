@@ -372,7 +372,7 @@ func (s *Service) TeamJoin(ctx context.Context, req TeamJoinReq) (Result, error)
 	err := s.syncer.Clone(ctx, req.RemoteURL, s.cfg.DossierHome, 50)
 	if err != nil {
 		if strings.Contains(err.Error(), "target directory is not empty") {
-			return Result{}, NewError(ErrConflictDetected, "target directory is not empty; cannot join into an existing store")
+			return Result{}, NewError(ErrConflictDetected, "target directory is not empty; cannot join into an existing store. If you ran `dossier init` first, move ~/.dossier aside (mv ~/.dossier ~/.dossier.bak) and run `dossier team join` again. Don't run init before joining a team.")
 		}
 		if isHTTPRemote(req.RemoteURL) && isRemoteAuthFailure(err) {
 			return Result{}, NewError(ErrSyncAuthFailed, remoteAccessMessage(req.RemoteURL, err))
