@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -91,22 +92,46 @@ func TestLaunchInHerdr(t *testing.T) {
 }
 
 func TestLabelHerdrHub(t *testing.T) {
+	workspace := func(label string, tabs, panes int) []byte {
+		return []byte(fmt.Sprintf(`{"result":{"workspace":{"label":%q,"tab_count":%d,"pane_count":%d}}}`, label, tabs, panes))
+	}
 	var calls [][]string
+	var reply []byte
 	stubHerdr(t, func(args ...string) ([]byte, error) {
 		calls = append(calls, args)
-		return []byte(`{}`), nil
+		return reply, nil
 	})
+
 	t.Setenv("HERDR_WORKSPACE_ID", "")
 	if err := LabelHerdrHub(); err != nil || len(calls) != 0 {
 		t.Fatalf("outside a workspace it must be a no-op: err=%v calls=%v", err, calls)
 	}
+
 	t.Setenv("HERDR_WORKSPACE_ID", "w88")
-	if err := LabelHerdrHub(); err != nil {
-		t.Fatal(err)
+	rename := [][]string{{"workspace", "get", "w88"}, {"workspace", "rename", "w88", "dossier"}}
+	getOnly := [][]string{{"workspace", "get", "w88"}}
+	for _, tc := range []struct {
+		name  string
+		reply []byte
+		want  [][]string
+	}{
+		{"only the TUI", workspace("g-unit", 1, 1), rename},
+		{"TUI is one of several tabs", workspace("g-unit", 2, 1), getOnly},
+		{"TUI is split with another pane", workspace("g-unit", 1, 2), getOnly},
+		{"already named", workspace("dossier", 1, 1), getOnly},
+	} {
+		calls, reply = nil, tc.reply
+		if err := LabelHerdrHub(); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if !reflect.DeepEqual(calls, tc.want) {
+			t.Errorf("%s: calls = %v, want %v", tc.name, calls, tc.want)
+		}
 	}
-	want := [][]string{{"workspace", "rename", "w88", "dossier"}}
-	if !reflect.DeepEqual(calls, want) {
-		t.Errorf("calls = %v, want %v", calls, want)
+
+	calls, reply = nil, []byte(`not json`)
+	if err := LabelHerdrHub(); err == nil {
+		t.Error("expected an error for unparseable output")
 	}
 }
 

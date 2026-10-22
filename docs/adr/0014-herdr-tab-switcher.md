@@ -175,9 +175,11 @@ each Dossier workspace (so no extra sync/health tickers or sync-lock contention)
 
 **Decision.**
 1. **Hub.** The TUI's own workspace is the hub. On startup, and again before every launch
-   (so it recovers if herdr re-derived the name), it runs
-   `herdr workspace rename $HERDR_WORKSPACE_ID dossier`. Best-effort and silent: a failed
-   rename is cosmetic.
+   (so it recovers if herdr re-derived the name), it reads `herdr workspace get
+   $HERDR_WORKSPACE_ID` and, **only if the workspace holds nothing but the TUI** (one tab,
+   one pane), runs `herdr workspace rename $HERDR_WORKSPACE_ID dossier`. A TUI opened as a tab
+   or split in a workspace that holds other work leaves that workspace's name alone.
+   Best-effort and silent: a failed get or rename is cosmetic.
 2. **First session on a Dossier** (`c` with no live agent):
    `herdr workspace create --cwd <launch dir> --label <slug> --focus`, then
    `herdr pane run <root_pane> "exec …"`. The slug is unique, so the sidebar shows the hub

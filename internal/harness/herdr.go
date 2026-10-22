@@ -77,15 +77,38 @@ func shellQuote(s string) string {
 // hub is findable in herdr's sidebar next to one workspace per Dossier.
 const HubLabel = "dossier"
 
-// LabelHerdrHub names the caller's workspace (the one hosting the TUI) HubLabel.
-// herdr derives workspace names from the working directory, which collides
-// across repos; an explicit label does not. It is a no-op outside a workspace.
+// LabelHerdrHub names the caller's workspace (the one hosting the TUI) HubLabel,
+// but only when the TUI is all it holds: one tab with one pane. herdr derives
+// workspace names from the working directory, which collides across repos; an
+// explicit label does not. A TUI opened as a tab or split inside a workspace
+// that holds other work leaves that workspace's name alone. It is a no-op
+// outside a workspace.
 func LabelHerdrHub() error {
 	ws := os.Getenv("HERDR_WORKSPACE_ID")
 	if ws == "" {
 		return nil
 	}
-	_, err := herdrRun("workspace", "rename", ws, HubLabel)
+	out, err := herdrRun("workspace", "get", ws)
+	if err != nil {
+		return err
+	}
+	var resp struct {
+		Result struct {
+			Workspace struct {
+				Label     string `json:"label"`
+				TabCount  int    `json:"tab_count"`
+				PaneCount int    `json:"pane_count"`
+			} `json:"workspace"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return fmt.Errorf("herdr workspace get: unexpected output: %w", err)
+	}
+	w := resp.Result.Workspace
+	if w.TabCount != 1 || w.PaneCount != 1 || w.Label == HubLabel {
+		return nil
+	}
+	_, err = herdrRun("workspace", "rename", ws, HubLabel)
 	return err
 }
 
