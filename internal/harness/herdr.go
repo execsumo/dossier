@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -139,6 +140,8 @@ func findHerdrWorkspace(label, skip string) string {
 	return ""
 }
 
+var herdrLaunchMu sync.Mutex
+
 // LaunchInHerdr opens the handoff in herdr and focuses it (ADR 0014, amended
 // for workspace-per-Dossier). Each Dossier gets one workspace labelled with its
 // slug, so a launch first reuses a workspace that already carries the slug and
@@ -150,6 +153,9 @@ func findHerdrWorkspace(label, skip string) string {
 // belongs to the TUI. It returns the new pane id once the command has been typed
 // into the shell; the agent's lifetime is herdr's concern, not the caller's.
 func LaunchInHerdr(plan HandoffPlan, workspaceID string) (string, error) {
+	herdrLaunchMu.Lock()
+	defer herdrLaunchMu.Unlock()
+
 	hub := os.Getenv("HERDR_WORKSPACE_ID")
 	if workspaceID == hub {
 		workspaceID = ""

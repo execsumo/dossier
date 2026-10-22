@@ -207,7 +207,10 @@ moves between workspaces; `C` adds a tab with both agents listed under their own
 herdr lists a fresh agent about 4 s after launch (the workspace exists after ~2 s); two
 back-to-back launches with no agent listed yet produced one workspace with two tabs.
 The label match trusts a mutable label: a workspace you rename by hand is not found, and a
-workspace of yours that happens to carry a Dossier's slug receives its tabs.
+workspace of yours that happens to carry a Dossier's slug receives its tabs. Dossier serializes
+its own herdr launches in-process to avoid two simultaneous `c`/`C` requests both missing the
+label and creating duplicate workspaces; independent Dossier TUI processes do not share this
+lock.
 
 **Consequences.** The sidebar grows by one entry per active Dossier. herdr's workspace
 shortcuts become the way to jump back to the hub; Dossier does not edit `config.toml` or add a

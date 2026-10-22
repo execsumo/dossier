@@ -3,6 +3,7 @@ package harness
 import (
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 )
 
@@ -94,6 +95,65 @@ func TestLaunchInHerdr(t *testing.T) {
 	stubHerdr(t, func(args ...string) ([]byte, error) { return []byte(`{}`), nil })
 	if _, err := LaunchInHerdr(plan, ""); err == nil {
 		t.Error("expected an error when create returns no pane id")
+	}
+}
+
+func TestLaunchInHerdrSerializesWorkspaceReuse(t *testing.T) {
+	t.Setenv("HERDR_WORKSPACE_ID", "hub")
+	var created bool
+	var calls [][]string
+	stubHerdr(t, func(args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		switch {
+		case reflect.DeepEqual(args, []string{"workspace", "list"}):
+			if created {
+				return []byte(`{"result":{"workspaces":[{"workspace_id":"w1","label":"same-dossier"}]}}`), nil
+			}
+			return []byte(`{"result":{"workspaces":[]}}`), nil
+		case args[0] == "workspace" && args[1] == "create":
+			created = true
+			return []byte(`{"result":{"root_pane":{"pane_id":"w1:p1"}}}`), nil
+		case args[0] == "tab" && args[1] == "create":
+			return []byte(`{"result":{"root_pane":{"pane_id":"w1:p2"}}}`), nil
+		default:
+			return []byte(`{}`), nil
+		}
+	})
+
+	plan := HandoffPlan{Bin: "claude", Args: []string{"x"}, Dir: "/d", Slug: "same-dossier"}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := LaunchInHerdr(plan, "")
+			results <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	for err := range results {
+		if err != nil {
+			t.Errorf("LaunchInHerdr: %v", err)
+		}
+	}
+
+	creates, tabs := 0, 0
+	for _, args := range calls {
+		if len(args) > 1 && args[1] == "create" {
+			if args[0] == "workspace" {
+				creates++
+			} else if args[0] == "tab" {
+				tabs++
+			}
+		}
+	}
+	if creates != 1 || tabs != 1 {
+		t.Errorf("workspace creates=%d tab creates=%d; want one each (calls: %v)", creates, tabs, calls)
 	}
 }
 
