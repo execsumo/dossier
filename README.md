@@ -111,7 +111,7 @@ Share a store with your colleagues through a private GitHub repo — Dossier han
 
 - **Local-first.** Saves never wait on the network. Your work lands on your machine first, then syncs.
 - **Conflict-honest.** If two people edit the same Dossier at once, nothing is overwritten. The clash becomes a conflict file for you to resolve.
-- **Easy to join.** One command and a GitHub sign-in — no developer tools needed.
+- **Easy to join.** Dossier handles the setup; the default GitHub sign-in uses the GitHub CLI (`gh`). See the onboarding guide for installation and an alternative sign-in method.
 - **Agents welcome.** Headless agents can join as their own team members.
 
 ### Turn your local store into a team store
@@ -119,8 +119,10 @@ Share a store with your colleagues through a private GitHub repo — Dossier han
 1. Create an **empty, private** GitHub repo (no README or license).
 2. Run `dossier team create <repo-url> --name "Your Name"`.
 3. Sign in to GitHub if asked, review the list of Dossiers it will publish, and type `y`.
-4. Give each teammate repo access, then add them to the roster: `dossier team add <username> "Their Name"` and `dossier sync`. Only the manager (you) can change the roster. Send them the repo URL; they run `dossier team join <repo-url>`.
+4. Before inviting each teammate to the repo, ask for their exact Dossier login and display name. Add that login to the roster with `dossier team add <login> "Their Name"`, then run `dossier sync`; only the manager can change the roster. After syncing, grant their GitHub repo access and send the repo URL; they run `dossier team join <repo-url>`. An unlisted login can still join: Dossier attempts to save and sync a pending request, and reports whether the manager can see it. The manager reviews requests with `dossier team requests` and approves the exact login with `dossier team approve <login> "Their Name"`.
 5. Assign work with `dossier lead <slug> <username>`, or `dossier promote … --lead <username>`. Teammates find it with `dossier ls --mine`, which lists dossiers they lead **and** ones where they own a Delegation Contract (the `MATCHED AS` column says which).
+
+To add a new shared Dossier, run `dossier promote "<slug>"`, then `dossier sync` to share it. Changes made with CLI commands or the dashboard do not sync automatically.
 
 Your existing Dossiers become the shared ones, and everything in the store syncs, including archived Dossiers. Anyone with repo access can read it all. Machine-local files (`config.yaml`, session bindings, raw session captures) stay on your machine.
 

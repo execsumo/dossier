@@ -46,7 +46,7 @@ Already have a local Dossier store and want to share it? You turn that store int
 4. **Sign in to GitHub if asked.** Your browser opens once; paste the one-time code and click **Authorize**.
 5. **Check the list and confirm.** Dossier checks that the repo is empty, then lists every Dossier it will publish. Type `y` to continue. Use `-y` to skip the prompt, for example in a script.
 6. **Done.** Your store is pushed, you're the team manager, and the repo address is saved in your local `config.yaml`.
-7. **Invite teammates.** Follow the "Manager checklist for a new teammate" below for each person. Only the manager can add or remove roster members; anyone else running `team add` or `team remove` is refused with a message naming the manager.
+7. **Prepare each teammate before inviting them.** Follow the "Manager checklist for a new teammate" below. Only the manager can add or remove roster members; anyone else running a roster mutation is refused with a message naming the manager.
 8. **Assign work.** Set a Dossier's lead with `dossier lead <slug> <username>` (or `dossier promote … --lead <username>`). The lead must be a current human roster member; their username is the unambiguous choice. A unique display name or prefix is accepted and stored as the username; ambiguous names require a choice. Doctor identifies older display-name values and gives the command to canonicalize them, without editing them. Delegation Contracts name their owner inside the Dossier (`### <task> — owner: <name>`).
 
 If `create` fails (repo not empty, no access, no network), it says why. Fix the cause and run the same command again.
@@ -72,9 +72,9 @@ Replace `<link>` with the link you were given. The command:
 1. **Signs you in to GitHub** if you aren't already. It asks `Sign in to GitHub now? Your browser will open. [Y/n]`. Press Enter. `gh` shows a one-time code and opens github.com; paste the code and click **Authorize**. That's the only sign-in. Dossier doesn't store a password or token itself; it asks `gh` each time.
 2. **Checks that your GitHub account can see the team repository.** If it can't, it tells you to ask the person who invited you to add you, and to accept the invitation email. Nothing on your computer changes.
 3. **Downloads the team's topics** to your computer.
-4. **Tells you how you'll appear**, for example `You'll appear to teammates as Priya Shah (psmith).` Your name comes from the team roster that the manager keeps, matched to your computer's login name. If you see `You're not in the team roster yet`, send the manager the command it prints; you can keep working meanwhile.
+4. **Checks your login against the roster.** If it matches, Dossier says how you'll appear, for example `You'll appear to teammates as Priya Shah (psmith).` If it is not listed, you can still join: Dossier attempts to save a pending request for your exact normalized login and sync it. The message says whether the request was both saved and synced, saved locally but not synced, or not saved. If it was only saved locally, run `dossier sync` when you are back online. You can keep working while the manager reviews the request.
 
-~~**Ask for your name.**~~ Dossier doesn't ask for your name; it uses your work login name (for example `psmith`) and the display name the manager entered. To change how your name is shown, ask the manager.
+Dossier uses your work login (for example `psmith`) as the roster identity; it does not ask you to choose a login or display name. The manager chooses the display name when approving your request. If the login shown does not look right, tell the manager the exact login Dossier reported before they approve it.
 
 > **If `join` fails** (wrong link, no access, no network), it says why and changes nothing you need to clean up. Fix the cause and run the same command again. Anything the failed attempt created is moved to a folder next to your store, named like `~/.dossier.failed-join-<time>`. It is kept, not deleted, and you can remove it once you've joined.
 
@@ -82,10 +82,11 @@ Replace `<link>` with the link you were given. The command:
 
 ### Manager checklist for a new teammate
 
-1. Add them to the GitHub repository (Settings → Collaborators).
-2. Add them to the roster: `dossier team add <their username> "<Their Name>"`, then `dossier sync`. Their username is their work login name (what `id -un` shows on a Mac, or the part after the `\` in `whoami` on Windows).
-3. Send them the store link and this page. (Only you, the manager, can add or remove roster members.)
-4. After they join, have them open Claude in their usual work folder and ask "what's assigned to me?". Check that it finds their first assignment and binds it.
+1. Ask for their exact Dossier login and preferred display name **before** sending the GitHub invitation. On a Mac, the login is usually `id -un`; on Windows, use the account name from `whoami`. Dossier normalizes domain/email prefixes and letter case, so confirm the final login Dossier will use.
+2. Add the login to the roster with `dossier team add <login> "<Their Name>"`, then run `dossier sync`. A prepopulated roster member will be recognized at join time; there is no warning just because they have not joined yet.
+3. Add them to the GitHub repository (Settings → Collaborators) and send them the store link and this page. Only you, the manager, can change the roster.
+4. If they joined before being added to the roster, run `dossier sync`, then `dossier team requests` to see synced requests. Review the exact login and approve it with `dossier team approve <login> "<Their Name>"`. Approval adds that exact requested login as a human roster member and syncs the change. If the request was not saved or synced, add the verified login directly with `dossier team add`.
+5. After they join, have them open Claude in their usual work folder and ask "what's assigned to me?". Check that it finds their first assignment and binds it.
 
 ### Starting work on an assignment (primary path)
 
