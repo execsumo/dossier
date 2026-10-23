@@ -142,8 +142,8 @@ type joinReaderStore struct {
 func (s *joinReaderStore) TeamJoinAuthors() ([]string, error) { return s.joined, nil }
 
 // TestDoctorFlagsJoinedLoginMissingFromRoster is the Geoff case: the roster lists
-// geoffclawson, but the Mac login that joined is gclawson. Both sides are
-// flagged, so the manager can correct the roster.
+// geoffclawson, but the Mac login that joined is gclawson. The actual joining
+// login remains advisory; a prepopulated member without a join record is expected.
 func TestDoctorFlagsJoinedLoginMissingFromRoster(t *testing.T) {
 	store := &joinReaderStore{
 		rosterTestStore: &rosterTestStore{
@@ -164,10 +164,11 @@ func TestDoctorFlagsJoinedLoginMissingFromRoster(t *testing.T) {
 		text = append(text, string(w))
 	}
 	joined := strings.Join(text, "\n")
-	for _, want := range []string{"gclawson joined the team store, but is not on the roster", "geoffclawson is on the roster but has not joined"} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("missing %q in warnings:\n%s", want, joined)
-		}
+	if !strings.Contains(joined, "gclawson joined the team store, but is not a current roster member") {
+		t.Fatalf("missing joining-login advisory in warnings:\n%s", joined)
+	}
+	if strings.Contains(joined, "geoffclawson is on the roster but has not joined") {
+		t.Fatalf("prepopulated roster member must not be flagged before joining:\n%s", joined)
 	}
 }
 

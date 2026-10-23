@@ -23,6 +23,7 @@ type FakeStore struct {
 	History           map[core.Revision]*core.Dossier
 	Roster            *core.Roster
 	TeamAudits        []core.AuditEvent
+	JoinRequests      []core.TeamJoinRequest
 	InboxItems        map[string]map[string]core.InboxItem
 	// WorkingFiles is the files/ content per dossier id (relative path -> bytes).
 	WorkingFiles map[string]map[string][]byte
@@ -73,6 +74,35 @@ func (f *FakeStore) TeamJoinAuthors() ([]string, error) {
 		}
 	}
 	return authors, nil
+}
+
+func (f *FakeStore) AppendTeamJoinRequest(request core.TeamJoinRequest) error {
+	if request.Resolution != "" || !request.ResolvedAt.IsZero() {
+		return fmt.Errorf("team join request cannot include resolution fields")
+	}
+	if request.ID == "" {
+		request.ID = fmt.Sprintf("fake-request-%d", len(f.JoinRequests)+1)
+	}
+	f.JoinRequests = append(f.JoinRequests, request)
+	return nil
+}
+
+func (f *FakeStore) AppendTeamJoinResolution(request core.TeamJoinRequest) error {
+	validRequestResolution := request.Resolution == core.TeamJoinRequestResolutionApproved && request.ID != "" && !request.RequestedAt.IsZero()
+	validRosterResolution := request.Resolution == core.TeamJoinRequestResolutionRosterAdded && request.ID == "" && request.RequestedAt.IsZero()
+	if (!validRequestResolution && !validRosterResolution) || request.ResolvedAt.IsZero() {
+		return fmt.Errorf("team join resolution requires an approved status and timestamp")
+	}
+	f.JoinRequests = append(f.JoinRequests, request)
+	return nil
+}
+
+func (f *FakeStore) TeamJoinRequests() ([]core.TeamJoinRequest, error) {
+	return append([]core.TeamJoinRequest(nil), f.JoinRequests...), nil
+}
+
+func (f *FakeStore) TeamJoinRequestSyncPath(username string) string {
+	return "team-requests/" + teamJoinRequestShard(username)
 }
 
 func (f *FakeStore) SnapshotRoster() (core.RosterSnapshot, error) {

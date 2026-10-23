@@ -1,6 +1,6 @@
 # Dossier / chainlink — Handoff
 
-> Updated: 2026-10-22
+> Updated: 2026-10-23
 > Purpose: the entry point for any agent picking up work. Read this first. It covers current
 > status and what remains. History lives in git, `BUILD-DECISIONS.md`, the ADRs, and
 > `docs/history/`. The pre-2026-10-07 handoff, with the full dated status log and the D1–D11
@@ -24,6 +24,7 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 - **Core product: shipped.** Every SPEC milestone is implemented across CLI, MCP and the Bubble Tea TUI, in one Go binary with files as the source of truth.
 - **Team Sync (B12, ADR 0005): built and sandbox-validated, not live-validated.**
   - Built: a private GitHub repo hidden behind the binary; per-author audit shards; conflict capture; loud sync failures; `gh` sign-in; roster with human and agent kinds; manager-only roster edits.
+  - Current unmerged work on `feat/team-join-roster-check`: join checks the roster and attempts to save/sync an append-only request for an unlisted login; managers can list requests and approve the exact login; concurrent request-shard appends preserve both branches' requests and resolutions. Doctor does not flag prepopulated members who have not joined and recognizes agent roster members. `go test ./...`, `go vet ./...`, build, formatting, and diff checks passed 2026-10-23; these changes remain uncommitted and have not been live-validated.
   - Validated in a sandbox: [`docs/team-sync-validation.md`](docs/team-sync-validation.md) Parts A–C.
   - Not done: live-GitHub validation (Part D, SPEC §14.11) and the two-colleague pilot (Part E). Both need the owner.
 - **Pi: supported through Dossier's own extension** (ADR 0009). Session identity and lifecycle bridging work. One known gap, from a code read not yet confirmed in a live Pi session: the CLI cannot update an existing Dossier's Distilled State, so a Pi agent cannot save mid-session. See `docs/harness-capabilities.md` §2.

@@ -66,6 +66,14 @@ type TeamJoinReader interface {
 	TeamJoinAuthors() ([]string, error)
 }
 
+// TeamJoinRequestStore persists append-only requests from joining logins.
+type TeamJoinRequestStore interface {
+	AppendTeamJoinRequest(TeamJoinRequest) error
+	AppendTeamJoinResolution(TeamJoinRequest) error
+	TeamJoinRequests() ([]TeamJoinRequest, error)
+	TeamJoinRequestSyncPath(username string) string
+}
+
 type RosterRollbackStore interface {
 	RosterStore
 	SnapshotRoster() (RosterSnapshot, error)
