@@ -49,7 +49,7 @@ Match the surrounding code's idioms once they exist. Standard Go: `gofmt`, table
 - **Non-destructive always** — superseded content moves to Archive/audit, never deleted. This replaces a human confirm gate.
 - **Degrade visibly** — a missing harness capability is a surfaced warning, never a silent no-op. Don't promise transcript capture universally.
 - **Never clobber a user's harness config** — read/merge/write, back up, idempotent, confirmation before modifying (BUILD-DECISIONS B7/B8).
-- **Team Sync is local-first and conflict-honest** (B12) — a save never blocks on the network; cross-machine concurrent edits become `conflicts/*.md` (never last-write-wins, never git merge markers); machine-local files (`config.yaml`, root `sessions/`, `context/`) never sync; oversized artifacts are excluded from sync with a visible warning.
+- **Team Sync is local-first and conflict-honest** (B12) — a save never blocks on the network; disjoint Dossier section/field edits merge; concurrent edits to any shared path are merged or preserved as `conflicts/*.md` (never silently discarded or git merge markers); machine-local files (`config.yaml`, root `sessions/`, `context/`) never sync; oversized artifacts are excluded from sync with a visible warning.
 
 ## Test expectations
 
