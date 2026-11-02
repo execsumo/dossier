@@ -11,7 +11,7 @@
 1. **This file**: status, what remains, watchouts.
 2. **`BUILD-DECISIONS.md`**: settled build choices. Do not relitigate them.
 3. **`ARCHITECTURE.md`**: how the code is structured (Go, ports and adapters). Keep it current.
-4. **`CLAUDE.md`** (`AGENTS.md` points to it): repo working rules, build/test commands, hard rules, definition of done.
+4. **`AGENTS.md`** (`CLAUDE.md` imports it): repo working rules, build/test commands, hard rules, definition of done.
 5. **`SPEC.md`**: the contract: data model, CLI (§7), MCP (§8), algorithms (§11), acceptance criteria (§14).
 6. **`docs/adr/`**: one record per decision since the SPEC. Read the ones your change touches.
 7. **`PRD.md`** / **`PRFAQ.md`** / **`VISION.md`**: the product *why*, and the forward direction for a business audience.
@@ -99,7 +99,7 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
 ## Workflow
 
 - Branch off `main`. Open one focused PR per change and merge after CI is green on Linux, macOS and Windows.
-- **Definition of done** (`CLAUDE.md`):
+- **Definition of done** (`AGENTS.md`):
   - it compiles;
   - `go vet` and `gofmt` are clean;
   - tests pass;
@@ -114,7 +114,7 @@ Precedence when docs disagree: `BUILD-DECISIONS.md` > `SPEC.md` (mechanics) > `P
   - `README.md` for user-facing changes;
   - `assets/guide.md` when dogfooding shows distillation gaps.
 
-## Watchouts (hard rules; also in CLAUDE.md)
+## Watchouts (hard rules; also in AGENTS.md)
 
 - The token limit is a warning threshold. Never cut content to fit it.
 - Never silently link or merge ambiguous topics.
