@@ -322,11 +322,9 @@ func (r Roster) ResolvePerson(query string) (username string, ok bool, candidate
 	return "", false, candidates
 }
 
-// JoinMismatchAdvisories compares the people who have a team_created or
-// team_joined audit record (the authors the caller supplies) with the roster.
-// A recorded author the roster does not list as a current human member, and a
-// current human member with no record, are both advisories: a record proves
-// which login actually runs Dossier. The check is pure.
+// JoinMismatchAdvisories compares the authors with team_created or
+// team_joined audit records against the current roster. A roster member without
+// a join record is expected when the manager prepopulates the roster.
 func (r Roster) JoinMismatchAdvisories(joinedAuthors []string) []string {
 	joined := make(map[string]bool, len(joinedAuthors))
 	var advisories []string
@@ -337,13 +335,7 @@ func (r Roster) JoinMismatchAdvisories(joinedAuthors []string) []string {
 		}
 		joined[username] = true
 		if !r.Has(username) {
-			advisories = append(advisories, fmt.Sprintf("%s joined the team store, but is not on the roster. Ask %s to run: dossier team add %s \"Their Name\"", username, r.Manager, username))
-		}
-	}
-	for key := range r.Members {
-		username := NormalizeUsername(key)
-		if r.Kind(username) == "human" && !joined[username] {
-			advisories = append(advisories, fmt.Sprintf("%s is on the roster but has not joined from this login yet. If their Mac login is different, correct the roster: dossier team remove %s, then dossier team add <login> \"Their Name\"", username, username))
+			advisories = append(advisories, fmt.Sprintf("%s joined the team store, but is not a current roster member. Verify the login, then review `dossier team requests` or add it with: dossier team add %s \"Their Name\"", username, username))
 		}
 	}
 	sort.Strings(advisories)

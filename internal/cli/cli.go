@@ -2288,7 +2288,7 @@ func NewRootCmd() *cobra.Command {
 			for _, warning := range res.Warnings {
 				fmt.Fprintf(cmd.OutOrStdout(), "Warning: %s\n", warning)
 			}
-			printJoinRosterMessage(cmd.OutOrStdout(), svc)
+			printJoinRosterMessage(cmd.OutOrStdout(), svc, res)
 			return nil
 		},
 	}
@@ -2297,8 +2297,8 @@ func NewRootCmd() *cobra.Command {
 	var teamAddJSON bool
 	var teamAddKind string
 	teamAddCmd := &cobra.Command{
-		Use:   "add <username> <display-name>",
-		Short: "Add a member to the team roster",
+		Use:   "add <login> <display-name>",
+		Short: "Add a teammate using their exact Dossier login",
 		Args:  cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
 			svc, err := wire(resolveHomeDir())
@@ -2388,11 +2388,70 @@ func NewRootCmd() *cobra.Command {
 	}
 	teamMembersCmd.Flags().BoolVar(&teamMembersJSON, "json", false, "Output results in JSON format")
 
+	var teamRequestsJSON bool
+	teamRequestsCmd := &cobra.Command{
+		Use:   "requests",
+		Short: "List pending join requests in the locally synced team store",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			res, err := svc.TeamRequests(context.Background())
+			if err != nil {
+				fmt.Printf("Team requests failed: %v\n", err)
+				os.Exit(1)
+			}
+			requests := res.Data.([]core.PendingTeamJoinRequest)
+			if teamRequestsJSON {
+				printJSON(requests)
+				return
+			}
+			if len(requests) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No pending team join requests. Run `dossier sync` first if you expected a recent request.")
+				return
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Pending team join requests:")
+			for _, request := range requests {
+				fmt.Fprintf(cmd.OutOrStdout(), "- %s (requested %s)\n", request.Username, request.RequestedAt.Format(time.RFC3339))
+				fmt.Fprintln(cmd.OutOrStdout(), "  To approve, run `dossier team approve` with this exact login and their display name.")
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Run `dossier sync` before listing to fetch the latest requests.")
+		},
+	}
+	teamRequestsCmd.Flags().BoolVar(&teamRequestsJSON, "json", false, "Output results in JSON format")
+
+	teamApproveCmd := &cobra.Command{
+		Use:   "approve <login> <display-name>",
+		Short: "Approve a pending request and add its exact login to the roster",
+		Args:  cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			svc, err := wire(resolveHomeDir())
+			if err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			res, err := svc.TeamApproveJoin(context.Background(), actorForCLI(svc), args[0], args[1])
+			if err != nil {
+				fmt.Printf("Team approve failed: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Approved join request for %s; added %s to the team roster.\n", core.NormalizeUsername(args[0]), args[1])
+			for _, warning := range res.Warnings {
+				fmt.Fprintf(cmd.OutOrStdout(), "Warning: %s\n", warning)
+			}
+		},
+	}
+
 	teamCmd.AddCommand(teamCreateCmd)
 	teamCmd.AddCommand(teamJoinCmd)
 	teamCmd.AddCommand(teamAddCmd)
 	teamCmd.AddCommand(teamRemoveCmd)
 	teamCmd.AddCommand(teamMembersCmd)
+	teamCmd.AddCommand(teamRequestsCmd)
+	teamCmd.AddCommand(teamApproveCmd)
 	rootCmd.AddCommand(teamCmd)
 
 	return rootCmd
@@ -2637,20 +2696,28 @@ func checkRemoteBeforeStore(cmd *cobra.Command, remote string) error {
 	return nil
 }
 
-func printJoinRosterMessage(w io.Writer, svc *core.Service) {
+func printJoinRosterMessage(w io.Writer, svc *core.Service, result core.Result) {
+	status, ok := result.Data.(core.TeamJoinStatus)
+	if !ok || !status.RosterChecked || !status.RosterExists {
+		return
+	}
 	roster, err := svc.Members(context.Background())
 	if err != nil {
 		return
 	}
-	username, displayName := svc.CurrentUser()
-	message := joinRosterMessage(roster, username, displayName)
+	username := status.Username
+	displayName := status.DisplayName
+	if username == "" {
+		username, displayName = svc.CurrentUser()
+	}
+	message := joinRosterMessage(roster, username, displayName, status)
 	if message != "" {
 		fmt.Fprintln(w, message)
 	}
 }
 
-func joinRosterMessage(roster core.Roster, username, displayName string) string {
-	if len(roster.Members) == 0 && len(roster.Former) == 0 {
+func joinRosterMessage(roster core.Roster, username, displayName string, status core.TeamJoinStatus) string {
+	if !status.RosterChecked || !status.RosterExists {
 		return ""
 	}
 	if roster.Has(username) {
@@ -2659,11 +2726,20 @@ func joinRosterMessage(roster core.Roster, username, displayName string) string 
 		}
 		return fmt.Sprintf("You'll appear to teammates as %s (%s).", displayName, username)
 	}
-	managerName := roster.DisplayName(roster.Manager)
+	managerName := status.ManagerName
+	if managerName == "" {
+		managerName = roster.DisplayName(roster.Manager)
+	}
 	if managerName == "" {
 		managerName = roster.Manager
 	}
-	return fmt.Sprintf("You're not in the team roster yet. Ask %s to run: dossier team add %s \"Your Name\"", managerName, username)
+	if status.JoinRequestSaved && status.JoinRequestSynced {
+		return fmt.Sprintf("Your login (%s) isn't on the roster yet. The join request was saved and synced; the manager can run `dossier sync`, then `dossier team requests` to review it.", username)
+	}
+	if status.JoinRequestSaved {
+		return fmt.Sprintf("Your login (%s) isn't on the roster yet. The request was saved locally but not synced, so the manager cannot see it yet. Run `dossier sync` and ask them to check `dossier team requests`.", username)
+	}
+	return fmt.Sprintf("Your login (%s) isn't on the roster yet, and no join request was saved. Ask %s to add your exact login with `dossier team add` and your display name.", username, managerName)
 }
 
 type realClock struct{}
@@ -3021,7 +3097,7 @@ func isSyncedMutation(cmd *cobra.Command, args ...string) bool {
 		return syncedMutations[cmd.Name()]
 	}
 	// Roster edits are shared state too.
-	return cmd.Parent().Name() == "team" && (cmd.Name() == "add" || cmd.Name() == "remove")
+	return cmd.Parent().Name() == "team" && (cmd.Name() == "add" || cmd.Name() == "remove" || cmd.Name() == "approve")
 }
 
 // reportSyncFailure prints a loud, actionable line for a failed or incomplete

@@ -126,6 +126,10 @@ func (s *Service) TeamAddKind(ctx context.Context, username, displayName, kind s
 
 // TeamAddKindAs authorizes and audits an explicit team-management actor.
 func (s *Service) TeamAddKindAs(ctx context.Context, actor, username, displayName, kind string) (Result, error) {
+	return s.teamAddKindAs(ctx, actor, username, displayName, kind, true)
+}
+
+func (s *Service) teamAddKindAs(ctx context.Context, actor, username, displayName, kind string, resolveRequests bool) (Result, error) {
 	actor = NormalizeActor(actor, s.cfg.Author)
 	if err := ValidateActor(actor); err != nil {
 		return Result{OK: false}, NewError(ErrInvalidFrontmatter, err.Error())
@@ -175,7 +179,18 @@ func (s *Service) TeamAddKindAs(ctx context.Context, actor, username, displayNam
 		}
 		return Result{OK: false}, fmt.Errorf("team member change rolled back because audit failed: %w", err)
 	}
-	return Result{OK: true, Data: roster}, nil
+	result := Result{OK: true, Data: roster}
+	if resolveRequests {
+		requestStore, ok := s.store.(TeamJoinRequestStore)
+		if !ok {
+			result.Warnings = append(result.Warnings, Warning("The roster was updated, but join-request resolution storage is unavailable; an old request could reappear if the member is later removed."))
+		} else if err := requestStore.AppendTeamJoinResolution(TeamJoinRequest{
+			Username: username, Actor: actor, Resolution: TeamJoinRequestResolutionRosterAdded, ResolvedAt: s.clock.Now(),
+		}); err != nil {
+			result.Warnings = append(result.Warnings, Warning("The roster was updated, but join-request resolution could not be recorded; an old request could reappear if the member is later removed: "+err.Error()))
+		}
+	}
+	return result, nil
 }
 
 // TeamRemove moves a member to former rather than deleting their identity.
@@ -386,14 +401,76 @@ func (s *Service) TeamJoin(ctx context.Context, req TeamJoinReq) (Result, error)
 	}
 
 	warnings := append([]Warning(nil), initRes.Warnings...)
-	if err := s.appendTeamAudit(actor, "team_joined", fmt.Sprintf("Joined team store on branch %s.", req.Branch)); err != nil {
-		warnings = append(warnings, Warning("Team was joined, but its team audit entry could not be written: "+err.Error()))
-	} else if report, err := s.syncer.Sync(ctx); err != nil {
-		warnings = append(warnings, Warning("Team was joined, but its audit entry could not be synced: "+err.Error()))
-	} else if report.Error != "" {
-		warnings = append(warnings, Warning("Team was joined, but its audit entry could not be synced: "+report.Error))
+	joinRequestSyncPath := ""
+	joinStatus := TeamJoinStatus{Username: NormalizeUsername(s.cfg.Author)}
+	roster, rosterErr := s.Members(ctx)
+	if rosterErr != nil {
+		warnings = append(warnings, Warning("Team was joined, but the roster could not be checked: "+rosterErr.Error()))
+	} else {
+		joinStatus.RosterChecked = true
+		joinStatus.RosterExists = strings.TrimSpace(roster.Manager) != "" || len(roster.Members) > 0 || len(roster.Former) > 0
+		joinStatus.OnRoster = roster.Has(joinStatus.Username)
+		joinStatus.DisplayName = roster.DisplayName(joinStatus.Username)
+		joinStatus.ManagerName = roster.DisplayName(roster.Manager)
+		if joinStatus.RosterExists && !joinStatus.OnRoster {
+			if requestStore, ok := s.store.(TeamJoinRequestStore); !ok {
+				warnings = append(warnings, Warning("Your login is not on the roster, and this store cannot record a pending join request. Ask the manager to add your exact login."))
+			} else if err := requestStore.AppendTeamJoinRequest(TeamJoinRequest{
+				Username: joinStatus.Username, Actor: actor, RequestedAt: s.clock.Now(),
+			}); err != nil {
+				warnings = append(warnings, Warning("Your login is not on the roster, and the pending join request could not be saved: "+err.Error()))
+			} else {
+				joinStatus.JoinRequestSaved = true
+				joinRequestSyncPath = requestStore.TeamJoinRequestSyncPath(joinStatus.Username)
+			}
+		}
 	}
-	return Result{OK: true, Warnings: warnings}, nil
+
+	auditErr := s.appendTeamAudit(actor, "team_joined", fmt.Sprintf("Joined team store on branch %s.", req.Branch))
+	if auditErr != nil {
+		warnings = append(warnings, Warning("Team was joined, but its team audit entry could not be written: "+auditErr.Error()))
+	}
+	if auditErr == nil || joinStatus.JoinRequestSaved {
+		report, syncErr := s.syncer.Sync(ctx)
+		switch {
+		case syncErr != nil:
+			if joinStatus.JoinRequestSaved {
+				warnings = append(warnings, Warning("Your join request was saved locally but could not be synced: "+syncErr.Error()))
+			} else {
+				warnings = append(warnings, Warning("Team was joined, but its audit entry could not be synced: "+syncErr.Error()))
+			}
+		case report.Error != "":
+			if joinStatus.JoinRequestSaved {
+				warnings = append(warnings, Warning("Your join request was saved locally but could not be synced: "+report.Error))
+			} else {
+				warnings = append(warnings, Warning("Team was joined, but its audit entry could not be synced: "+report.Error))
+			}
+		case joinStatus.JoinRequestSaved && report.Pushed:
+			if joinRequestSyncPath == "" {
+				warnings = append(warnings, Warning("Your join request was saved locally, but the request file path could not be verified in the sync report."))
+				break
+			}
+			excludedFromSync := false
+			for _, excluded := range report.Excluded {
+				if filepath.ToSlash(excluded.Path) != joinRequestSyncPath {
+					continue
+				}
+				message := excluded.Warning
+				if message == "" {
+					message = "the request file was excluded from the sync commit"
+				}
+				warnings = append(warnings, Warning("Your join request was saved locally, but sync excluded it: "+message))
+				excludedFromSync = true
+				break
+			}
+			if !excludedFromSync {
+				joinStatus.JoinRequestSynced = true
+			}
+		case joinStatus.JoinRequestSaved:
+			warnings = append(warnings, Warning("Your join request was saved locally, but the sync did not confirm it was pushed to the team store."))
+		}
+	}
+	return Result{OK: true, Data: joinStatus, Warnings: warnings}, nil
 }
 
 // Sync orchestrates the dossier team sync.

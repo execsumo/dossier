@@ -3,9 +3,11 @@ package sync
 import (
 	"dossier/internal/core"
 	storepkg "dossier/internal/store"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -45,6 +47,76 @@ func TestSync_TwoClonesConverge(t *testing.T) {
 	assertFile(t, storeA, "pricing/dossier.md", "A-v1")
 	assertNoConflictMarkers(t, storeA)
 	assertNoConflictMarkers(t, storeB)
+}
+
+func TestSync_MergesConcurrentTeamJoinRequestShardAppends(t *testing.T) {
+	bare, storeA, storeB := setupPair(t)
+	syncA := newSyncer(storeA, bare, "alice")
+	syncB := newSyncer(storeB, bare, "bob")
+	const shard = "team-requests/Z2NsYXdzb24.log"
+
+	requestedAt := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+	baseRequest := core.TeamJoinRequest{
+		ID: strings.Repeat("1", 32), Username: "gclawson", Actor: "human:gclawson", RequestedAt: requestedAt,
+	}
+	newRequest := core.TeamJoinRequest{
+		ID: strings.Repeat("2", 32), Username: "gclawson", Actor: "human:gclawson", RequestedAt: requestedAt.Add(time.Minute),
+	}
+	approval := core.TeamJoinRequest{
+		ID: baseRequest.ID, Username: "gclawson", Actor: "human:alice", RequestedAt: baseRequest.RequestedAt,
+		Resolution: core.TeamJoinRequestResolutionApproved, ResolvedAt: requestedAt.Add(2 * time.Minute),
+	}
+	rosterAdded := core.TeamJoinRequest{
+		Username: "gclawson", Actor: "human:alice", Resolution: core.TeamJoinRequestResolutionRosterAdded,
+		ResolvedAt: requestedAt.Add(3 * time.Minute),
+	}
+	appendRecord := func(content []byte, request core.TeamJoinRequest) []byte {
+		t.Helper()
+		line, err := json.Marshal(request)
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+		return append(append(content, line...), '\n')
+	}
+
+	base := appendRecord(nil, baseRequest)
+	writeFile(t, storeA, shard, string(base))
+	mustSync(t, syncA)
+	mustSync(t, syncB)
+
+	local := appendRecord(appendRecord(append([]byte(nil), base...), newRequest), rosterAdded)
+	remote := appendRecord(appendRecord(append([]byte(nil), base...), approval), rosterAdded)
+	writeFile(t, storeA, shard, string(local))
+	writeFile(t, storeB, shard, string(remote))
+	mustSync(t, syncA)
+	report := mustSync(t, syncB)
+	if !report.Pulled || !report.Pushed || len(report.Conflicts) != 0 {
+		t.Fatalf("concurrent request-shard sync report = %+v", report)
+	}
+
+	assertMergedRecords := func(storeDir string) {
+		t.Helper()
+		requests, err := storepkg.NewFSStore(storeDir).TeamJoinRequests()
+		if err != nil {
+			t.Fatalf("read merged requests: %v", err)
+		}
+		if len(requests) != 4 {
+			t.Fatalf("merged request records = %d, want 4: %+v", len(requests), requests)
+		}
+		got := make(map[string]bool, len(requests))
+		for _, request := range requests {
+			got[request.ID+"\x00"+request.Resolution] = true
+		}
+		for _, request := range []core.TeamJoinRequest{baseRequest, newRequest, approval, rosterAdded} {
+			key := request.ID + "\x00" + request.Resolution
+			if !got[key] {
+				t.Errorf("merged shard lost record %+v", request)
+			}
+		}
+	}
+	assertMergedRecords(storeB)
+	mustSync(t, syncA)
+	assertMergedRecords(storeA)
 }
 
 // TestSync_BothModifiedDossierMD (DoD iii): when both machines modify the same

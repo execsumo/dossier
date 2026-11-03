@@ -76,8 +76,8 @@ func TestRosterResolvePerson(t *testing.T) {
 }
 
 // TestJoinMismatchAdvisories is the pure form of the join check. A recorded
-// login that is not a current human member is flagged; so is a current human
-// member with no record. Agents are not expected to join from a Mac login.
+// login that is not a current human member is flagged; prepopulated members do
+// not need a join record before they accept their invitation.
 func TestJoinMismatchAdvisories(t *testing.T) {
 	roster := Roster{
 		Manager: "hgill",
@@ -92,7 +92,7 @@ func TestJoinMismatchAdvisories(t *testing.T) {
 	}{
 		{name: "matching login is quiet", joined: []string{"hgill", "geoffclawson", "sitroom"}},
 		{name: "login not on roster", joined: []string{"hgill", "gclawson", "geoffclawson", "sitroom"}, want: []string{"gclawson joined the team store"}},
-		{name: "roster member never joined", joined: []string{"hgill", "sitroom"}, want: []string{"geoffclawson is on the roster but has not joined"}},
+		{name: "prepopulated roster member has not joined yet", joined: []string{"hgill", "sitroom"}},
 		{name: "domain-prefixed login normalizes", joined: []string{`ACME\Hgill`, "geoffclawson", "sitroom"}},
 		{name: "former member joining is flagged", joined: []string{"hgill", "geoffclawson", "sitroom", "olduser"}, want: []string{"olduser joined the team store"}},
 		{name: "agent without record is not flagged", joined: []string{"hgill", "geoffclawson"}},

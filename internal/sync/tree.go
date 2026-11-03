@@ -13,21 +13,94 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
-// isDossierConflictPath reports whether a repo-relative path is a dossier body
-// (<slug>/dossier.md) — the only genuinely multi-writer file, and thus the only
-// path that can produce a real sync conflict. Everything else (managed
-// .gitignore, author-namespaced audit/session shards) is single-writer or
-// managed and takes remote-wins silently.
+// isDossierConflictPath reports whether a repo-relative path can produce a real
+// sync conflict. Team request shards are also multi-writer, but are merged as
+// append-only JSONL rather than captured as conflicts.
 func isDossierConflictPath(path string) bool {
 	return path == "team.yaml" || path == "dossier.md" || strings.HasSuffix(path, "/dossier.md")
 }
 
-// remoteWinsMerge performs the 3-way remote-wins merge. For every file both
+func isTeamJoinRequestShard(path string) bool {
+	if !strings.HasPrefix(path, "team-requests/") || !strings.HasSuffix(path, ".log") {
+		return false
+	}
+	shard := strings.TrimPrefix(path, "team-requests/")
+	return shard != "" && !strings.Contains(shard, "/")
+}
+
+// mergeAppendOnlyJSONL retains records from both replicas, preserving their
+// common prefix and appending each divergent suffix once. Suffix ordering is
+// deterministic for the same pair of commit trees; concurrent appends have no
+// shared chronological order.
+func mergeAppendOnlyJSONL(first, second []byte) []byte {
+	firstLines := jsonlRecords(first)
+	secondLines := jsonlRecords(second)
+	prefix := 0
+	for prefix < len(firstLines) && prefix < len(secondLines) && bytes.Equal(firstLines[prefix], secondLines[prefix]) {
+		prefix++
+	}
+
+	merged := make([][]byte, 0, len(firstLines)+len(secondLines))
+	seen := make(map[string]struct{}, len(firstLines)+len(secondLines))
+	appendUnique := func(line []byte) {
+		key := string(line)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		merged = append(merged, line)
+	}
+	for _, line := range firstLines[:prefix] {
+		appendUnique(line)
+	}
+	for _, line := range firstLines[prefix:] {
+		appendUnique(line)
+	}
+	for _, line := range secondLines[prefix:] {
+		appendUnique(line)
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	content := bytes.Join(merged, []byte{'\n'})
+	return append(content, '\n')
+}
+
+func jsonlRecords(content []byte) [][]byte {
+	if len(content) == 0 {
+		return nil
+	}
+	lines := bytes.Split(content, []byte{'\n'})
+	if len(lines[len(lines)-1]) == 0 {
+		lines = lines[:len(lines)-1]
+	}
+	records := make([][]byte, 0, len(lines))
+	for _, line := range lines {
+		if len(bytes.TrimSpace(line)) > 0 {
+			records = append(records, line)
+		}
+	}
+	return records
+}
+
+func treeBlobContentIfPresent(repo *git.Repository, tree *object.Tree, path string) ([]byte, bool, error) {
+	entry, err := tree.FindEntry(path)
+	if err != nil || entry == nil || entry.Hash.IsZero() {
+		return nil, false, nil
+	}
+	content, err := blobContent(repo, tree, path)
+	if err != nil {
+		return nil, false, err
+	}
+	return content, true, nil
+}
+
+// remoteWinsMerge performs the 3-way remote-wins merge. For ordinary files both
 // sides changed since the merge base, the remote version wins the working tree
-// and the local version is captured in a ConflictRecord. Remote-only changes
-// fast-forward into the tree. Local-only changes (already committed) are kept.
-// A single merge commit (parents: local, remote) lands the result. No git
-// merge markers are ever written to the working tree.
+// and the local version is captured in a ConflictRecord. Concurrent team request
+// shard appends are unioned instead. Remote-only changes fast-forward into the
+// tree; local-only changes (already committed) are kept. A single merge commit
+// (parents: local, remote) lands the result. No git merge markers are written.
 func (g *GitSync) remoteWinsMerge(repo *git.Repository, wt *git.Worktree, local, remote *object.Commit) ([]ConflictRecord, error) {
 	var baseTree *object.Tree
 	if bases, err := local.MergeBase(remote); err == nil && len(bases) > 0 {
@@ -70,6 +143,29 @@ func (g *GitSync) remoteWinsMerge(repo *git.Repository, wt *git.Worktree, local,
 	// after paths for the same immutable dossier ID are mapped to the selected
 	// canonical slug.
 	both := intersect(localLogical, remoteLogical)
+	mergedRequestShards := make(map[string][]byte)
+	for path := range both {
+		if !isTeamJoinRequestShard(path) {
+			continue
+		}
+		localContent, localExists, err := treeBlobContentIfPresent(repo, localTree, localSources[path])
+		if err != nil {
+			return nil, fmt.Errorf("read local team request shard %s: %w", path, err)
+		}
+		remoteContent, remoteExists, err := treeBlobContentIfPresent(repo, remoteTree, remoteSources[path])
+		if err != nil {
+			return nil, fmt.Errorf("read remote team request shard %s: %w", path, err)
+		}
+		if !localExists && !remoteExists {
+			continue
+		}
+		firstContent, secondContent := localContent, remoteContent
+		if local.Hash.String() > remote.Hash.String() {
+			firstContent, secondContent = remoteContent, localContent
+		}
+		mergedRequestShards[path] = mergeAppendOnlyJSONL(firstContent, secondContent)
+	}
+
 	conflicts := make([]ConflictRecord, 0, len(both))
 	for path := range both {
 		if !isDossierConflictPath(path) {
@@ -114,6 +210,16 @@ func (g *GitSync) remoteWinsMerge(repo *git.Repository, wt *git.Worktree, local,
 				continue
 			}
 			removeWorkingFile(g.cfg.StoreDir, destinationPath)
+		}
+	}
+
+	for path, content := range mergedRequestShards {
+		fullPath := filepath.Join(g.cfg.StoreDir, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			return nil, fmt.Errorf("create team request shard directory: %w", err)
+		}
+		if err := os.WriteFile(fullPath, content, 0o644); err != nil {
+			return nil, fmt.Errorf("write merged team request shard %s: %w", path, err)
 		}
 	}
 

@@ -11,9 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"dossier/internal/config"
 	"dossier/internal/core"
+	"dossier/internal/store"
 	dossiersync "dossier/internal/sync"
 
 	"github.com/go-git/go-git/v5"
@@ -226,7 +228,7 @@ func TestTeamJoinPrintsRosterLine(t *testing.T) {
 		author, want string
 	}{
 		{"guest", "You'll appear to teammates as Guest Name (guest)."},
-		{"stranger", "You're not in the team roster yet. Ask Manager Name to run: dossier team add stranger \"Your Name\""},
+		{"stranger", "Your login (stranger) isn't on the roster yet. The join request was saved and synced"},
 	} {
 		t.Run(tt.author, func(t *testing.T) {
 			store, home := filepath.Join(root, tt.author), filepath.Join(root, tt.author+"-home")
@@ -251,15 +253,33 @@ func TestTeamJoinPrintsRosterLine(t *testing.T) {
 }
 
 func TestJoinRosterMessages(t *testing.T) {
-	member := joinRosterMessage(core.Roster{Manager: "manager", Members: map[string]string{"alice": "Alice Able"}}, "alice", "alice")
+	memberStatus := core.TeamJoinStatus{RosterChecked: true, RosterExists: true, OnRoster: true}
+	member := joinRosterMessage(core.Roster{Manager: "manager", Members: map[string]string{"alice": "Alice Able"}}, "alice", "alice", memberStatus)
 	if member != "You'll appear to teammates as Alice Able (alice)." {
 		t.Fatalf("member message = %q", member)
 	}
-	notMember := joinRosterMessage(core.Roster{Manager: "manager", Members: map[string]string{"manager": "Manager Name"}}, "alice", "alice")
-	if notMember != "You're not in the team roster yet. Ask Manager Name to run: dossier team add alice \"Your Name\"" {
-		t.Fatalf("non-member message = %q", notMember)
+	roster := core.Roster{Manager: "manager", Members: map[string]string{"manager": "Manager Name"}}
+	syncedStatus := core.TeamJoinStatus{RosterChecked: true, RosterExists: true, JoinRequestSaved: true, JoinRequestSynced: true}
+	notMember := joinRosterMessage(roster, "alice", "alice", syncedStatus)
+	if !strings.Contains(notMember, "join request was saved and synced") || !strings.Contains(notMember, "dossier team requests") {
+		t.Fatalf("synced request message = %q", notMember)
 	}
-	if got := joinRosterMessage(core.Roster{}, "alice", "alice"); got != "" {
+	unsyncedStatus := core.TeamJoinStatus{RosterChecked: true, RosterExists: true, JoinRequestSaved: true}
+	unsynced := joinRosterMessage(roster, "alice", "alice", unsyncedStatus)
+	if !strings.Contains(unsynced, "manager cannot see it yet") || !strings.Contains(unsynced, "dossier sync") {
+		t.Fatalf("unsynced request message = %q", unsynced)
+	}
+	failedStatus := core.TeamJoinStatus{RosterChecked: true, RosterExists: true}
+	failed := joinRosterMessage(roster, "alice", "alice", failedStatus)
+	if !strings.Contains(failed, "no join request was saved") || !strings.Contains(failed, "dossier team add") || strings.Contains(failed, "dossier team add alice") {
+		t.Fatalf("unsaved request message = %q", failed)
+	}
+	untrustedLogin := "alice;echo pwned"
+	untrusted := joinRosterMessage(roster, untrustedLogin, untrustedLogin, failedStatus)
+	if strings.Contains(untrusted, "dossier team add "+untrustedLogin) {
+		t.Fatalf("untrusted login was interpolated into a shell command: %q", untrusted)
+	}
+	if got := joinRosterMessage(core.Roster{}, "alice", "alice", core.TeamJoinStatus{}); got != "" {
 		t.Fatalf("empty roster message = %q", got)
 	}
 }
@@ -286,6 +306,77 @@ func TestSigninGHAndTokenFileMessages(t *testing.T) {
 	stdout, _, err = executeM6(t, "", "signin")
 	if err != nil || !strings.Contains(stdout, "active via ~/.dossier/credentials") {
 		t.Fatalf("file signin: err=%v stdout=%q", err, stdout)
+	}
+}
+
+func TestTeamRequestsAndApproveCLI(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DOSSIER_HOME", home)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+
+	cfg := config.Default()
+	cfg.DossierHome = home
+	cfg.Author = "alice"
+	if err := cfg.SaveDefault(filepath.Join(home, "config.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	fs := store.NewFSStore(home)
+	if err := fs.WriteRoster(&core.Roster{
+		Manager: "alice",
+		Members: map[string]string{"alice": "Alice"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	requestedAt := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+	if err := fs.AppendTeamJoinRequest(core.TeamJoinRequest{
+		Username: "bob", Actor: "human:bob", RequestedAt: requestedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _, err := executeM6(t, "", "team", "requests")
+	if err != nil || !strings.Contains(stdout, "Pending team join requests:") || !strings.Contains(stdout, "- bob (requested 2026-10-23T12:00:00Z)") {
+		t.Fatalf("requests output: err=%v stdout=%q", err, stdout)
+	}
+	if !strings.Contains(stdout, "To approve, run `dossier team approve` with this exact login and their display name.") || strings.Contains(stdout, `\n`) {
+		t.Fatalf("requests output has incorrect approval guidance or literal escapes: %q", stdout)
+	}
+
+	stdout, _, err = executeM6(t, "", "team", "approve", "bob", "Bob Builder")
+	if err != nil || !strings.Contains(stdout, "Approved join request for bob; added Bob Builder to the team roster.") || strings.Contains(stdout, `\n`) {
+		t.Fatalf("approve output: err=%v stdout=%q", err, stdout)
+	}
+	roster, err := fs.ReadRoster()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roster.Members["bob"] != "Bob Builder" {
+		t.Fatalf("approved roster = %+v", roster)
+	}
+	stdout, _, err = executeM6(t, "", "team", "requests")
+	if err != nil || !strings.Contains(stdout, "No pending team join requests.") {
+		t.Fatalf("requests after approval: err=%v stdout=%q", err, stdout)
+	}
+
+	root := NewRootCmd()
+	approve, _, err := root.Find([]string{"team", "approve"})
+	if err != nil || !isSyncedMutation(approve, "bob", "Bob Builder") {
+		t.Fatalf("team approve should be a synced mutation: command=%v err=%v", approve, err)
+	}
+	requests, _, err := root.Find([]string{"team", "requests"})
+	if err != nil || isSyncedMutation(requests) {
+		t.Fatalf("team requests should remain read-only: command=%v err=%v", requests, err)
+	}
+
+	if err := fs.AppendTeamJoinRequest(core.TeamJoinRequest{
+		Username: "bob;echo pwned", Actor: "human:bob;echo pwned", RequestedAt: requestedAt.Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _, err = executeM6(t, "", "team", "requests")
+	if err != nil || !strings.Contains(stdout, "- bob;echo pwned ") || strings.Contains(stdout, "team approve bob;echo") {
+		t.Fatalf("untrusted login was interpolated into a command: err=%v stdout=%q", err, stdout)
 	}
 }
 
